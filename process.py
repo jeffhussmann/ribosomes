@@ -127,10 +127,16 @@ gtf_fields = ['seqname',
              ]
 Gene = namedtuple('Gene', gtf_fields)
 
+def parse_attribute(attribute):
+    fields = attribute.strip(';').split('; ')
+    pairs = [field.split() for field in fields]
+    parsed = {name: value.strip('"') for name, value in pairs}
+    return parsed
+
 def parse_gtf_line(line):
     gene = Gene._make(line.strip().split('\t'))
-    start = int(gene.start)
-    end = int(gene.end)
+    start = int(gene.start) - 1
+    end = int(gene.end) - 1
     if gene.frame != '.':
         frame = int(gene.frame)
     else:
@@ -147,7 +153,7 @@ def get_contaminant_genes(gtf_fn):
     contaminant_genes = [gene for gene in all_genes if gene.source == 'rRNA' or gene.source == 'tRNA']
     return contaminant_genes
 
-def get_easy_CDSs(gtf_fn):
+def get_all_CDSs(gtf_fn):
     all_genes = get_all_genes(gtf_fn)
     CDSs = []
     for i, gene in enumerate(all_genes):
@@ -155,6 +161,14 @@ def get_easy_CDSs(gtf_fn):
             CDSs.append(gene)
 
     return CDSs
+
+def get_simple_CDSs(gtf_fn):
+    ''' Returns all single exon CDSs that do not overlap any other CDS. '''
+    CDSs = get_all_CDSs(gtf_fn)
+    nonoverlapping = get_nonoverlapping(CDSs)
+    single_exon = get_single_exon(CDSs)
+    simple = set(nonoverlapping) & set(single_exon)
+    return sort_genes(list(simple))
 
 def further_filtering(input_bam_fn,
                       filtered_bam_fn,
@@ -211,22 +225,6 @@ def get_gaps(genes):
 
     return xs, ys
 
-def get_gaps(genes):
-    gaps = Counter()
-    for i in range(len(genes) - 1):
-        if genes[i].seqname == genes[i + 1].seqname:
-            gap = genes[i + 1].start - genes[i].end
-            if gap == -1304:
-                print genes[i]
-                print genes[i + 1]
-                print
-            gaps[gap] += 1
-
-    xs = np.arange(min(gaps), max(gaps) + 1)
-    ys = np.asarray([gaps[x] for x in xs])
-
-    return xs, ys
-
 def get_nonoverlapping(genes):
     overlapping = set()
     nonoverlapping = []
@@ -240,6 +238,22 @@ def get_nonoverlapping(genes):
             nonoverlapping.append(gene)
 
     return nonoverlapping
+
+def sort_genes(genes):
+    def key(gene):
+        return gene.seqname, gene.start, gene.feature
+
+    return sorted(genes, key=key)
+
+def get_single_exon(CDSs):
+    proteins = defaultdict(list)
+    for gene in CDSs:
+        attribute = parse_attribute(gene.attribute)
+        proteins[attribute['protein_id']].append(gene)
+    
+    single_exons = [exons[0] for protein, exons in proteins.items() if len(exons) == 1]
+
+    return sort_genes(single_exons)
 
 def plot_lengths(file_names):
     trimmed_lengths = np.loadtxt(file_names['trimmed_lengths'])
@@ -258,44 +272,63 @@ def plot_lengths(file_names):
     plt.savefig(file_names['lengths_fig'])
     plt.close()
 
-def count_reads(nonoverlapping_genes, filtered_bam_fn):
-    positions = Counter()
+def get_positions(gtf_fn, filtered_bam_fn):
+    max_length = 50 
+    max_position = 10000
+    edge_overlap = 20
+
+    from_starts = np.zeros((max_length + 1, max_length + max_position), int)
+    from_ends = np.zeros((max_length + 1, max_length + max_position), int)
+
     bamfile = pysam.Samfile(filtered_bam_fn, 'rb')
 
     counts = defaultdict(lambda : {'-': 0, '+': 0})
 
-    nonoverlapping_genes = iter(nonoverlapping_genes)
-    gene = nonoverlapping_genes.next()
+    simple_CDSs = get_simple_CDSs(gtf_fn)
+    simple_CDSs = iter(simple_CDSs)
+    gene = simple_CDSs.next()
     
     for aligned_read in bamfile:
         seqname = bamfile.getrname(aligned_read.tid)
         strand = '-' if aligned_read.is_reverse else '+'
         while (gene.seqname, gene.end) < (seqname, aligned_read.pos):
             try:
-                gene = nonoverlapping_genes.next()
+                gene = simple_CDSs.next()
             except StopIteration:
                 break
-        if aligned_read.overlap(gene.start, gene.end) > 0:
-            counts[gene][strand] += 1
-            if strand == '+':
-                position = aligned_read.pos - gene.start
-                if position < -50:
-                    print (gene.seqname, gene.start)
-                    print (seqname, aligned_read.pos)
-                positions[position] += 1
-    
-    ps = np.arange(min(positions), max(positions) + 1)
-    cs = np.asarray([positions[p] for p in ps])
 
-    return ps, cs
+        if gene.strand == '+':
+            overlaps = aligned_read.overlap(gene.start, gene.end + edge_overlap) > 0
+        elif gene.strand == '-':
+            overlaps = aligned_read.overlap(gene.start - edge_overlap, gene.end) > 0
+        if overlaps:
+            counts[gene][strand] += 1
+            if strand == '+' and gene.strand == '+':
+                from_start = aligned_read.pos - gene.start
+                if from_start < max_position:
+                    from_starts[aligned_read.qlen, max_length + from_start] += 1
+
+                from_end = aligned_read.pos - gene.end
+                if from_end > -max_position:
+                    from_ends[aligned_read.qlen, max_position + from_end] += 1
+            elif strand == '-' and gene.strand == '-':
+                from_start = gene.end - (aligned_read.aend - 1)
+                if from_start < max_position:
+                    from_starts[aligned_read.qlen, max_length + from_start] += 1
+
+                from_end = gene.start - (aligned_read.aend - 1)
+                if from_end > -max_position:
+                    from_ends[aligned_read.qlen, max_position + from_end] += 1
+    
+    return from_starts, from_ends
     
 if __name__ == '__main__':
     samples = [
         #'R98S_cDNA_mRNA',
         #'R98S_cDNA_sample',
         #'Suppressed_R98S_cDNA_mRNA',
-        'Suppressed_R98S_cDNA_sample',
-        #'WT_cDNA_mRNA',
+        #'Suppressed_R98S_cDNA_sample',
+        'WT_cDNA_mRNA',
         #'WT_cDNA_sample',
     ]
 
@@ -315,7 +348,7 @@ if __name__ == '__main__':
         #                   file_names['rRNA_mapping_log'],
         #                   file_names['no_rRNA_lengths'],
         #                  )
-        #map_tophat(file_names)
+        map_tophat(file_names)
         further_filtering(file_names['accepted_hits'],
                           file_names['filtered_bam'],
                           file_names['tRNA_lengths'],
