@@ -44,7 +44,7 @@ def get_contaminant_genes(gtf_fn):
 
 def get_all_CDSs(gtf_fn):
     def is_CDS(gene):
-        return gene.source == 'protein_coding' and gene.feature == 'CDS'
+        return gene.source == 'protein_coding' and gene.feature == 'CDS'# and gene.end - gene.start > 1000
     
     all_genes = get_all_genes(gtf_fn)
     CDSs = [gene for gene in all_genes if is_CDS(gene)]
@@ -54,7 +54,7 @@ def get_all_CDSs(gtf_fn):
 def get_simple_CDSs(gtf_fn):
     ''' Returns all single exon CDSs that do not overlap any other CDS. '''
     CDSs = get_all_CDSs(gtf_fn)
-    nonoverlapping = get_nonoverlapping(CDSs)
+    nonoverlapping = get_nonoverlapping_50(CDSs)
     single_exons = get_single_exons(CDSs)
     simple_CDSs = set(nonoverlapping) & set(single_exons)
     simple_CDSs = sort_genes(list(simple_CDSs))
@@ -64,11 +64,34 @@ def get_nonoverlapping(genes):
     ''' Returns all elements of genes that do not overlap any other element of
         genes. Requires genes to be sorted by start.
     '''
+    def overlaps(left, right):
+        return (right.seqname, right.start) <= (left.seqname, left.end)
+
     overlapping = set()
     nonoverlapping = []
     for i, gene in enumerate(genes):
         j = i + 1
-        while j < len(genes) and (genes[j].seqname, genes[j].start) <= (gene.seqname, gene.end):
+        while j < len(genes) and overlaps(gene, genes[j]):
+            overlapping.add(gene)
+            overlapping.add(genes[j])
+            j += 1
+        if gene not in overlapping:
+            nonoverlapping.append(gene)
+
+    return nonoverlapping
+
+def get_nonoverlapping_50(genes):
+    ''' Returns all elements of genes that do not overlap any other element of
+        genes. Requires genes to be sorted by start.
+    '''
+    def overlaps(left, right):
+        return (right.seqname, right.start - 50) <= (left.seqname, left.end + 50)
+
+    overlapping = set()
+    nonoverlapping = []
+    for i, gene in enumerate(genes):
+        j = i + 1
+        while j < len(genes) and overlaps(gene, genes[j]):
             overlapping.add(gene)
             overlapping.add(genes[j])
             j += 1
