@@ -46,7 +46,7 @@ trim_poly_A = functools.partial(trim, find_position=trim_cython.find_poly_A)
 trim_nothing = functools.partial(trim, find_position=len)
 
 def unambiguously_trimmed(filtered_bam_fn, unambiguous_bam_fn, genome_dir):
-    ''' Reads that have had poly-As trimmed may have had some real RPF As
+    ''' Reads that have had poly-As trimmed may have had some real RPF A's
         trimmed as well. Retains only mapped reads for which the next base in
         the reference is a non-A.
     '''
