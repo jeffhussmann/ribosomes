@@ -1,4 +1,5 @@
 import mapping
+import random
 import os.path
 import gtf
 import pysam
@@ -19,7 +20,6 @@ def pre_filter(contaminant_index,
                filtered_reads_fn,
                sam_fn,
                bam_fn,
-               filtered_lengths_fn,
               ):
     ''' Maps reads in trimmed_reads_fn to contaminant_index. Records reads that
         don't map in filtered_reads_fn. Records distribution of lengths of reads
@@ -34,11 +34,6 @@ def pre_filter(contaminant_index,
                         explicit_path=True,
                        )
     sam.sam_to_sorted_indexed_bam(sam_fn, bam_fn)
-        
-    filtered_reads = fastq.reads(filtered_reads_fn)
-    lengths = Counter(len(read.seq) for read in filtered_reads)
-    lengths = mutations.counts_to_array(lengths)
-    np.savetxt(filtered_lengths_fn, lengths, fmt='%d')
 
 def filter(input_bam_fn,
            gtf_fn,
@@ -78,36 +73,43 @@ def filter(input_bam_fn,
 def filter_fetch(input_bam_fn,
                  gtf_fn,
                  clean_bam_fn,
-                 dirty_bam_fn,
+                 more_rRNA_bam_fn,
+                 tRNA_bam_fn,
                 ):
     ''' Removes any m'''
-    pysam.index(input_bam_fn)
-    dirty_mappings = []
-    dirty_names = set()
-    contaminant_genes = gtf.get_contaminant_genes(gtf_fn)
+    qnames_already_used = set()
 
-    gene_counts = Counter()
+    rRNA_genes = gtf.get_rRNA_genes(gtf_fn)
+    tRNA_genes = gtf.get_tRNA_genes(gtf_fn)
 
-    bamfile = pysam.Samfile(input_bam_fn, 'rb')
-    with pysam.Samfile(dirty_bam_fn, 'wb', header=bamfile.header) as dirty_bam_fh:
-        for gene in contaminant_genes:
+    input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
+   
+    # Find reads with any mappings that overlap rRNA or tRNA genes and write one
+    # mapping for each such read to a contaminant bam file.
+    for genes, bam_fn in [(rRNA_genes, more_rRNA_bam_fn),
+                          (tRNA_genes, tRNA_bam_fn)]:
+        contaminant_reads = defaultdict(list)
+        for gene in genes:
             gene_name = gtf.parse_attribute(gene.attribute)['gene_name']
-            overlapping_reads = bamfile.fetch(gene.seqname, gene.start, gene.end)
+            overlapping_reads = input_bam_file.fetch(gene.seqname, gene.start, gene.end)
             for read in overlapping_reads:
-                dirty_names.add(read.qname)
-                if not read.is_secondary:
-                    dirty_bam_fh.write(read)
-                    gene_counts[gene_name] += 1
-    bamfile.close()
-    
-    bamfile = pysam.Samfile(input_bam_fn, 'rb')
-    with pysam.Samfile(clean_bam_fn, 'wb', header=bamfile.header) as clean_bam_fh:
-        for read in bamfile:
-            if read.qname not in dirty_names and not read.is_secondary:
-                clean_bam_fh.write(read)
-
-    for thing in gene_counts.most_common():
-        print thing
+                contaminant_reads[read.qname].append(read)
+        with pysam.Samfile(bam_fn, 'wb', header=input_bam_file.header) as bam_file:
+            for qname in contaminant_reads:
+                if qname not in qnames_already_used:
+                    read = random.choice(contaminant_reads[qname])
+                    bam_file.write(read)
+                    qnames_already_used.add(qname)
+    input_bam_file.close()
+         
+    # Create a new clean bam file consisting of all reads that weren't flagged
+    # as contaminants above.
+    # TODO: filter by MAPQ
+    input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
+    with pysam.Samfile(clean_bam_fn, 'wb', header=input_bam_file.header) as clean_bam_file:
+        for read in input_bam_file:
+            if read.qname not in qnames_already_used and not read.is_secondary:
+                clean_bam_file.write(read)
 
 def map_tophat(reads_file_name,
                bowtie2_index,
@@ -425,11 +427,6 @@ def plot_trimmed_lengths(trimmed_length_fns, names):
     ax.set_title('Fragment length distribution')
     ax.set_ylabel('Number of reads')
     ax.set_xlabel('Length of original RNA fragment') 
-
-def get_all_lengths(bam_fn):
-    bamfile = pysam.Samfile(bam_fn, 'rb')
-    qlens = Counter(ar.qlen for ar in bamfile)
-    return mutations.counts_to_array(qlens)
 
 def compare(summary_fns, clean_length_fns, names):
     reads_list = [np.loadtxt(fn, dtype=int)[28:31].sum() for fn in clean_length_fns]

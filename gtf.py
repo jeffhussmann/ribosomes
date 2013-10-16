@@ -42,6 +42,16 @@ def get_contaminant_genes(gtf_fn):
 
     return contaminant_genes
 
+def get_tRNA_genes(gtf_fn):
+    all_genes = get_all_genes(gtf_fn)
+    tRNA_genes = [gene for gene in all_genes if gene.source == 'tRNA']
+    return tRNA_genes
+
+def get_rRNA_genes(gtf_fn):
+    all_genes = get_all_genes(gtf_fn)
+    rRNA_genes = [gene for gene in all_genes if gene.source == 'rRNA']
+    return rRNA_genes
+
 def get_all_CDSs(gtf_fn):
     def is_CDS(gene):
         return gene.source == 'protein_coding' and gene.feature == 'CDS'# and gene.end - gene.start > 1000
