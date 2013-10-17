@@ -21,11 +21,11 @@ import Serialize
 class RibosomeProfilingExperiment(object):
     def __init__(self, **kwargs):
         self.name = kwargs['name']
-        self.work_prefix = kwargs['work_prefix']
-        self.scratch_prefix = kwargs['scratch_prefix']
-        self.data_dir = kwargs['data_dir']
-        self.organism_dir = kwargs['organism_dir']
-        self.relative_results_dir = kwargs['relative_results_dir']
+        self.work_prefix = kwargs['work_prefix'].rstrip('/')
+        self.scratch_prefix = kwargs['scratch_prefix'].rstrip('/')
+        self.data_dir = kwargs['data_dir'].rstrip('/')
+        self.organism_dir = kwargs['organism_dir'].rstrip('/')
+        self.relative_results_dir = kwargs['relative_results_dir'].strip('/')
         self.adapter_type = kwargs['adapter_type']
         self.num_pieces = kwargs['num_pieces']
         self.which_piece = kwargs['which_piece']
@@ -40,14 +40,17 @@ class RibosomeProfilingExperiment(object):
                                                  self.relative_results_dir,
                                                 )
         
-        if not os.path.isdir(self.scratch_results_dir):
-            os.makedirs(self.scratch_results_dir)
         if self.which_piece == -1:
             # Sentinel value that indicates this is the merged experiment.
             # Only create the directory in this instance to avoid race
             # conditions.
             if not os.path.isdir(self.work_results_dir):
                 os.makedirs(self.work_results_dir)
+        else:
+            # Only need to create the scratch directory if this ISN't the merged
+            # experiment.
+            if not os.path.isdir(self.scratch_results_dir):
+                os.makedirs(self.scratch_results_dir)
 
         self.results_files = [
             ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
@@ -74,6 +77,7 @@ class RibosomeProfilingExperiment(object):
             ('from_ends_unambiguous', 'array', '{name}_from_ends_unambiguous.txt'),
             ('binned_positions', 'array', '{name}_binned_positions.txt'),
 
+            ('rRNA_coverage', 'coverage', '{name}_rRNA_coverage.txt'),
             ('frames', 'frames', '{name}_frames.txt'),
 
             ('tophat_dir', 'dir', 'tophat'),
@@ -81,6 +85,7 @@ class RibosomeProfilingExperiment(object):
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
             ('log', '', '{name}_log.txt'),
+            ('rRNA_coverage_figure_template', '', '{name}_rRNA_coverage_{{0}}.pdf'),
         ]
 
         self.organism_files = [
@@ -99,6 +104,7 @@ class RibosomeProfilingExperiment(object):
                          'rRNA_lengths',
                          'clean_lengths',
                          'unmapped_lengths',
+                         'rRNA_coverage',
                         ),
                        ]
 
@@ -106,10 +112,12 @@ class RibosomeProfilingExperiment(object):
                       (self.pre_filter_rRNA, 'Filter contaminants'),
                       (self.tophat, 'Map with tophat'),
                       (self.post_filter_contaminants, 'Further contaminant filtering'),
+                      (self.get_rRNA_coverage, 'Counting rRNA coverage'),
                      ],
                     ]
 
         self.cleanup = [(self.make_log,
+                         self.plot_rRNA_coverage,
                         ),
                        ]
 
@@ -223,6 +231,13 @@ class RibosomeProfilingExperiment(object):
         clean_lengths = self.zero_padded_array(clean_length_counts)
         self.write_file('clean_lengths', clean_lengths)
 
+    def get_rRNA_coverage(self):
+        bam_file_names = [self.file_names['rRNA_bam'],
+                          #self.file_names['more_rRNA_bam'],
+                         ]
+        data = ribosomes.produce_rRNA_coverage(bam_file_names)
+        self.write_file('rRNA_coverage', data)
+    
     def make_log(self):
         trimmed_lengths = self.read_file('trimmed_lengths')
         filtered_lengths = self.read_file('filtered_lengths')
@@ -250,6 +265,13 @@ class RibosomeProfilingExperiment(object):
                                                          fraction,
                                                         )
                 log_file.write(line)
+
+    def plot_rRNA_coverage(self):
+        ribosomes.plot_rRNA_coverage([self.name],
+                                     [self.read_file('rRNA_coverage')],
+                                     self.file_names['oligos_sam'],
+                                     self.file_names['rRNA_coverage_figure_template'],
+                                    )
 
     def get_max_read_length(self):
         def length_from_file_name(file_name):
@@ -371,7 +393,7 @@ def launch(args):
             line = make_finish_command(args, stage)
             finish_file.write(line)
     
-        print 'Launched {0} with parallel'.format(stage)
+        print 'Launched stage {0} with parallel'.format(stage)
         subprocess.check_call('parallel < {0}'.format(process_file_name), shell=True)
         subprocess.check_call('bash {0}'.format(finish_file_name), shell=True)
 

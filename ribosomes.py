@@ -10,10 +10,11 @@ import fastq
 import mutations
 import numpy as np
 import matplotlib.pyplot as plt
-import itertools
+from itertools import izip, cycle, chain
 from collections import Counter, defaultdict
 
 fraction_resolution = 10
+colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
 
 def pre_filter(contaminant_index,
                trimmed_reads_fn,
@@ -29,11 +30,11 @@ def pre_filter(contaminant_index,
                         contaminant_index,
                         sam_fn,
                         unaligned_reads_file_name=filtered_reads_fn,
-                        threads=8,
+                        threads=1,
                         report_all=True,
                         explicit_path=True,
                        )
-    sam.sam_to_sorted_indexed_bam(sam_fn, bam_fn)
+    sam.make_sorted_indexed_bam(sam_fn, bam_fn)
 
 def filter(input_bam_fn,
            gtf_fn,
@@ -126,7 +127,9 @@ def map_tophat(reads_file_name,
                       bowtie2_index,
                       reads_file_name,
                      ]
-    subprocess.check_call(tophat_command, stdout=sys.stdin, stderr=sys.stderr)
+    # tophat maintains its own logs of everything that is writted to the
+    # console, so discard output.
+    subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
 def get_aggregate_positions(gtf_fn, filtered_bam_fn):
     max_length = 50 
@@ -368,7 +371,7 @@ def grouped_bar(rates_list, names, tick_labels, ax):
 
     width = 1. / (len(rates_list) + gap)
 
-    colors = itertools.cycle(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
+    colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
 
     zipped = zip(rates_list, colors, names)
     for i, (rates, color, name) in enumerate(zipped):
@@ -391,7 +394,7 @@ def grouped_bar(rates_list, names, tick_labels, ax):
 
 def plot_clean_lengths(clean_length_fns, names):
     fig, ax = plt.subplots(figsize=(12, 8))
-    colors = itertools.cycle(['g', 'b', 'r', 'c', 'm', 'y', 'k'])
+    colors = cycle(['g', 'b', 'r', 'c', 'm', 'y', 'k'])
 
     for clean_fn, name, color in zip(clean_length_fns, names, colors):
         clean_lengths = np.loadtxt(clean_fn)
@@ -466,69 +469,54 @@ def compare(summary_fns, clean_length_fns, names):
 
     return sample_counts
 
-def produce_rRNA_coverage(bam_fn, oligos_sam_fn, coverage_fn):
-    bam_file = pysam.Samfile(bam_fn, 'rb')
+def produce_rRNA_coverage(bam_file_names):
+    bam_files = [pysam.Samfile(fn, 'rb') for fn in bam_file_names]
+    all_reads = chain.from_iterable(bam_files)
 
-    counts = {i: np.zeros(length, int) for i, length in enumerate(bam_file.lengths)}
+    seq_lengths = bam_files[0].lengths
+    counts = [np.zeros(length, int) for length in seq_lengths]
+    names = [bam_files[0].getrname(tid) for tid in range(len(seq_lengths))]
     
     read_names = set()
 
-    progress = mutations.progress_bar(bam_file.mapped + bam_file.unmapped)
-    for i, aligned_read in itertools.izip(progress, bam_file):
+    for aligned_read in all_reads:
         read_names.add(aligned_read.qname)
         tid = aligned_read.tid
         for position in aligned_read.positions:
             counts[tid][position] += 1
 
-    with open(coverage_fn, 'w') as output_fh:
-        output_fh.write('>Total reads\n')
-        output_fh.write('{0}\n'.format(len(read_names)))
-        for tid in counts:
-            output_fh.write('>{0}\n'.format(bam_file.getrname(tid)))
-            output_fh.write('{0}\n'.format(' '.join(str(c) for c in counts[tid])))
+    total_reads = len(read_names)
+    return total_reads, names, counts
 
-def load_rRNA_coverage(input_fn):
-    input_fh = open(input_fn)
-    line_pairs = itertools.izip(*[input_fh]*2)
-    _, total_reads  = line_pairs.next()
-    total_reads = int(total_reads.strip())
-    counts = {}
-    for name_line, counts_line in line_pairs:
-        name = name_line.strip().lstrip('>')
-        counts[name] = np.fromstring(counts_line, sep=' ', dtype=int)
-    return total_reads, counts
-
-def plot_rRNA_coverage(names, coverage_fns, oligos_sam_fn):
+def plot_rRNA_coverage(names, data_list, oligos_sam_fn, fig_fn_template):
     oligos_sam_file = pysam.Samfile(oligos_sam_fn, 'r')
+    rnames = oligos_sam_file.references
+    lengths = oligos_sam_file.lengths
+    oligo_mappings = load_oligo_mappings(oligos_sam_fn)
     
     total_reads = {}
     counts = {}
-    for name, coverage_fn in zip(names, coverage_fns):
-        total_reads[name], counts[name] = load_rRNA_coverage(coverage_fn)
-
-    rnames = oligos_sam_file.references
-    lengths = oligos_sam_file.lengths
+    for name, (these_reads, _, these_counts) in zip(names, data_list):
+        total_reads[name] = these_reads
+        counts[name] = these_counts
 
     figs = {}
     axs = {}
-    for rname, length in zip(rnames, lengths):
-        figs[rname], axs[rname] = plt.subplots(figsize=(12, 8))
+    for i, (rname, length) in enumerate(zip(rnames, lengths)):
+        figs[rname], axs[rname] = plt.subplots(figsize=(18, 12))
         axs[rname].set_title(rname)
         axs[rname].set_xlim(0, length)
 
         for name in names:
-            normalized_counts = np.true_divide(counts[name][rname], total_reads[name])
+            normalized_counts = np.true_divide(counts[name][i], total_reads[name])
             axs[rname].plot(normalized_counts, label=name)
 
         leg = axs[rname].legend(loc='upper right', fancybox=True)
         leg.get_frame().set_alpha(0.5)
     
-    oligo_mappings = load_oligo_mappings(oligos_sam_fn)
-
-    colors = itertools.cycle(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
-    for (oligo, mappings), color in itertools.izip(oligo_mappings.items(), colors):
-        for rname, start, end in mappings:
-            axs[rname].axvspan(start, end, color=color, alpha=0.2, linewidth=0)
+    for oligo, color in izip(oligo_mappings, colors):
+        for rname, start, end in oligo_mappings[oligo]:
+            axs[rname].axvspan(start, end, color=color, alpha=0.12, linewidth=0)
             _, y_max = axs[rname].get_ylim()
             axs[rname].text(float(start + end) / 2,
                             y_max,
@@ -536,6 +524,9 @@ def plot_rRNA_coverage(names, coverage_fns, oligos_sam_fn):
                             horizontalalignment='center',
                             verticalalignment='top',
                            )
+    for rname in rnames:
+        figs[rname].savefig(fig_fn_template.format(rname))
+        plt.close(figs[rname])
 
 def load_oligo_mappings(oligos_sam_fn):
     oligos_sam_file = pysam.Samfile(oligos_sam_fn, 'r')
@@ -565,7 +556,7 @@ def get_oligo_hit_lengths(bam_fn, oligos_sam_fn):
 def plot_oligo_hit_lengths(bam_fn, oligos_sam_fn, fig_fn, name):
     fig, ax = plt.subplots(figsize=(18, 12))
     lengths = get_oligo_hit_lengths(bam_fn, oligos_sam_fn)
-    colors = itertools.cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
+    colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
     qnames = sorted(lengths.keys())
     for qname, color in zip(qnames, colors):
         ax.plot(lengths[qname], 'o-', color=color, label=qname)
