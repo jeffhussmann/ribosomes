@@ -1,3 +1,10 @@
+import argparse
+import subprocess
+import Parallel.split_file
+import time
+import Serialize
+import os
+
 class MapReduceExperiment(object):
     def __init__(self, **kwargs):
         self.name = kwargs['name']
@@ -67,6 +74,15 @@ class MapReduceExperiment(object):
         for function in self.cleanup[stage]:
             function()
 
+def controller(ExperimentClass, script_path):
+    args = parse_arguments()
+    if args.subparser_name == 'launch':
+        launch(args, script_path)
+    elif args.subparser_name == 'process':
+        process(args, ExperimentClass)
+    elif args.subparser_name == 'finish':
+        finish(args, ExperimentClass)
+
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--job_dir',
@@ -107,15 +123,13 @@ def parse_arguments():
     args = parser.parse_args()
     return args
 
-def parse_experiment_description(description_fn):
+def parse_description(description_fn):
     description = dict(line.strip().split() for line in open(description_fn))
     return description
 
-def launch(args):
+def launch(args, script_path):
     description_file_name = '{0}/description.txt'.format(args.job_dir)
-    description = parse_experiment_description(description_file_name)
-
-    script_path = os.path.realpath(__file__)
+    description = parse_description(description_file_name)
 
     def make_process_command(args, which_piece, stage):
         command = ['python', script_path,
@@ -161,18 +175,18 @@ def launch(args):
         subprocess.check_call('parallel < {0}'.format(process_file_name), shell=True)
         subprocess.check_call('bash {0}'.format(finish_file_name), shell=True)
 
-def process(args):
+def process(args, ExperimentClass):
     description_file_name = '{0}/description.txt'.format(args.job_dir)
-    description = parse_experiment_description(description_file_name)
+    description = parse_description(description_file_name)
 
     experiment = ExperimentClass(num_pieces=args.num_pieces,
                                              which_piece=args.which_piece,
                                              **description)
     experiment.do_work(args.stage)
 
-def finish(args):
+def finish(args, ExperimentClass):
     description_file_name = '{0}/description.txt'.format(args.job_dir)
-    description = parse_experiment_description(description_file_name)
+    description = parse_description(description_file_name)
     
     merged = ExperimentClass(num_pieces=args.num_pieces,
                                          which_piece=-1,
@@ -191,12 +205,3 @@ def finish(args):
                             )
 
     merged.do_cleanup(args.stage)
-
-def controller(ExperimentClass, script_path<Mouse>C!!1<Mouse>C!!4):
-    args = parse_arguments()
-    if args.subparser_name == 'launch':
-        launch(args)
-    elif args.subparser_name == 'process':
-        process(args)
-    elif args.subparser_name == 'finish':
-        finish(args)

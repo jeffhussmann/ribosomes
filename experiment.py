@@ -1,25 +1,20 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
-import argparse
 import glob
-import time
 import trim
 import os
-import Serialize
 import ribosomes
-import subprocess
 import fastq
 from itertools import chain
 from collections import Counter
-import Parallel.split_file
 import mutations
 import pysam
 import sam
 import numpy as np
-import Serialize
 import mapreduce
+import Parallel.split_file
 
-class RibosomeProfilingExperiment(MapReduceExperiment):
+class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
     def __init__(self, **kwargs):
         self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
@@ -93,6 +88,8 @@ class RibosomeProfilingExperiment(MapReduceExperiment):
                          self.plot_rRNA_coverage,
                         ),
                        ]
+        
+        mapreduce.MapReduceExperiment.__init__(self, **kwargs)
 
         self.data_fns = glob.glob(self.data_dir + '/*.fastq')
         self.max_read_length = self.get_max_read_length()
@@ -106,6 +103,7 @@ class RibosomeProfilingExperiment(MapReduceExperiment):
 
         for key, tail in self.organism_files:
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
+        
     def trim_reads(self):
         trimmed_lengths = self.trim_function(self.get_reads(),
                                              self.max_read_length,
