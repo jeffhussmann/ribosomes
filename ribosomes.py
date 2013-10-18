@@ -504,7 +504,7 @@ def plot_rRNA_coverage(names, data_list, oligos_sam_fn, fig_fn_template):
     axs = {}
     for i, (rname, length) in enumerate(zip(rnames, lengths)):
         figs[rname], axs[rname] = plt.subplots(figsize=(18, 12))
-        axs[rname].set_title(rname)
+        axs[rname].set_title('rRNA identity - ' + rname)
         axs[rname].set_xlim(0, length)
 
         for name in names:
@@ -513,6 +513,9 @@ def plot_rRNA_coverage(names, data_list, oligos_sam_fn, fig_fn_template):
 
         leg = axs[rname].legend(loc='upper right', fancybox=True)
         leg.get_frame().set_alpha(0.5)
+        axs[rname].set_xlabel('Position in rRNA')
+        axs[rname].set_ylabel('Fraction of all reads mapping to position')
+
     
     for oligo, color in izip(oligo_mappings, colors):
         for rname, start, end in oligo_mappings[oligo]:
