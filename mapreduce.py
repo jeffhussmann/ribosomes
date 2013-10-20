@@ -1,9 +1,11 @@
 import argparse
 import subprocess
 import Parallel.split_file
+import Parallel.launcher
 import time
 import Serialize
 import os
+import re
 
 class MapReduceExperiment(object):
     def __init__(self, **kwargs):
