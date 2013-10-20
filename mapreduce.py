@@ -37,9 +37,11 @@ class MapReduceExperiment(object):
                 os.makedirs(self.scratch_results_dir)
         
         num_stages = len(self.outputs)
-        timing_names = [('timing_{0}'.format(i), 'log', '{{name}}_timing_{0}.txt'.format(i))
-                        for i in range(num_stages)]
-        self.results_files.extend(timing_names)
+        for stage in range(num_stages):
+            key = 'timing_{0}'.format(stage)
+            tail_template = '{{name}}_timing_{0}.txt'.format(stage)
+            self.results_files.append((key, 'log', tail_template))
+            self.outputs[stage].append(key)
         
         self.file_names = {}
         self.merged_file_names = {}
@@ -152,15 +154,28 @@ def launch(args, script_path):
         command_string = ' '.join(command) + '\n'
         return command_string
 
+    process_file_names = []
+    finish_file_names = []
+    job_names = []
+
     for stage in range(1):
+        job_name = '{0}_{1}_{2}'.format(description['name'],
+                                        args.num_pieces,
+                                        stage,
+                                       )
+        job_names.append(job_name)
+
         process_file_name = '{0}/process_{1}_stage_{2}'.format(args.job_dir,
                                                                args.num_pieces,
                                                                stage,
                                                               )
+        process_file_names.append(process_file_name)
+
         finish_file_name = '{0}/finish_{1}_stage_{2}'.format(args.job_dir,
                                                              args.num_pieces,
                                                              stage,
                                                             )
+        finish_file_names.append(finish_file_name)
                               
         with open(process_file_name, 'w') as process_file:
             for which_piece in range(args.num_pieces):
@@ -170,10 +185,52 @@ def launch(args, script_path):
         with open(finish_file_name, 'w') as finish_file:
             line = make_finish_command(args, stage)
             finish_file.write(line)
-    
-        print 'Launched stage {0} with parallel'.format(stage)
-        subprocess.check_call('parallel < {0}'.format(process_file_name), shell=True)
-        subprocess.check_call('bash {0}'.format(finish_file_name), shell=True)
+
+    # Launch with qsub on lonestar, sbatch on stampede, parallel otherwise.
+    hostname = os.environ.get('HOSTNAME', '')
+    if 'tacc' in hostname:
+        if 'ls4' in hostname:
+            submitter = 'qsub'
+            def get_job_id(output):
+                return re.search(r'Your job (\d+)', output).group(1)
+        elif 'stampede' in hostname:
+            submitter = 'sbatch'
+            def get_job_id(output):
+                return re.search(r'Submitted batch job (\d+)', output).group(1)
+
+        starting_path = os.getcwd()
+        os.chdir(args.job_dir)
+        launcher_file_name = Parallel.launcher.create(
+            job_names[0],
+            process_file_names[0],
+            time='00:20:00',
+            optional_finish='bash {0}'.format(finish_file_names[0]),
+        )
+        output = subprocess.check_output([submitter, launcher_file_name])
+        this_job_id = get_job_id(output)
+        print 'Launched stage {0} with jid {1}'.format(stage, this_job_id)
+
+        for stage in range(1, 1):
+            previous_job_id = this_job_id
+            launcher_file_name = Parallel.launcher.create(
+                job_names[stage],
+                process_file_names[stage],
+                time='00:20:00',
+                optional_finish='bash {0}'.format(finish_file_names[stage]),
+                hold_jid=previous_job_id,
+            )
+            output = subprocess.check_output([submitter, launcher_file_name])
+            this_job_id = get_job_id(output)
+            print 'Launched stage {0} with jid {1}, holding on {2}'.format(stage,
+                                                                           this_job_id,
+                                                                           previous_job_id,
+                                                                          )
+        os.chdir(starting_path)
+    else:
+        for stage in range(1):
+            print 'Launched stage {0} with parallel'.format(stage)
+            subprocess.check_call('parallel < {0}'.format(process_file_names[stage]), shell=True)
+            subprocess.check_call('bash {0}'.format(finish_file_names[stage]), shell=True)
 
 def process(args, ExperimentClass):
     description_file_name = '{0}/description.txt'.format(args.job_dir)

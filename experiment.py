@@ -66,14 +66,14 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
         ]
 
-        self.outputs = [('trimmed_lengths',
+        self.outputs = [['trimmed_lengths',
                          'filtered_lengths',
                          'tRNA_lengths',
                          'rRNA_lengths',
                          'clean_lengths',
                          'unmapped_lengths',
                          'rRNA_coverage',
-                        ),
+                        ],
                        ]
 
         self.work = [[(self.trim_reads, 'Trim reads'),
@@ -193,9 +193,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                    ]:
                 fraction = float(count) / total_reads
                 line = '{0}: {1:,} ({2:.2%})\n'.format(category,
-                                                         count,
-                                                         fraction,
-                                                        )
+                                                       count,
+                                                       fraction,
+                                                      )
                 log_file.write(line)
 
     def plot_rRNA_coverage(self):
