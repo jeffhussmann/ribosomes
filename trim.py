@@ -8,24 +8,28 @@ import pysam
 from itertools import chain
 
 def trim(reads,
+         min_length,
          max_read_length,
          trimmed_reads_fn,
-         trimmed_lengths_fn,
          find_position):
+
     trimmed_lengths = np.zeros(max_read_length + 1, int)
+    too_short_lengths = np.zeros(max_read_length + 1, int)
     
     with open(trimmed_reads_fn, 'w') as trimmed_reads_fh:
         for read in reads:
             p = find_position(read.seq)
-            trimmed_lengths[p] += 1
-            if p > 5:
+            if p < min_length:
+                too_short_lengths[p] += 1
+            else:
+                trimmed_lengths[p] += 1
                 trimmed_record = fastq.make_record(read.name, 
                                                    read.seq[:p],
                                                    read.qual[:p],
                                                   )
                 trimmed_reads_fh.write(trimmed_record)
 
-    return trimmed_lengths
+    return trimmed_lengths, too_short_lengths
 
 truseq_R2_rc = 'AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC'
 adapter_prefix_length = 10

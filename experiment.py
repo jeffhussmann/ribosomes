@@ -19,11 +19,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
+        self.min_length = 10
         
         self.results_files = [
             ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
             ('filtered_reads', 'fastq', '{name}_filtered.fastq'), 
 
+            ('too_short_lengths', 'array', '{name}_too_short_lengths.txt'),
             ('trimmed_lengths', 'array', '{name}_trimmed_lengths.txt'),
             ('filtered_lengths', 'array', '{name}_filtered_lengths.txt'),
             ('tRNA_lengths', 'array', '{name}_tRNA_lengths.txt'),
@@ -66,7 +68,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
         ]
 
-        self.outputs = [['trimmed_lengths',
+        self.outputs = [['too_short_lengths',
+                         'trimmed_lengths',
                          'filtered_lengths',
                          'tRNA_lengths',
                          'rRNA_lengths',
@@ -105,12 +108,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
         
     def trim_reads(self):
-        trimmed_lengths = self.trim_function(self.get_reads(),
-                                             self.max_read_length,
-                                             self.file_names['trimmed_reads'],
-                                             self.file_names['trimmed_lengths'],
-                                            )
+        trimmed_lengths, too_short_lengths = self.trim_function(self.get_reads(),
+                                                                self.min_length,
+                                                                self.max_read_length,
+                                                                self.file_names['trimmed_reads'],
+                                                               )
         self.write_file('trimmed_lengths', trimmed_lengths)
+        self.write_file('too_short_lengths', too_short_lengths)
 
     def pre_filter_rRNA(self):
         ribosomes.pre_filter(self.file_names['rRNA_index'],
