@@ -1,5 +1,6 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
+import matplotlib.pyplot as plt
 import glob
 import trim
 import os
@@ -55,7 +56,12 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
             ('log', '', '{name}_log.txt'),
-            ('rRNA_coverage_figure_template', '', '{name}_rRNA_coverage_{{0}}.pdf'),
+        ]
+
+        self.figure_files = [
+            ('all_lengths', '{name}_all_lengths.pdf'),
+            ('clean_lengths', '{name}_clean_lengths.pdf'),
+            ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
         ]
 
         self.organism_files = [
@@ -87,7 +93,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                      ],
                     ]
 
-        self.cleanup = [(self.make_log,
+        self.cleanup = [(self.make_log_and_plot_lengths,
                          self.plot_rRNA_coverage,
                         ),
                        ]
@@ -174,23 +180,26 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         data = ribosomes.produce_rRNA_coverage(bam_file_names)
         self.write_file('rRNA_coverage', data)
     
-    def make_log(self):
+    def make_log_and_plot_lengths(self):
         trimmed_lengths = self.read_file('trimmed_lengths')
+        too_short_lengths = self.read_file('too_short_lengths')
         filtered_lengths = self.read_file('filtered_lengths')
         tRNA_lengths = self.read_file('tRNA_lengths')
         rRNA_lengths = self.read_file('rRNA_lengths')
         unmapped_lengths = self.read_file('unmapped_lengths')
         clean_lengths = self.read_file('clean_lengths')
         
-        total_reads = int(trimmed_lengths.sum())
-        rRNA_reads = int(rRNA_lengths.sum())
-        tRNA_reads = int(tRNA_lengths.sum())
-        unmapped_reads = int(unmapped_lengths.sum())
-        clean_reads = int(clean_lengths.sum())
+        total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
+        long_enough_reads = trimmed_lengths.sum()
+        rRNA_reads = rRNA_lengths.sum()
+        tRNA_reads = tRNA_lengths.sum()
+        unmapped_reads = unmapped_lengths.sum()
+        clean_reads = clean_lengths.sum()
 
         with open(self.file_names['log'], 'w') as log_file:
             log_file.write('Total reads: {0:,}\n'.format(total_reads))
-            for category, count in [('rRNA reads', rRNA_reads),
+            for category, count in [('Long enough reads', long_enough_reads),
+                                    ('rRNA reads', rRNA_reads),
                                     ('tRNA reads', tRNA_reads),
                                     ('Unmapped reads', unmapped_reads),
                                     ('Clean reads', clean_reads),
@@ -202,11 +211,40 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                                       )
                 log_file.write(line)
 
+        fig_all, ax_all = plt.subplots(figsize=(12, 8))
+    
+        ax_all.plot(rRNA_lengths, '.-', label='rRNA', color='red')
+        ax_all.plot(tRNA_lengths, '.-', label='tRNA', color='blue')
+        ax_all.plot(unmapped_lengths, '.-', label='unmapped', color='cyan')
+        ax_all.plot(too_short_lengths, '.-', label='too short', color='purple')
+        ax_all.plot(clean_lengths, '.-', label='clean', color='green')
+        ax_all.set_xlim(0, self.max_read_length)
+        ax_all.set_title('Fragment length distribution by source')
+        ax_all.set_xlabel('Length of original RNA fragment')
+        ax_all.set_ylabel('Number of reads')
+        leg = ax_all.legend(loc='upper right', fancybox=True)
+        leg.get_frame().set_alpha(0.5)
+        fig_all.savefig(self.figure_file_names['all_lengths'])
+        
+        fig_clean, ax_clean = plt.subplots(figsize=(12, 8))
+        
+        ax_clean.plot(clean_lengths, '.-', label='clean', color='green')
+        ax_clean.axvspan(27.5, 28.5, color='green', alpha=0.2)
+        ax_clean.set_xlim(0, 50)
+        ax_clean.legend()
+        ax_clean.set_title('Fragment length distribution by source')
+        ax_clean.set_xlabel('Length of original RNA fragment')
+        ax_clean.set_ylabel('Number of reads')
+        leg = ax_clean.legend(loc='upper right', fancybox=True)
+        leg.get_frame().set_alpha(0.5)
+    
+        fig_clean.savefig(self.figure_file_names['clean_lengths'])
+
     def plot_rRNA_coverage(self):
         ribosomes.plot_rRNA_coverage([self.name],
                                      [self.read_file('rRNA_coverage')],
                                      self.file_names['oligos_sam'],
-                                     self.file_names['rRNA_coverage_figure_template'],
+                                     self.figure_file_names['rRNA_coverage_template'],
                                     )
 
     def get_max_read_length(self):

@@ -54,6 +54,11 @@ class MapReduceExperiment(object):
             self.merged_file_names[key] = '{0}/{1}'.format(self.work_results_dir, file_tail)
             self.file_types[key] = serialize_type
 
+        self.figure_file_names = {}
+        for key, tail_template in self.figure_files:
+            file_tail = tail_template.format(name=self.name)
+            self.figure_file_names[key] = '{0}/{1}'.format(self.work_results_dir, file_tail)
+
         if self.which_piece == -1:
             self.file_names = self.merged_file_names
 
