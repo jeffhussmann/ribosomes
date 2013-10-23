@@ -1,4 +1,5 @@
 import mapping
+import fasta
 import random
 import os.path
 import gtf
@@ -36,48 +37,15 @@ def pre_filter(contaminant_index,
                        )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
 
-def filter(input_bam_fn,
-           gtf_fn,
-           clean_bam_fn,
-           read_length,
-          ):
-    ''' Removes any mappings to tRNA or rRNA genes in input_bam_fn and records
-        all other primary mappings to clean_bam_fn.
+def post_filter(input_bam_fn,
+                gtf_fn,
+                clean_bam_fn,
+                more_rRNA_bam_fn,
+                tRNA_bam_fn,
+               ):
+    ''' Removes any remaining mappings to tRNA or rRNA genes.
+        Removes non-uniquely-mapping reads.
     '''
-    lengths = {'tRNA': np.zeros(read_length + 1, int),
-               'rRNA': np.zeros(read_length + 1, int),
-              }
-
-    bamfile = pysam.Samfile(input_bam_fn, 'rb')
-    primary_reads = (read for read in bamfile if not read.is_secondary)
-    
-    contaminant_genes = iter(gtf.get_contaminant_genes(gtf_fn))
-    gene = contaminant_genes.next()
-
-    with pysam.Samfile(clean_bam_fn, 'wb', header=bamfile.header) as clean_bam_fh:
-        for read in primary_reads:
-            seqname = bamfile.getrname(read.tid)
-            while (gene.seqname, gene.end) < (seqname, read.pos):
-                try:
-                    gene = contaminant_genes.next()
-                except StopIteration:
-                    break
-            if read.overlap(gene.start, gene.end) > 0:
-                lengths[gene.source][read.qlen] += 1
-            else:
-                clean_bam_fh.write(read)
-
-    pysam.index(clean_bam_fn)
-
-    return lengths['tRNA'], lengths['rRNA']
-
-def filter_fetch(input_bam_fn,
-                 gtf_fn,
-                 clean_bam_fn,
-                 more_rRNA_bam_fn,
-                 tRNA_bam_fn,
-                ):
-    ''' Removes any m'''
     qnames_already_used = set()
 
     rRNA_genes = gtf.get_rRNA_genes(gtf_fn)
@@ -91,8 +59,10 @@ def filter_fetch(input_bam_fn,
                           (tRNA_genes, tRNA_bam_fn)]:
         contaminant_reads = defaultdict(list)
         for gene in genes:
-            gene_name = gtf.parse_attribute(gene.attribute)['gene_name']
-            overlapping_reads = input_bam_file.fetch(gene.seqname, gene.start, gene.end)
+            overlapping_reads = input_bam_file.fetch(gene.seqname,
+                                                     gene.start,
+                                                     gene.end,
+                                                    )
             for read in overlapping_reads:
                 contaminant_reads[read.qname].append(read)
         with pysam.Samfile(bam_fn, 'wb', header=input_bam_file.header) as bam_file:
@@ -105,12 +75,13 @@ def filter_fetch(input_bam_fn,
          
     # Create a new clean bam file consisting of all reads that weren't flagged
     # as contaminants above.
-    # TODO: filter by MAPQ
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
     with pysam.Samfile(clean_bam_fn, 'wb', header=input_bam_file.header) as clean_bam_file:
         for read in input_bam_file:
             if read.qname not in qnames_already_used and not read.is_secondary:
                 clean_bam_file.write(read)
+
+    pysam.index(clean_bam_fn)
 
 def map_tophat(reads_file_name,
                bowtie2_index,
@@ -131,140 +102,92 @@ def map_tophat(reads_file_name,
     # console, so discard output.
     subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
-def get_aggregate_positions(gtf_fn, filtered_bam_fn):
-    max_length = 50 
-    max_position = 10000
-    edge_overlap = max_length
+def get_aggregate_positions(clean_bam_fn,
+                            simple_CDSs,
+                            max_gene_length,
+                            max_read_length,
+                           ):
+    edge_overlap = max_read_length
 
-    # Dimension 2 goes from -max_length to max_position for from_starts
-    # and -max_position to max_length for from_ends.
-    shape = (max_length + 1, max_length + max_position + 1)
+    position_counts = []
+    gene_names = []
+    for gene in simple_CDSs:
+        gene_names.append(gtf.parse_attribute(gene.attribute)['protein_id'])
+        shape = (3, abs(gene.end - gene.start) + 2 * edge_overlap + 1)
+        position_counts.append(np.zeros(shape, int))
+    expression_counts = np.zeros((len(simple_CDSs), 2), int)
+
+    # Dimension 2 goes from -edge_overlap to max_gene_length for from_starts
+    # and -max_gene_length to edge_overlap for from_ends.
+    shape = (max_read_length + 1, edge_overlap + max_gene_length + 1)
     from_starts = np.zeros(shape, int)
     from_ends = np.zeros(shape, int)
 
-    bamfile = pysam.Samfile(filtered_bam_fn, 'rb')
-
-    counts = defaultdict(lambda : {'-': 0, '+': 0})
-
-    simple_CDSs = iter(gtf.get_simple_CDSs(gtf_fn))
-    gene = simple_CDSs.next()
-    
-    for read in bamfile:
-        seqname = bamfile.getrname(read.tid)
-        strand = '-' if read.is_reverse else '+'
-        
-        while (gene.seqname, gene.end + edge_overlap) < (seqname, read.pos):
-            try:
-                gene = simple_CDSs.next()
-            except StopIteration:
-                break
-
-        if gene.strand == '+':
-            overlaps = read.overlap(gene.start, gene.end + edge_overlap) > 0
-        elif gene.strand == '-':
-            overlaps = read.overlap(gene.start - edge_overlap, gene.end) > 0
-
-        if overlaps:
-            counts[gene][strand] += 1
-            if strand == '+' and gene.strand == '+':
-                from_start = read.pos - gene.start
-                if from_start < max_position:
-                    from_starts[read.qlen, max_length + from_start] += 1
-
-                from_end = read.pos - gene.end
-                if from_end > -max_position:
-                    from_ends[read.qlen, max_position + from_end] += 1
-
-            elif strand == '-' and gene.strand == '-':
-                from_start = gene.end - (read.aend - 1)
-                if from_start < max_position:
-                    from_starts[read.qlen, max_length + from_start] += 1
-
-                from_end = gene.start - (read.aend - 1)
-                if from_end > -max_position:
-                    from_ends[read.qlen, max_position + from_end] += 1
-    
-    return from_starts, from_ends
-
-def get_aggregate_positions_fetch(gtf_fn,
-                                  filtered_bam_fn,
-                                  summary_fn,
-                                  read_length,
-                                 ):
-    max_length = read_length 
-    max_position = 10000
-    edge_overlap = max_length
-
-    # Dimension 2 goes from -max_length to max_position for from_starts
-    # and -max_position to max_length for from_ends.
-    shape = (max_length + 1, edge_overlap + max_position + 1)
-    from_starts = np.zeros(shape, int)
-    from_ends = np.zeros(shape, int)
-
-    fraction_shape = (max_length + 1, fraction_resolution)
+    fraction_shape = (max_read_length + 1, fraction_resolution)
     fractions = np.zeros(fraction_shape, int)
 
-    bamfile = pysam.Samfile(filtered_bam_fn, 'rb')
-
     read_counts = defaultdict(lambda : defaultdict(int))
+    nonunique_mappings = 0
 
-    simple_CDSs = gtf.get_simple_CDSs(gtf_fn)
-   
-    for CDS in simple_CDSs:
+    bamfile = pysam.Samfile(clean_bam_fn, 'rb')
+    for g, CDS in enumerate(simple_CDSs):
         max_from_start = CDS.end - CDS.start
         fraction_factor = float(fraction_resolution) / max_from_start
 
-        reads = bamfile.fetch(CDS.seqname, CDS.start - edge_overlap, CDS.end + edge_overlap)
-        primary_reads = (read for read in reads if not read.is_secondary)
-
-        for read in primary_reads:
-            strand = '-' if read.is_reverse else '+'
-        
-            if 28 <= len(read.seq) <= 30:
-                read_counts[CDS][strand] += 1
-            
-            if strand == '+' and CDS.strand == '+':
-                from_start = read.pos - CDS.start
-                # CDS.end is the last base before the stop codon
-                from_end = read.pos - (CDS.end + 1)
-            elif strand == '-' and CDS.strand == '-':
-                from_start = CDS.end - (read.aend - 1)
-                # CDS.start is the first base after the stop codon
-                from_end = (CDS.start - 1) - (read.aend - 1)
+        reads = bamfile.fetch(CDS.seqname,
+                              CDS.start - edge_overlap,
+                              CDS.end + edge_overlap,
+                             )
+        for read in reads:
+            if read.mapq != 50:
+                nonunique_mappings += 1
             else:
-                continue
-
-            if -edge_overlap <= from_start < max_position:
-                from_starts[read.qlen, edge_overlap + from_start] += 1
-                if 28 <= len(read.seq) <= 30:
-                    read_counts[CDS][len(read.seq), from_start % 3] += 1
-            
-            if from_end > -max_position:
-                from_ends[read.qlen, max_position + from_end] += 1
-            
-            if from_start >= 0:
-                if from_start == max_from_start:
-                    fraction = fraction_resolution - 1  
+                strand = '-' if read.is_reverse else '+'
+                
+                if strand != CDS.strand:
+                    expression_counts[g, 1] += 1
+                    continue
                 else:
-                    fraction = int(fraction_factor * from_start)
-                if fraction < fraction_resolution:
-                    fractions[read.qlen, fraction] += 1
+                    expression_counts[g, 0] += 1
+                    if CDS.strand == '+':
+                        from_start = read.pos - CDS.start
+                        # CDS.end is the last base before the stop codon
+                        from_end = read.pos - (CDS.end + 1)
+                    elif CDS.strand == '-':
+                        from_start = CDS.end - (read.aend - 1)
+                            # CDS.start is the first base after the stop codon
+                        from_end = (CDS.start - 1) - (read.aend - 1)
+                
+                if 28 <= read.qlen <= 30:
+                    position_counts[g][read.qlen - 28, edge_overlap + from_start] += 1
+                    read_counts[CDS][strand] += 1
+                
+                from_starts[read.qlen, edge_overlap + from_start] += 1
+                from_ends[read.qlen, max_gene_length + from_end] += 1
+                
+                #if from_start >= 0:
+                #    if from_start == max_from_start:
+                #        fraction = fraction_resolution - 1  
+                #    else:
+                #        fraction = int(fraction_factor * from_start)
+                #    if fraction < fraction_resolution:
+                #        fractions[read.qlen, fraction] += 1
 
-    with open(summary_fn, 'w') as summary_fh:
-        for CDS, counts in read_counts.items():
-            name = gtf.parse_attribute(CDS.attribute)['gene_name']
-            right_strand = CDS.strand
-            wrong_strand = '-' if CDS.strand == '+' else '+'
-            length = CDS.end - CDS.start + 1
-            keys = [right_strand, wrong_strand,
-                    (28, 0), (28, 1), (28, 2),
-                    (29, 0), (29, 1), (29, 2),
-                    (30, 0), (30, 1), (30, 2),
-                   ]
-            info = '\t'.join(str(counts[key]) for key in keys)
-            summary_fh.write('{0}\t{1}\t{2}\n'.format(name, length, info))
+    #with open(summary_fn, 'w') as summary_fh:
+    #    for CDS, counts in read_counts.items():
+    #        name = gtf.parse_attribute(CDS.attribute)['gene_name']
+    #        right_strand = CDS.strand
+    #        wrong_strand = '-' if CDS.strand == '+' else '+'
+    #        length = CDS.end - CDS.start + 1
+    #        keys = [right_strand, wrong_strand,
+    #                (28, 0), (28, 1), (28, 2),
+    #                (29, 0), (29, 1), (29, 2),
+    #                (30, 0), (30, 1), (30, 2),
+    #               ]
+    #        info = '\t'.join(str(counts[key]) for key in keys)
+    #        summary_fh.write('{0}\t{1}\t{2}\n'.format(name, length, info))
 
-    return from_starts, from_ends, fractions
+    return gene_names, position_counts, expression_counts, from_starts, from_ends
 
 def plot_RPF(from_starts_fns, from_ends_fns, names, read_lengths):
     from_starts_list = [np.loadtxt(fn) for fn in from_starts_fns]
@@ -392,45 +315,6 @@ def grouped_bar(rates_list, names, tick_labels, ax):
     leg = ax.legend(loc='upper right', fancybox=True)
     leg.get_frame().set_alpha(0.5)
 
-def plot_clean_lengths(clean_length_fns, names):
-    fig, ax = plt.subplots(figsize=(12, 8))
-    colors = cycle(['g', 'b', 'r', 'c', 'm', 'y', 'k'])
-
-    for clean_fn, name, color in zip(clean_length_fns, names, colors):
-        clean_lengths = np.loadtxt(clean_fn)
-        normalized = np.true_divide(clean_lengths,
-                                    clean_lengths.sum(),
-                                    #1,
-                                   )
-        ax.plot(normalized, '.-', label=name, color=color)
-        #ax.axvspan(27.5, 28.5, color='green', alpha=0.1)
-        ax.set_xlim(0, 50)
-        ax.legend()
-        ax.set_title('\'Clean\' fragment length distribution by sample')
-        ax.set_xlabel('Length of original RNA fragment')
-        ax.set_ylabel('Fraction of reads')
-
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-
-def plot_trimmed_lengths(trimmed_length_fns, names):
-    fig, ax = plt.subplots(figsize=(12, 8))
-
-    for trimmed_fn, name in zip(trimmed_length_fns, names):
-        trimmed_lengths = np.loadtxt(trimmed_fn)
-        normalized = np.true_divide(trimmed_lengths,
-                                    #trimmed_lengths.sum(),
-                                    1,
-                                   )
-        ax.plot(normalized, '.-', label=name, color='black')
-
-    leg = ax.legend(loc='upper left', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-
-    ax.set_title('Fragment length distribution')
-    ax.set_ylabel('Number of reads')
-    ax.set_xlabel('Length of original RNA fragment') 
-
 def compare(summary_fns, clean_length_fns, names):
     reads_list = [np.loadtxt(fn, dtype=int)[28:31].sum() for fn in clean_length_fns]
 
@@ -541,30 +425,41 @@ def load_oligo_mappings(oligos_sam_fn):
         oligo_mappings[aligned_read.qname].append(extent)
     return oligo_mappings
 
-def get_oligo_hit_lengths(bam_fn, oligos_sam_fn):
+def get_oligo_hit_lengths(bam_fn,
+                          oligos_fasta_fn,
+                          oligos_sam_fn,
+                          max_read_length):
     oligo_mappings = load_oligo_mappings(oligos_sam_fn)
     bam_file = pysam.Samfile(bam_fn, 'rb')
 
-    lengths = {qname: np.zeros(51, int) for qname in oligo_mappings}
-    for qname, extents in oligo_mappings.items():
-        print qname
-        for rname, start, end in extents:
+    oligo_names = [read.name for read in fasta.reads(oligos_fasta_fn)]
+    lengths = np.zeros((len(oligo_names), max_read_length + 1), int)
+
+    for oligo_number, oligo_name in enumerate(oligo_names):
+        for rname, start, end in oligo_mappings[oligo_name]:
             reads = bam_file.fetch(rname, start, end)
             for aligned_read in reads:
                 if not aligned_read.is_secondary:
-                    lengths[qname][aligned_read.qlen] += 1
+                    lengths[oligo_number][aligned_read.qlen] += 1
     
     return lengths
 
-def plot_oligo_hit_lengths(bam_fn, oligos_sam_fn, fig_fn, name):
+def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
+    oligo_names = [read.name for read in fasta.reads(oligos_fasta_fn)]
+    
     fig, ax = plt.subplots(figsize=(18, 12))
-    lengths = get_oligo_hit_lengths(bam_fn, oligos_sam_fn)
-    colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
-    qnames = sorted(lengths.keys())
-    for qname, color in zip(qnames, colors):
-        ax.plot(lengths[qname], 'o-', color=color, label=qname)
+    for oligo_name, oligo_lengths, color in zip(oligo_names, lengths, colors):
+        normalized_lengths = np.true_divide(oligo_lengths, oligo_lengths.sum())
+        ax.plot(normalized_lengths, 'o-', color=color, label=oligo_name)
+    
     leg = ax.legend(loc='upper right', fancybox=True)
     leg.get_frame().set_alpha(0.5)
-    ax.set_title(name)
-    plt.savefig(fig_fn)
-    plt.close()
+    
+    ax.set_xlim(0, lengths.shape[1] - 1)
+
+    ax.set_xlabel('Length of original RNA fragment')
+    ax.set_ylabel('Number of fragments')
+    ax.set_title('Distribution of fragment lengths overlapping each oligo')
+    
+    fig.savefig(fig_fn)
+    plt.close(fig)

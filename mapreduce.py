@@ -38,8 +38,8 @@ class MapReduceExperiment(object):
             if not os.path.isdir(self.scratch_results_dir):
                 os.makedirs(self.scratch_results_dir)
         
-        num_stages = len(self.outputs)
-        for stage in range(num_stages):
+        self.num_stages = len(self.outputs)
+        for stage in range(self.num_stages):
             key = 'timing_{0}'.format(stage)
             tail_template = '{{name}}_timing_{0}.txt'.format(stage)
             self.results_files.append((key, 'log', tail_template))
@@ -86,7 +86,7 @@ class MapReduceExperiment(object):
 def controller(ExperimentClass, script_path):
     args = parse_arguments()
     if args.subparser_name == 'launch':
-        launch(args, script_path)
+        launch(args, script_path, ExperimentClass.num_stages)
     elif args.subparser_name == 'process':
         process(args, ExperimentClass)
     elif args.subparser_name == 'finish':
@@ -136,7 +136,7 @@ def parse_description(description_fn):
     description = dict(line.strip().split() for line in open(description_fn))
     return description
 
-def launch(args, script_path):
+def launch(args, script_path, num_stages):
     description_file_name = '{0}/description.txt'.format(args.job_dir)
     description = parse_description(description_file_name)
 
@@ -165,7 +165,7 @@ def launch(args, script_path):
     finish_file_names = []
     job_names = []
 
-    for stage in range(1):
+    for stage in range(num_stages):
         job_name = '{0}_{1}_{2}'.format(description['name'],
                                         args.num_pieces,
                                         stage,
@@ -217,7 +217,7 @@ def launch(args, script_path):
         this_job_id = get_job_id(output)
         print 'Launched stage {0} with jid {1}'.format(stage, this_job_id)
 
-        for stage in range(1, 1):
+        for stage in range(1, num_stages):
             previous_job_id = this_job_id
             launcher_file_name = Parallel.launcher.create(
                 job_names[stage],
@@ -234,7 +234,7 @@ def launch(args, script_path):
                                                                           )
         os.chdir(starting_path)
     else:
-        for stage in range(1):
+        for stage in range(num_stages):
             print 'Launched stage {0} with parallel'.format(stage)
             subprocess.check_call('parallel < {0}'.format(process_file_names[stage]), shell=True)
             subprocess.check_call('bash {0}'.format(finish_file_names[stage]), shell=True)
