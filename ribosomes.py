@@ -1,89 +1,16 @@
-import mapping
-import fasta
-import random
 import os.path
 import gtf
 import pysam
-import sam
 import subprocess
-import sys
 import fastq
 import mutations
 import numpy as np
 import matplotlib.pyplot as plt
-from itertools import izip, cycle, chain
+from itertools import cycle
 from collections import Counter, defaultdict
 
 fraction_resolution = 10
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
-
-def pre_filter(contaminant_index,
-               trimmed_reads_fn,
-               filtered_reads_fn,
-               sam_fn,
-               bam_fn,
-              ):
-    ''' Maps reads in trimmed_reads_fn to contaminant_index. Records reads that
-        don't map in filtered_reads_fn. 
-    '''
-    mapping.map_bowtie2(trimmed_reads_fn,
-                        contaminant_index,
-                        sam_fn,
-                        unaligned_reads_file_name=filtered_reads_fn,
-                        threads=1,
-                        report_all=True,
-                        explicit_path=True,
-                       )
-    sam.make_sorted_indexed_bam(sam_fn, bam_fn)
-
-def post_filter(input_bam_fn,
-                gtf_fn,
-                clean_bam_fn,
-                more_rRNA_bam_fn,
-                tRNA_bam_fn,
-               ):
-    ''' Removes any remaining mappings to tRNA or rRNA genes.
-        Removes secondary mappings so that each read is represented at most
-        once, but this DOES NOT mean that only unique mappings are retained.
-    '''
-    qnames_already_used = set()
-
-    rRNA_genes = gtf.get_rRNA_genes(gtf_fn)
-    tRNA_genes = gtf.get_tRNA_genes(gtf_fn)
-
-    input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
-   
-    # Find reads with any mappings that overlap rRNA or tRNA genes and write one
-    # mapping for each such read to a contaminant bam file.
-    for genes, bam_fn in [(rRNA_genes, more_rRNA_bam_fn),
-                          (tRNA_genes, tRNA_bam_fn)]:
-        contaminant_reads = defaultdict(list)
-        for gene in genes:
-            overlapping_mappings = input_bam_file.fetch(gene.seqname,
-                                                        gene.start,
-                                                        gene.end,
-                                                       )
-            for mapping in overlapping_mappings:
-                contaminant_reads[read.qname].append(mapping)
-
-        with pysam.Samfile(bam_fn, 'wb', header=input_bam_file.header) as bam_file:
-            for qname in contaminant_reads:
-                if qname not in qnames_already_used:
-                    mapping = random.choice(contaminant_reads[qname])
-                    bam_file.write(mapping)
-                    qnames_already_used.add(qname)
-
-    input_bam_file.close()
-         
-    # Create a new clean bam file consisting of the primary mapping of each
-    # read that wasn't flagged as a contaminant.
-    input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
-    with pysam.Samfile(clean_bam_fn, 'wb', header=input_bam_file.header) as clean_bam_file:
-        for mapping in input_bam_file:
-            if mapping.qname not in qnames_already_used and not mapping.is_secondary:
-                clean_bam_file.write(mapping)
-
-    pysam.index(clean_bam_fn)
 
 def map_tophat(reads_file_name,
                bowtie2_index,
@@ -234,45 +161,6 @@ def get_extent_positions(clean_bam_fn, extent):
                 
     return position_counts, expression_counts
 
-def frameshifts(rpf_positions, edge_overlap, gene_name, gene_length):
-    positions = rpf_positions[0]
-    start_at_codon = -4
-    codon_starts = np.arange(2 * edge_overlap + (start_at_codon * 3),
-                             2 * edge_overlap + gene_length,
-                             3,
-                            )
-    codon_numbers = [start_at_codon + i for i in range(len(codon_starts))]
-    frames = np.zeros((3, len(codon_starts)), int)
-    for c, codon_start in enumerate(codon_starts):
-        for frame in range(3):
-            frames[frame, c] = positions[codon_start + frame]
-
-    frames_so_far = frames.cumsum(axis=1)
-    fraction_frames_so_far = np.true_divide(frames_so_far, frames_so_far.sum(axis=0))
-
-    frames_remaining = np.fliplr(np.fliplr(frames).cumsum(axis=1))
-    fraction_frames_remaining = np.true_divide(frames_remaining, frames_remaining.sum(axis=0))
-    
-    fig, axs = plt.subplots(4, 1, sharex=True)
-    cumulative_ax = axs[0]
-    frame_axs = axs[1:]
-
-    for f, (frame, ax) in enumerate(zip(frames, frame_axs)):
-        ax.plot(codon_numbers, frame)
-        ax.set_ylim(0, frames.max())
-        ax.set_title('Frame {0}'.format(f))
-
-    for so_far, remaining, color in zip(fraction_frames_so_far, fraction_frames_remaining, colors):
-        #cumulative_ax.plot(codon_numbers, so_far, color=color)
-        #cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--')
-        difference = so_far - remaining
-        cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
-        difference = remaining - so_far
-        cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
-    cumulative_ax.set_xlim(codon_numbers[0])
-
-    return codon_numbers, frames, fraction_frames_so_far, fraction_frames_remaining
-
 def plot_RPF(from_starts_fns, from_ends_fns, names):
     edge_overlap = 50
     from_starts_list = [np.loadtxt(fn) for fn in from_starts_fns]
@@ -419,8 +307,6 @@ def grouped_bar(rates_list, names, tick_labels, ax):
 
     width = 1. / (len(rates_list) + gap)
 
-    colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'k'])
-
     zipped = zip(rates_list, colors, names)
     for i, (rates, color, name) in enumerate(zipped):
         ax.bar(group_starts + i * width,
@@ -478,116 +364,44 @@ def compare(summary_fns, clean_length_fns, names):
 
     return sample_counts
 
-def produce_rRNA_coverage(bam_file_names):
-    bam_files = [pysam.Samfile(fn, 'rb') for fn in bam_file_names]
-    all_reads = chain.from_iterable(bam_files)
+def frameshifts(rpf_positions, edge_overlap, gene_name, gene_length):
+    positions = rpf_positions[0]
+    start_at_codon = -4
+    codon_starts = np.arange(2 * edge_overlap + (start_at_codon * 3),
+                             2 * edge_overlap + gene_length,
+                             3,
+                            )
+    codon_numbers = [start_at_codon + i for i in range(len(codon_starts))]
+    frames = np.zeros((3, len(codon_starts)), int)
+    for c, codon_start in enumerate(codon_starts):
+        for frame in range(3):
+            frames[frame, c] = positions[codon_start + frame]
 
-    seq_lengths = bam_files[0].lengths
-    counts = [np.zeros(length, int) for length in seq_lengths]
-    names = [bam_files[0].getrname(tid) for tid in range(len(seq_lengths))]
+    frames_so_far = frames.cumsum(axis=1)
+    fraction_frames_so_far = np.true_divide(frames_so_far, frames_so_far.sum(axis=0))
+
+    frames_remaining = np.fliplr(np.fliplr(frames).cumsum(axis=1))
+    fraction_frames_remaining = np.true_divide(frames_remaining, frames_remaining.sum(axis=0))
     
-    read_names = set()
+    fig, axs = plt.subplots(4, 1, sharex=True)
+    cumulative_ax = axs[0]
+    frame_axs = axs[1:]
 
-    for aligned_read in all_reads:
-        read_names.add(aligned_read.qname)
-        tid = aligned_read.tid
-        for position in aligned_read.positions:
-            counts[tid][position] += 1
+    for f, (frame, ax) in enumerate(zip(frames, frame_axs)):
+        ax.plot(codon_numbers, frame)
+        ax.set_ylim(0, frames.max())
+        ax.set_title('Frame {0}'.format(f))
 
-    total_reads = len(read_names)
-    return total_reads, names, counts
+    for so_far, remaining, color in zip(fraction_frames_so_far, fraction_frames_remaining, colors):
+        #cumulative_ax.plot(codon_numbers, so_far, color=color)
+        #cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--')
+        difference = so_far - remaining
+        cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
+        difference = remaining - so_far
+        cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
+    cumulative_ax.set_xlim(codon_numbers[0])
 
-def plot_rRNA_coverage(names, data_list, oligos_sam_fn, fig_fn_template):
-    oligos_sam_file = pysam.Samfile(oligos_sam_fn, 'r')
-    rnames = oligos_sam_file.references
-    lengths = oligos_sam_file.lengths
-    oligo_mappings = load_oligo_mappings(oligos_sam_fn)
-    
-    total_reads = {}
-    counts = {}
-    for name, (these_reads, _, these_counts) in zip(names, data_list):
-        total_reads[name] = these_reads
-        counts[name] = these_counts
-
-    figs = {}
-    axs = {}
-    for i, (rname, length) in enumerate(zip(rnames, lengths)):
-        figs[rname], axs[rname] = plt.subplots(figsize=(18, 12))
-        axs[rname].set_title('rRNA identity - ' + rname)
-        axs[rname].set_xlim(0, length)
-
-        for name in names:
-            normalized_counts = np.true_divide(counts[name][i], total_reads[name])
-            axs[rname].plot(normalized_counts, label=name)
-
-        leg = axs[rname].legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
-        axs[rname].set_xlabel('Position in rRNA')
-        axs[rname].set_ylabel('Fraction of all reads mapping to position')
-
-    
-    for oligo, color in izip(oligo_mappings, colors):
-        for rname, start, end in oligo_mappings[oligo]:
-            axs[rname].axvspan(start, end, color=color, alpha=0.12, linewidth=0)
-            _, y_max = axs[rname].get_ylim()
-            axs[rname].text(float(start + end) / 2,
-                            y_max,
-                            oligo, 
-                            horizontalalignment='center',
-                            verticalalignment='top',
-                           )
-    for rname in rnames:
-        figs[rname].savefig(fig_fn_template.format(rname))
-        plt.close(figs[rname])
-
-def load_oligo_mappings(oligos_sam_fn):
-    oligos_sam_file = pysam.Samfile(oligos_sam_fn, 'r')
-    oligo_mappings = defaultdict(list)
-    for aligned_read in oligos_sam_file:
-        positions = aligned_read.positions
-        rname = oligos_sam_file.getrname(aligned_read.tid)
-        extent = (rname, min(positions), max(positions))
-        oligo_mappings[aligned_read.qname].append(extent)
-    return oligo_mappings
-
-def get_oligo_hit_lengths(bam_fn,
-                          oligos_fasta_fn,
-                          oligos_sam_fn,
-                          max_read_length):
-    oligo_mappings = load_oligo_mappings(oligos_sam_fn)
-    bam_file = pysam.Samfile(bam_fn, 'rb')
-
-    oligo_names = [read.name for read in fasta.reads(oligos_fasta_fn)]
-    lengths = np.zeros((len(oligo_names), max_read_length + 1), int)
-
-    for oligo_number, oligo_name in enumerate(oligo_names):
-        for rname, start, end in oligo_mappings[oligo_name]:
-            reads = bam_file.fetch(rname, start, end)
-            for aligned_read in reads:
-                if not aligned_read.is_secondary:
-                    lengths[oligo_number][aligned_read.qlen] += 1
-    
-    return lengths
-
-def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
-    oligo_names = [read.name for read in fasta.reads(oligos_fasta_fn)]
-    
-    fig, ax = plt.subplots(figsize=(18, 12))
-    for oligo_name, oligo_lengths, color in zip(oligo_names, lengths, colors):
-        normalized_lengths = np.true_divide(oligo_lengths, oligo_lengths.sum())
-        ax.plot(normalized_lengths, 'o-', color=color, label=oligo_name)
-    
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-    
-    ax.set_xlim(0, lengths.shape[1] - 1)
-
-    ax.set_xlabel('Length of original RNA fragment')
-    ax.set_ylabel('Number of fragments')
-    ax.set_title('Distribution of fragment lengths overlapping each oligo')
-    
-    fig.savefig(fig_fn)
-    plt.close(fig)
+    return codon_numbers, frames, fraction_frames_so_far, fraction_frames_remaining
 
 if __name__ == '__main__':
     clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
