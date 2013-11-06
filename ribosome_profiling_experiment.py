@@ -20,12 +20,15 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
     num_stages = 2
 
     def __init__(self, **kwargs):
+        mapreduce.MapReduceExperiment.__init__(self, **kwargs)
+
         self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
+        self.max_read_length = kwargs.get('max_read_length', None)
         self.min_length = 10
         
-        self.results_files = [
+        specific_results_files = [
             ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
             ('filtered_reads', 'fastq', '{name}_filtered.fastq'), 
 
@@ -60,10 +63,10 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
-            ('log', '', '{name}_log.txt'),
+            ('yield', '', '{name}_yield.txt'),
         ]
 
-        self.figure_files = [
+        specific_figure_files = [
             ('all_lengths', '{name}_all_lengths.pdf'),
             ('clean_lengths', '{name}_clean_lengths.pdf'),
             ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
@@ -80,46 +83,58 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
         ]
 
-        self.outputs = [['too_short_lengths',
-                         'trimmed_lengths',
-                         'filtered_lengths',
-                         'tRNA_lengths',
-                         'rRNA_lengths',
-                         'clean_lengths',
-                         'unmapped_lengths',
-                         'rRNA_coverage',
-                         'oligo_hit_lengths',
-                         'clean_bam',
-                        ],
-                        ['from_starts',
-                         'from_ends',
-                         'rpf_positions',
-                         'expression',
-                        ]
-                       ]
+        specific_outputs = [
+            ['too_short_lengths',
+             'trimmed_lengths',
+             'filtered_lengths',
+             'tRNA_lengths',
+             'rRNA_lengths',
+             'clean_lengths',
+             'unmapped_lengths',
+             'rRNA_coverage',
+             'oligo_hit_lengths',
+             'clean_bam',
+            ],
+            ['from_starts',
+             'from_ends',
+             'rpf_positions',
+             'expression',
+            ],
+        ]
 
-        self.work = [[(self.trim_reads, 'Trim reads'),
-                      (self.pre_filter_rRNA, 'Filter contaminants'),
-                      (self.tophat, 'Map with tophat'),
-                      (self.post_filter_contaminants, 'Further contaminant filtering'),
-                      (self.get_rRNA_coverage, 'Counting rRNA coverage'),
-                      (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
-                     ],
-                     [(self.get_aggregate_positions, 'Counting mapping positions'),
-                     ],
-                    ]
+        specific_work = [
+            [(self.trim_reads, 'Trim reads'),
+             (self.pre_filter_rRNA, 'Filter contaminants'),
+             (self.tophat, 'Map with tophat'),
+             (self.post_filter_contaminants, 'Further contaminant filtering'),
+             (self.get_rRNA_coverage, 'Counting rRNA coverage'),
+             (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
+            ],
+            [(self.get_aggregate_positions, 'Counting mapping positions'),
+            ],
+        ]
 
-        self.cleanup = [(self.make_log_and_plot_lengths,
-                         self.plot_rRNA_coverage,
-                         self.plot_oligo_hit_lengths,
-                        ),
-                        (),
-                       ]
-        
-        mapreduce.MapReduceExperiment.__init__(self, **kwargs)
+        specific_cleanup = [
+            [self.compute_yield,
+             self.plot_lengths,
+             self.plot_rRNA_coverage,
+             self.plot_oligo_hit_lengths,
+            ],
+            [],
+        ]
 
-        self.data_fns = glob.glob(self.data_dir + '/*.fastq')
-        self.max_read_length = self.get_max_read_length()
+        self.results_files.extend(specific_results_files)
+        self.figure_files.extend(specific_figure_files)
+        mapreduce.extend_stages(self.outputs, specific_outputs)
+        mapreduce.extend_stages(self.work, specific_work)
+        mapreduce.extend_stages(self.cleanup, specific_cleanup)
+
+        self.make_file_names()
+        self.data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
+        if self.max_read_length == None:
+            self.max_read_length = self.get_max_read_length()
+        else:
+            self.max_read_length = int(self.max_read_length)
         
         if self.adapter_type == 'truseq':
             self.trim_function = trim.trim_adapters
@@ -206,10 +221,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                                  )
         self.write_file('oligo_hit_lengths', lengths)
     
-    def make_log_and_plot_lengths(self):
+    def compute_yield(self):
         trimmed_lengths = self.read_file('trimmed_lengths')
         too_short_lengths = self.read_file('too_short_lengths')
-        filtered_lengths = self.read_file('filtered_lengths')
         tRNA_lengths = self.read_file('tRNA_lengths')
         rRNA_lengths = self.read_file('rRNA_lengths')
         unmapped_lengths = self.read_file('unmapped_lengths')
@@ -222,8 +236,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
 
-        with open(self.file_names['log'], 'w') as log_file:
-            log_file.write('Total reads: {0:,}\n'.format(total_reads))
+        with open(self.file_names['yield'], 'w') as yield_file:
+            yield_file.write('Total reads: {0:,}\n'.format(total_reads))
             for category, count in [('Long enough reads', long_enough_reads),
                                     ('rRNA reads', rRNA_reads),
                                     ('tRNA reads', tRNA_reads),
@@ -235,7 +249,14 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                                        count,
                                                        fraction,
                                                       )
-                log_file.write(line)
+                yield_file.write(line)
+
+    def plot_lengths(self):
+        too_short_lengths = self.read_file('too_short_lengths')
+        tRNA_lengths = self.read_file('tRNA_lengths')
+        rRNA_lengths = self.read_file('rRNA_lengths')
+        unmapped_lengths = self.read_file('unmapped_lengths')
+        clean_lengths = self.read_file('clean_lengths')
 
         fig_all, ax_all = plt.subplots(figsize=(12, 8))
     
