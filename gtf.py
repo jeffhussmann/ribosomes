@@ -21,6 +21,7 @@ def parse_attribute(attribute):
 def parse_gtf_line(line):
     gene = Gene._make(line.strip().split('\t'))
     start = int(gene.start) - 1
+    # Convert from 1-based indexing to 0-based
     end = int(gene.end) - 1
     if gene.frame != '.':
         frame = int(gene.frame)
@@ -57,6 +58,21 @@ def sort_genes(genes):
         return gene.seqname, gene.start, gene.feature
 
     return sorted(genes, key=key)
+
+def get_extent_by_name(gtf_fn, name):
+    all_genes = get_all_genes(gtf_fn)
+    entries = [gene for gene in all_genes
+               if parse_attribute(gene.attribute)['gene_id'] == name]
+    start_codon = [entry for entry in entries if entry.feature == 'start_codon'][0]
+    stop_codon = [entry for entry in entries if entry.feature == 'stop_codon'][0]
+    if any(entry.strand == '-' for entry in entries):
+        raise RuntimeError, 'minus strand NYI'
+    start = start_codon.start
+    # Haven't decided what the convetion should be for which base is the end
+    end = stop_codon.end
+    seqname = start_codon.seqname
+    strand = start_codon.strand
+    return seqname, strand, start, end
 
 def get_nonoverlapping(genes, edge_buffer=0):
     ''' Returns all elements of genes that do not overlap any other element of
