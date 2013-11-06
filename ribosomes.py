@@ -189,18 +189,58 @@ def get_aggregate_positions(clean_bam_fn,
 
     return gene_names, position_counts, expression_counts, from_starts, from_ends
 
-def frameshifts(rpf_positions, edge_overlap):
-    rpf_positions = dict(zip(*rpf_positions))
-    gene_name = 'YLR233C'
-    gene_length = 2097
-    positions = rpf_positions[gene_name, gene_length][0]
+def get_extent_positions(clean_bam_fn, extent):
+    edge_overlap = 50
+    # To some extent, this is linked to the definition of simple_CDS, which
+    # excludes genes that have another gene within 50 bp.
+
+    # position_counts will hold, for each gene, for each position from
+    # -edge_overlap to gene_length + edge_overlap
+    position_counts = []
+    seqname, gene_strand, start, end = extent
+    gene_length = abs(end - start) + 1  
+    shape = (3, 3 * edge_overlap + gene_length)
+    position_counts = np.zeros(shape, int)
+    expression_counts = np.zeros(2, int)
+
+    bamfile = pysam.Samfile(clean_bam_fn, 'rb')
+    reads = bamfile.fetch(seqname,
+                          start - edge_overlap,
+                          end + edge_overlap,
+                         )
+    for read in reads:
+        if read.mapq != 50:
+            pass
+        else:
+            strand = '-' if read.is_reverse else '+'
+            
+            if strand != gene_strand:
+                expression_counts[1] += 1
+                continue
+            else:
+                expression_counts[0] += 1
+                if gene_strand == '+':
+                    from_start = read.pos - start
+                    # end is the last base before the stop codon
+                    from_end = read.pos - (end + 1)
+                elif gene_strand == '-':
+                    from_start = end - (read.aend - 1)
+                    # start is the first base after the stop codon
+                    from_end = (start - 1) - (read.aend - 1)
+            
+            start_index = 2 * edge_overlap + from_start 
+            if 28 <= read.qlen <= 30:
+                position_counts[read.qlen - 28, start_index] += 1
+                
+    return position_counts, expression_counts
+
+def frameshifts(rpf_positions, edge_overlap, gene_name, gene_length):
+    positions = rpf_positions[0]
     start_at_codon = -4
-    codon_starts = np.arange(edge_overlap + (start_at_codon * 3),
-                             edge_overlap + gene_length,
+    codon_starts = np.arange(2 * edge_overlap + (start_at_codon * 3),
+                             2 * edge_overlap + gene_length,
                              3,
                             )
-    print codon_starts
-    print len(positions)
     codon_numbers = [start_at_codon + i for i in range(len(codon_starts))]
     frames = np.zeros((3, len(codon_starts)), int)
     for c, codon_start in enumerate(codon_starts):
@@ -213,8 +253,25 @@ def frameshifts(rpf_positions, edge_overlap):
     frames_remaining = np.fliplr(np.fliplr(frames).cumsum(axis=1))
     fraction_frames_remaining = np.true_divide(frames_remaining, frames_remaining.sum(axis=0))
     
-    print frames
-    return codon_numbers, fraction_frames_so_far, fraction_frames_remaining
+    fig, axs = plt.subplots(4, 1, sharex=True)
+    cumulative_ax = axs[0]
+    frame_axs = axs[1:]
+
+    for f, (frame, ax) in enumerate(zip(frames, frame_axs)):
+        ax.plot(codon_numbers, frame)
+        ax.set_ylim(0, frames.max())
+        ax.set_title('Frame {0}'.format(f))
+
+    for so_far, remaining, color in zip(fraction_frames_so_far, fraction_frames_remaining, colors):
+        #cumulative_ax.plot(codon_numbers, so_far, color=color)
+        #cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--')
+        difference = so_far - remaining
+        cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
+        difference = remaining - so_far
+        cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
+    cumulative_ax.set_xlim(codon_numbers[0])
+
+    return codon_numbers, frames, fraction_frames_so_far, fraction_frames_remaining
 
 def plot_RPF(from_starts_fns, from_ends_fns, names):
     edge_overlap = 50
@@ -531,3 +588,14 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
     
     fig.savefig(fig_fn)
     plt.close(fig)
+
+if __name__ == '__main__':
+    clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
+    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/transcriptome/genes.gtf'
+    gene_name = 'YOR239W'
+    #gene_name = 'YPL052W'
+    #gene_name = 'YAL053W'
+    extent = gtf.get_extent_by_name(gtf_fn, gene_name)
+    gene_length = extent[3] - extent[2] + 1
+    position_counts, expression_counts = get_extent_positions(clean_bam_fn, extent)
+    codon_numbers, frames, so_far, remaining = frameshifts(position_counts, 50, gene_name, gene_length)
