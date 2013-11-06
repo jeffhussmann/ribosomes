@@ -24,8 +24,7 @@ def pre_filter(contaminant_index,
                bam_fn,
               ):
     ''' Maps reads in trimmed_reads_fn to contaminant_index. Records reads that
-        don't map in filtered_reads_fn. Records distribution of lengths of reads
-        that don't map in filtered_lengths_fn.
+        don't map in filtered_reads_fn. 
     '''
     mapping.map_bowtie2(trimmed_reads_fn,
                         contaminant_index,
@@ -44,7 +43,8 @@ def post_filter(input_bam_fn,
                 tRNA_bam_fn,
                ):
     ''' Removes any remaining mappings to tRNA or rRNA genes.
-        Removes non-uniquely-mapping reads.
+        Removes secondary mappings so that each read is represented at most
+        once, but this DOES NOT mean that only unique mappings are retained.
     '''
     qnames_already_used = set()
 
@@ -59,27 +59,29 @@ def post_filter(input_bam_fn,
                           (tRNA_genes, tRNA_bam_fn)]:
         contaminant_reads = defaultdict(list)
         for gene in genes:
-            overlapping_reads = input_bam_file.fetch(gene.seqname,
-                                                     gene.start,
-                                                     gene.end,
-                                                    )
-            for read in overlapping_reads:
-                contaminant_reads[read.qname].append(read)
+            overlapping_mappings = input_bam_file.fetch(gene.seqname,
+                                                        gene.start,
+                                                        gene.end,
+                                                       )
+            for mapping in overlapping_mappings:
+                contaminant_reads[read.qname].append(mapping)
+
         with pysam.Samfile(bam_fn, 'wb', header=input_bam_file.header) as bam_file:
             for qname in contaminant_reads:
                 if qname not in qnames_already_used:
-                    read = random.choice(contaminant_reads[qname])
-                    bam_file.write(read)
+                    mapping = random.choice(contaminant_reads[qname])
+                    bam_file.write(mapping)
                     qnames_already_used.add(qname)
+
     input_bam_file.close()
          
-    # Create a new clean bam file consisting of all reads that weren't flagged
-    # as contaminants above.
+    # Create a new clean bam file consisting of the primary mapping of each
+    # read that wasn't flagged as a contaminant.
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
     with pysam.Samfile(clean_bam_fn, 'wb', header=input_bam_file.header) as clean_bam_file:
-        for read in input_bam_file:
-            if read.qname not in qnames_already_used and not read.is_secondary:
-                clean_bam_file.write(read)
+        for mapping in input_bam_file:
+            if mapping.qname not in qnames_already_used and not mapping.is_secondary:
+                clean_bam_file.write(mapping)
 
     pysam.index(clean_bam_fn)
 
