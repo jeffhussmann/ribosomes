@@ -7,12 +7,11 @@ import trim_cython
 import pysam
 from itertools import chain
 
-def trim(reads,
-         min_length,
-         max_read_length,
-         trimmed_reads_fn,
-         find_position):
-
+def trim(reads, min_length, max_read_length, trimmed_reads_fn, find_position):
+    ''' Wrapper that handles the logistics of trimming reads given a function
+        find_postion that takes a sequence and returns a position that trimming
+        should occur at.
+    '''
     trimmed_lengths = np.zeros(max_read_length + 1, int)
     too_short_lengths = np.zeros(max_read_length + 1, int)
     
