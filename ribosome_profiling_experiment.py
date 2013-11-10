@@ -72,6 +72,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('clean_lengths', '{name}_clean_lengths.pdf'),
             ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
             ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
+            ('starts_and_ends', '{name}_starts_and_ends.png'),
         ]
 
         self.organism_files = [
@@ -121,7 +122,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              self.plot_rRNA_coverage,
              self.plot_oligo_hit_lengths,
             ],
-            [],
+            [self.plot_starts_and_ends,
+            ],
         ]
 
         self.results_files.extend(specific_results_files)
@@ -301,6 +303,17 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                             lengths,
                                             self.figure_file_names['oligo_hit_lengths'],
                                            )
+
+
+    def plot_starts_and_ends(self):
+        from_starts = self.read_file('from_starts')
+        from_ends = self.read_file('from_ends')
+
+        ribosomes.plot_starts_and_ends([from_starts],
+                                       [from_ends],
+                                       [self.name],
+                                       self.figure_file_names['starts_and_ends'],
+                                      )
 
     def get_max_read_length(self):
         def length_from_file_name(file_name):
