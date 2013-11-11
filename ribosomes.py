@@ -7,6 +7,7 @@ import fastq
 import mutations
 import numpy as np
 import matplotlib.pyplot as plt
+import Serialize
 from itertools import cycle
 from collections import Counter, defaultdict
 
@@ -237,51 +238,82 @@ def plot_starts_and_ends(from_starts_list, from_ends_list, names, fig_file_name)
 
     fig.savefig(fig_file_name)
 
-def plot_aggregate(rpf_positions, fig_file_name):
+def plot_aggregate(rpf_positions_list, names, fig_file_name):
     edge_overlap = 50
 
-    min_codons = 500
-
-    counts_in_long_genes = np.zeros((3, 2 * edge_overlap + min_codons * 3), int)
-    for (gene_name, length), positions in zip(*rpf_positions):
-        if length > min_codons * 3:
-            counts_in_long_genes += positions[:, :2 * edge_overlap + min_codons * 3]
-    
-    fig, ax = plt.subplots(figsize=(12, 16))
-
+    min_codons = 200
     start_at_codon = -8
-    end_at_codon = 500
+    end_at_codon = min_codons
     codons = np.arange(start_at_codon, end_at_codon)
     codon_starts = np.arange(2 * edge_overlap + 3 * start_at_codon,
                              2 * edge_overlap + 3 * end_at_codon,
                              3,
                             )
-    counts = [counts_in_long_genes[0][c] for c in codon_starts]
-    ax.plot(codons, counts, '.-')
+    
+    fig, ax = plt.subplots(figsize=(12, 16))
+
+    for name, rpf_positions in zip(names, rpf_positions_list):
+        counts_in_long_genes = np.zeros((3, 2 * edge_overlap + min_codons * 3), float)
+        for (gene_name, length), positions in zip(*rpf_positions):
+            if length > min_codons * 3:
+                gene_prefix = positions[:, :2 * edge_overlap + min_codons * 3]
+                row_sums = gene_prefix.sum(axis=1)
+                zeros_removed = np.maximum(row_sums, 1)
+                normalized = np.true_divide(gene_prefix, zeros_removed[:, np.newaxis])
+                counts_in_long_genes += normalized
+    
+        counts = [counts_in_long_genes[0][c] for c in codon_starts]
+        ax.plot(codons, counts, '.-', label=name)
+
     ax.set_xlim(start_at_codon, end_at_codon)
+    leg = ax.legend(loc='upper right', fancybox=True)
+    leg.get_frame().set_alpha(0.5)
     fig.savefig(fig_file_name)
 
-
-def plot_gene(rpf_positions, gene_name):
+def plot_gene(rpf_positions_list, gene_name):
     edge_overlap = 50
 
-    by_name = {name: counts for (name, length), counts in zip(*rpf_positions)}
-    lengths = {name: length for (name, length), counts in zip(*rpf_positions)}
-    length = lengths[gene_name]
-    counts = by_name[gene_name]
-    
     fig, ax = plt.subplots(figsize=(12, 16))
 
-    start_at_codon = -8
-    end_at_codon = length / 3
-    codons = np.arange(start_at_codon, end_at_codon)
-    codon_starts = np.arange(2 * edge_overlap + 3 * start_at_codon,
-                             2 * edge_overlap + 3 * end_at_codon,
-                             3,
-                            )
-    counts = [counts[0][c] for c in codon_starts]
-    ax.plot(codons, counts, '.-')
-    ax.set_xlim(start_at_codon, end_at_codon)
+    for rpf_positions in rpf_positions_list:
+        by_name = {name: counts for (name, length), counts in zip(*rpf_positions)}
+        lengths = {name: length for (name, length), counts in zip(*rpf_positions)}
+        length = lengths[gene_name]
+        counts = by_name[gene_name]
+        
+        start_at_codon = -8
+        end_at_codon = length / 3
+        codons = np.arange(start_at_codon, end_at_codon)
+        codon_starts = np.arange(2 * edge_overlap + 3 * start_at_codon,
+                                 2 * edge_overlap + 3 * end_at_codon,
+                                 3,
+                                )
+        counts = [counts[0][c] for c in codon_starts]
+        ax.plot(codons, counts, '.-')
+        ax.set_xlim(start_at_codon, end_at_codon)
+
+def scatter_positions(rpf_positions_list):
+    edge_overlap = 50
+
+    fig, ax = plt.subplots(figsize=(12, 16))
+
+    counts_list = []
+
+    for rpf_positions in rpf_positions_list:
+        experiment_counts = []
+        for (name, length), counts in zip(*rpf_positions): 
+            start_at_codon = -8
+            end_at_codon = length / 3
+            codons = np.arange(start_at_codon, end_at_codon)
+            codon_starts = np.arange(2 * edge_overlap + 3 * start_at_codon,
+                                     2 * edge_overlap + 3 * end_at_codon,
+                                     3,
+                                    )
+            counts = [counts[0][c] for c in codon_starts]
+            experiment_counts.extend(counts)
+        counts_list.append(experiment_counts)
+      
+    ax.scatter(counts_list[0], counts_list[1], s=1)
 
 def plot_density(from_starts_fns, from_ends_fns, names, read_lengths):
     from_starts_list = [np.loadtxt(fn) for fn in from_starts_fns]
@@ -513,6 +545,22 @@ def plot_frameshifts(rpf_counts_list,
 
     return codon_numbers, frame_counts_list, fraction_frames_so_far, fraction_frames_remaining
 
+
+def plot_all_aggregates():
+    experiments = [
+        ('geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
+        ('geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
+        ('ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
+        ('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
+        ('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
+        ('WT',  '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_rpf_positions.txt'),
+    ]
+
+    names = [name for name, _ in experiments]
+    rpf_positions_list = [Serialize.read_file(fn, 'rpf_positions') for _, fn in experiments]
+    fig_file_name = '/home/jah/projects/arlen/results/compare_aggregate_positions.pdf'
+    plot_aggregate(rpf_positions_list, names, fig_file_name)
+    
 if __name__ == '__main__':
     genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
 
