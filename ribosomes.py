@@ -175,7 +175,7 @@ def determine_ambiguity_of_positions(extent, genome_index):
     seqname, gene_strand, start, end = extent
     gene_length = abs(end - start) + 1  
     
-    ref_seq = str(genome_index[seqname].seq)[start - 2 * edge_overlap:end + edge_overlap]
+    ref_seq = str(genome_index[seqname].seq)[start - 2 * edge_overlap:end + edge_overlap + 1]
     
     shape = (3, 3 * edge_overlap + gene_length)
     position_ambiguity = np.empty(shape, int)
@@ -192,7 +192,6 @@ def determine_ambiguity_of_positions(extent, genome_index):
             # end in a non-A followed by another non-A and is therefore
             # unambiguous.
             if ref_seq[start + length - 1].upper() == 'A':
-                print length - 28, start 
                 position_ambiguity[length - 28, start] = 0
             elif ref_seq[start + length].upper() == 'A':
                 position_ambiguity[length - 28, start] = 1
@@ -238,10 +237,44 @@ def plot_starts_and_ends(from_starts_list, from_ends_list, names, fig_file_name)
 
     fig.savefig(fig_file_name)
 
+def plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_name):
+    edge_overlap = 50
+
+    start_fig, start_axs = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
+    end_fig, end_axs = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
+
+    experiments = zip(from_starts_list, names)
+    for from_starts, name in experiments:
+        starts_xs = np.arange(-2 * edge_overlap, 1000)
+        for length, ax in zip([28, 29, 30], start_axs):
+            starts = np.true_divide(from_starts[length], from_starts[length].sum())
+            ax.plot(starts_xs, starts[:len(starts_xs)], '.-', label=name)
+            ax.set_ylabel('Fraction of uniquely mapped reads of specific length')
+            ax.set_title('Length {0} fragments'.format(length))
+    
+    experiments = zip(from_ends_list, names)
+    for from_ends, name in experiments:
+        ends_xs = np.arange(-1000, edge_overlap)
+        for length, ax in zip([28, 29, 30], end_axs):
+            ends = np.true_divide(from_ends[length], from_ends[length].sum())
+            ax.plot(ends_xs, ends[-len(ends_xs):], '.-', label=name)
+            ax.set_ylabel('Fraction of uniquely mapped reads of specific length')
+            ax.set_title('Length {0} fragments'.format(length))
+
+    leg = start_axs[0].legend(loc='upper right', fancybox=True)
+    leg.get_frame().set_alpha(0.5)
+    start_axs[-1].set_xlim(-20, 20)
+    start_axs[-1].set_xlabel('Position of read relative to start of CDS')
+
+    leg = end_axs[0].legend(loc='upper right', fancybox=True)
+    leg.get_frame().set_alpha(0.5)
+    end_axs[-1].set_xlim(-35, 5)
+    end_axs[-1].set_xlabel('Position of read relative to start of CDS')
+
 def plot_aggregate(rpf_positions_list, names, fig_file_name):
     edge_overlap = 50
 
-    min_codons = 200
+    min_codons = 500
     start_at_codon = -8
     end_at_codon = min_codons
     codons = np.arange(start_at_codon, end_at_codon)
@@ -314,39 +347,6 @@ def scatter_positions(rpf_positions_list):
         counts_list.append(experiment_counts)
       
     ax.scatter(counts_list[0], counts_list[1], s=1)
-
-def plot_density(from_starts_fns, from_ends_fns, names, read_lengths):
-    from_starts_list = [np.loadtxt(fn) for fn in from_starts_fns]
-    from_ends_list = [np.loadtxt(fn) for fn in from_ends_fns]
-
-    fig, (start_ax, end_ax) = plt.subplots(2, 1, figsize=(12, 16))
-
-    experiments = zip(from_starts_list, from_ends_list, names, read_lengths)
-    for from_starts, from_ends, name, read_length in experiments:
-        start_xs = np.arange(501)
-        end_xs = np.arange(-500, 1)
-        start_counts = from_starts[28][read_length + 1 - 12::3][:501]
-        print len(start_xs), len(start_counts)
-        end_counts = from_ends[28][-read_length - 15::-3][:501][::-1]
-        start_ax.plot(start_xs, start_counts,
-                      '.-',
-                     )
-        end_ax.plot(end_xs, end_counts,
-                    '.-',
-                   )
-
-    #start_ax.set_xlim(-20, 20)
-    #start_ax.set_xlabel('Position of read relative to start of CDS')
-    #start_ax.set_ylabel('Fraction of uniquely mapped reads of specific length')
-    #
-    #end_ax.set_xlim(-35, 5)
-    #end_ax.set_xlabel('Position of read relative to stop codon')
-    #end_ax.set_ylabel('Fraction of uniquely mapped readsof specific length')
-
-    #leg = start_ax.legend(loc='upper right', fancybox=True)
-    #leg.get_frame().set_alpha(0.5)
-    #leg = end_ax.legend(loc='upper right', fancybox=True)
-    #leg.get_frame().set_alpha(0.5)
 
 def plot_mRNA(from_starts_fns, from_ends_fns, fractions_fns, names, read_lengths, fragment_lengths):
     from_starts_list = [np.loadtxt(fn) for fn in from_starts_fns]
@@ -489,8 +489,8 @@ def plot_frameshifts(rpf_counts_list,
                      gene_length,
                     ):
     ambiguity_to_color = {0: 'red',
-                          1: 'blue',
-                          2: 'green',
+                          1: 'green',
+                          2: 'black',
                          }
 
     length_data = zip([28, 29, 30], rpf_counts_list, position_ambiguity_list)
@@ -527,7 +527,7 @@ def plot_frameshifts(rpf_counts_list,
         frame_axs = axs[1:]
 
         for frame, (ax, frame_counts, frame_colors) in enumerate(zip(frame_axs, frame_counts_list, frame_colors_list)):
-            ax.scatter(codon_numbers, frame_counts, s=10, c=frame_colors, linewidths=0)
+            ax.scatter(codon_numbers, frame_counts, s=20, c=frame_colors, linewidths=0)
             ax.set_ylim(-1, frame_counts_list.max() + 1)
             ax.set_xlim(codon_numbers[0], codon_numbers[-1])
             ax.set_title('Frame {0}'.format(frame))
@@ -545,11 +545,10 @@ def plot_frameshifts(rpf_counts_list,
 
     return codon_numbers, frame_counts_list, fraction_frames_so_far, fraction_frames_remaining
 
-
 def plot_all_aggregates():
     experiments = [
         ('geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
-        ('geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
+        #('geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
         ('ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
         ('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
         ('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
@@ -561,10 +560,45 @@ def plot_all_aggregates():
     fig_file_name = '/home/jah/projects/arlen/results/compare_aggregate_positions.pdf'
     plot_aggregate(rpf_positions_list, names, fig_file_name)
     
+def plot_all_starts_ends():
+    experiments = [
+        ('geranshenko1', 
+         '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_from_starts.txt',
+         '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_from_ends.txt',
+        ),
+        ('ingolia1',
+         '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_from_starts.txt',
+         '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_from_ends.txt',
+        ),
+        ('ingolia2',
+         '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_from_starts.txt',
+         '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_from_ends.txt',
+        ),
+        ('R98S',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_from_starts.txt',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_from_ends.txt',
+        ),
+        ('suppressed',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_from_starts.txt',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_from_ends.txt',
+        ),
+        ('WT',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_from_starts.txt',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_from_ends.txt',
+        ),
+    ]
+
+    names = [name for name, _, _ in experiments]
+    from_starts_list = [Serialize.read_file(fn, 'array') for _, fn, _ in experiments]
+    from_ends_list = [Serialize.read_file(fn, 'array') for _, _, fn in experiments]
+    fig_file_name = '/home/jah/projects/arlen/results/compare_starts_and_ends.pdf'
+    plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_name)
+
 if __name__ == '__main__':
     genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
 
     #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
+    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_clean.bam'
     #clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_clean.bam'
     clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_clean.bam'
     
