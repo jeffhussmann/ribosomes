@@ -598,7 +598,8 @@ def plot_all_starts_ends():
 
 def error_profile(bam_file_name, simple_CDSs):
     edge_overlap = 50
-    type_shape = (50,
+    type_shape = (2,
+                  50,
                   fastq.MAX_EXPECTED_QUAL + 1,
                   len(base_order),
                   len(base_order),
@@ -613,6 +614,8 @@ def error_profile(bam_file_name, simple_CDSs):
                              )
         for read in reads:
             if read.mapq != 50:
+                pass
+            elif read.qlen < 28 or read.qlen > 29:
                 pass
             else:
                 strand = '-' if read.is_reverse else '+'
@@ -630,7 +633,7 @@ def error_profile(bam_file_name, simple_CDSs):
                     for ref_char, read_char, qual, ref_pos, read_pos in alignment:
                         ref_index = index_lookup[ref_char]
                         read_index = index_lookup[read_char]
-                        coords = (read_pos, qual, ref_index, read_index)
+                        coords = (read.qlen - 28, read_pos, qual, ref_index, read_index)
                         type_counts[coords] += 1
 
     return type_counts

@@ -64,7 +64,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
-            ('mismatches', 'mismatches', '{name}_mismatches.txt'),
+            ('mismatches_28', 'mismatches', '{name}_mismatches_28.txt'),
+            ('mismatches_29', 'mismatches', '{name}_mismatches_29.txt'),
 
             ('yield', '', '{name}_yield.txt'),
         ]
@@ -103,7 +104,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'from_ends',
              'rpf_positions',
              'expression',
-             'mismatches',
+             'mismatches_28',
+             'mismatches_29',
             ],
         ]
 
@@ -373,7 +375,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
                                               piece_simple_CDSs,
                                              )
-        self.write_file('mismatches', type_counts)
+        self.write_file('mismatches_28', type_counts[0])
+        self.write_file('mismatches_29', type_counts[1])
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
