@@ -64,6 +64,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
+            ('mismatches', 'mismatches', '{name}_mismatches.txt'),
+
             ('yield', '', '{name}_yield.txt'),
         ]
 
@@ -101,6 +103,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'from_ends',
              'rpf_positions',
              'expression',
+             'mismatches',
             ],
         ]
 
@@ -113,6 +116,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
             [(self.get_aggregate_positions, 'Counting mapping positions'),
+             (self.get_error_profile, 'Getting error profile'),
             ],
         ]
 
@@ -148,6 +152,15 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
 
         for key, tail in self.organism_files:
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
+
+    def get_simple_CDSs(self):
+        all_simple_CDSs = gtf.get_simple_CDSs(self.file_names['genes'])
+        max_gene_length = max(abs(gene.end - gene.start) + 1 for gene in all_simple_CDSs)
+        piece_simple_CDSs = Parallel.split_file.piece_of_list(all_simple_CDSs,
+                                                              self.num_pieces,
+                                                              self.which_piece,
+                                                             )
+        return piece_simple_CDSs, max_gene_length
         
     def trim_reads(self):
         trimmed_lengths, too_short_lengths = self.trim_function(self.get_reads(),
@@ -343,13 +356,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         return reads
 
     def get_aggregate_positions(self):
-        simple_CDSs = gtf.get_simple_CDSs(self.file_names['genes'])
-        max_gene_length = max(abs(gene.end - gene.start) + 1 for gene in simple_CDSs)
-        piece_simple_CDSs = Parallel.split_file.piece_of_list(simple_CDSs,
-                                                              self.num_pieces,
-                                                              self.which_piece,
-                                                             )
-
+        piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
         data = ribosomes.get_aggregate_positions(self.merged_file_names['clean_bam'],
                                                  piece_simple_CDSs,
                                                  max_gene_length,
@@ -360,6 +367,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         self.write_file('expression', (gene_names, expression_counts))
         self.write_file('from_starts', from_starts)
         self.write_file('from_ends', from_ends)
+
+    def get_error_profile(self):
+        piece_simple_CDSs, _ = self.get_simple_CDSs()
+        type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
+                                              piece_simple_CDSs,
+                                             )
+        self.write_file('mismatches', type_counts)
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)

@@ -2,9 +2,11 @@ import mapping as mapping_tools
 import os.path
 import gtf
 import pysam
+import sam
 import subprocess
 import fastq
 import mutations
+from mutations import base_order, base_to_index, base_to_complement_index
 import numpy as np
 import matplotlib.pyplot as plt
 import Serialize
@@ -594,6 +596,45 @@ def plot_all_starts_ends():
     fig_file_name = '/home/jah/projects/arlen/results/compare_starts_and_ends.pdf'
     plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_name)
 
+def error_profile(bam_file_name, simple_CDSs):
+    edge_overlap = 50
+    type_shape = (50,
+                  fastq.MAX_EXPECTED_QUAL + 1,
+                  len(base_order),
+                  len(base_order),
+                 )
+    type_counts = np.zeros(shape=type_shape, dtype=int)
+
+    bamfile = pysam.Samfile(bam_file_name, 'rb')
+    for g, CDS in enumerate(simple_CDSs):
+        reads = bamfile.fetch(CDS.seqname,
+                              CDS.start - edge_overlap,
+                              CDS.end + edge_overlap,
+                             )
+        for read in reads:
+            if read.mapq != 50:
+                pass
+            else:
+                strand = '-' if read.is_reverse else '+'
+                
+                if strand != CDS.strand:
+                    continue
+                else:
+                    alignment = sam.produce_alignment(read, from_pysam=True)
+
+                    if strand == '+':
+                        index_lookup = base_to_index
+                    else:
+                        index_lookup = base_to_complement_index
+                   
+                    for ref_char, read_char, qual, ref_pos, read_pos in alignment:
+                        ref_index = index_lookup[ref_char]
+                        read_index = index_lookup[read_char]
+                        coords = (read_pos, qual, ref_index, read_index)
+                        type_counts[coords] += 1
+
+    return type_counts
+            
 if __name__ == '__main__':
     genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
 
