@@ -15,6 +15,7 @@ def pre_filter(contaminant_index,
                filtered_reads_fn,
                sam_fn,
                bam_fn,
+               error_fn,
               ):
     ''' Maps reads in trimmed_reads_fn to contaminant_index. Records reads that
         don't map in filtered_reads_fn. 
@@ -26,6 +27,7 @@ def pre_filter(contaminant_index,
                               threads=1,
                               report_all=True,
                               explicit_path=True,
+                              error_file_name=error_fn,
                              )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
 

@@ -596,9 +596,9 @@ def plot_all_starts_ends():
     fig_file_name = '/home/jah/projects/arlen/results/compare_starts_and_ends.pdf'
     plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_name)
 
-def error_profile(bam_file_name, simple_CDSs):
+def error_profile(bam_file_name, simple_CDSs, fastq_type):
     edge_overlap = 50
-    type_shape = (2,
+    type_shape = (7,
                   50,
                   fastq.MAX_EXPECTED_QUAL + 1,
                   len(base_order),
@@ -614,16 +614,22 @@ def error_profile(bam_file_name, simple_CDSs):
                              )
         for read in reads:
             if read.mapq != 50:
-                pass
-            elif read.qlen < 28 or read.qlen > 29:
-                pass
+                # Non-unique mapping
+                continue
+            elif read.qlen < 25 or read.qlen > 31:
+                continue
+            elif sam.contains_indel_pysam(read):
+                continue
             else:
                 strand = '-' if read.is_reverse else '+'
                 
                 if strand != CDS.strand:
                     continue
                 else:
-                    alignment = sam.produce_alignment(read, from_pysam=True)
+                    alignment = sam.produce_alignment(read,
+                                                      from_pysam=True,
+                                                      fastq_type=fastq_type,
+                                                     )
 
                     if strand == '+':
                         index_lookup = base_to_index
@@ -633,7 +639,7 @@ def error_profile(bam_file_name, simple_CDSs):
                     for ref_char, read_char, qual, ref_pos, read_pos in alignment:
                         ref_index = index_lookup[ref_char]
                         read_index = index_lookup[read_char]
-                        coords = (read.qlen - 28, read_pos, qual, ref_index, read_index)
+                        coords = (read.qlen - 25, read_pos, qual, ref_index, read_index)
                         type_counts[coords] += 1
 
     return type_counts

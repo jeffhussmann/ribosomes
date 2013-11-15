@@ -16,6 +16,7 @@ import numpy as np
 import mapreduce
 import Parallel.split_file
 import gtf
+import Visualize.mismatches
 
 class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
     num_stages = 2
@@ -26,10 +27,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
+        self.fastq_type = kwargs.get('fastq_type', 'sanger')
         self.max_read_length = kwargs.get('max_read_length', None)
+        
         self.min_length = 10
         
         specific_results_files = [
+            ('bowtie_error', '', '{name}_bowtie_error.txt'),
             ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
             ('filtered_reads', 'fastq', '{name}_filtered.fastq'), 
 
@@ -64,8 +68,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
+            ('mismatches_25', 'mismatches', '{name}_mismatches_25.txt'),
+            ('mismatches_26', 'mismatches', '{name}_mismatches_26.txt'),
+            ('mismatches_27', 'mismatches', '{name}_mismatches_27.txt'),
             ('mismatches_28', 'mismatches', '{name}_mismatches_28.txt'),
             ('mismatches_29', 'mismatches', '{name}_mismatches_29.txt'),
+            ('mismatches_30', 'mismatches', '{name}_mismatches_30.txt'),
+            ('mismatches_31', 'mismatches', '{name}_mismatches_31.txt'),
 
             ('yield', '', '{name}_yield.txt'),
         ]
@@ -76,6 +85,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
             ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
             ('starts_and_ends', '{name}_starts_and_ends.png'),
+            ('mismatch_positions', '{name}_mismatch_positions.png'),
+            ('first_mismatch_types', '{name}_first_mismatch_types.png'),
+            ('last_mismatch_types', '{name}_last_mismatch_types.png'),
         ]
 
         self.organism_files = [
@@ -104,8 +116,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'from_ends',
              'rpf_positions',
              'expression',
+             'mismatches_25',
+             'mismatches_26',
+             'mismatches_27',
              'mismatches_28',
              'mismatches_29',
+             'mismatches_30',
+             'mismatches_31',
             ],
         ]
 
@@ -129,6 +146,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              self.plot_oligo_hit_lengths,
             ],
             [self.plot_starts_and_ends,
+             self.plot_mismatch_positions,
+             self.plot_mismatch_types,
             ],
         ]
 
@@ -179,6 +198,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                 self.file_names['filtered_reads'],
                                 self.file_names['rRNA_sam'],
                                 self.file_names['rRNA_bam'],
+                                self.file_names['bowtie_error'],
                                )
 
         filtered_reads = fastq.reads(self.file_names['filtered_reads'])
@@ -330,6 +350,42 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                        self.figure_file_names['starts_and_ends'],
                                       )
 
+    def plot_mismatch_positions(self):
+        fig, ax = plt.subplots(figsize=(16, 12))
+        for length in range(25, 32):
+            type_counts = self.read_file('mismatches_{0}'.format(length))
+            Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
+        ax.set_xlim(-1, 31)
+        leg = ax.legend(loc='upper right', fancybox=True)  
+        leg.get_frame().set_alpha(0.5)
+        fig.savefig(self.figure_file_names['mismatch_positions'])
+
+    def plot_mismatch_types(self):
+        first_data_sets = []
+        last_data_sets = []
+        for length in range(27, 32):
+            type_counts = self.read_file('mismatches_{0}'.format(length))
+            first_counts = type_counts[0]
+            last_counts = type_counts[length - 1]
+            first_data_set = (str(length),
+                              first_counts,
+                              (30, fastq.MAX_EXPECTED_QUAL),
+                             )
+            first_data_sets.append(first_data_set)
+            last_data_set = (str(length),
+                             last_counts,
+                             (30, fastq.MAX_EXPECTED_QUAL),
+                            )
+            last_data_sets.append(last_data_set)
+
+        Visualize.mismatches.plot_rates(first_data_sets,
+                                        save_as=self.figure_file_names['first_mismatch_types'],
+                                       )
+
+        Visualize.mismatches.plot_rates(last_data_sets,
+                                        save_as=self.figure_file_names['last_mismatch_types'],
+                                       )
+            
     def get_max_read_length(self):
         def length_from_file_name(file_name):
             length = len(fastq.reads(file_name).next().seq)
@@ -374,9 +430,10 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         piece_simple_CDSs, _ = self.get_simple_CDSs()
         type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
                                               piece_simple_CDSs,
+                                              self.fastq_type,
                                              )
-        self.write_file('mismatches_28', type_counts[0])
-        self.write_file('mismatches_29', type_counts[1])
+        for length, length_counts in zip(range(25, 32), type_counts): 
+            self.write_file('mismatches_{0}'.format(length), length_counts)
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
