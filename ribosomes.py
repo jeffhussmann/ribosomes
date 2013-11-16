@@ -1,6 +1,7 @@
 import mapping as mapping_tools
 import os.path
 import gtf
+import recycling
 import pysam
 import sam
 import subprocess
@@ -10,7 +11,7 @@ from mutations import base_order, base_to_index, base_to_complement_index
 import numpy as np
 import matplotlib.pyplot as plt
 import Serialize
-from itertools import cycle
+from itertools import cycle, izip
 from collections import Counter, defaultdict
 
 fraction_resolution = 10
@@ -607,7 +608,7 @@ def error_profile(bam_file_name, simple_CDSs, fastq_type):
     type_counts = np.zeros(shape=type_shape, dtype=int)
 
     bamfile = pysam.Samfile(bam_file_name, 'rb')
-    for g, CDS in enumerate(simple_CDSs):
+    for CDS in simple_CDSs:
         reads = bamfile.fetch(CDS.seqname,
                               CDS.start - edge_overlap,
                               CDS.end + edge_overlap,
@@ -643,7 +644,37 @@ def error_profile(bam_file_name, simple_CDSs, fastq_type):
                         type_counts[coords] += 1
 
     return type_counts
-            
+
+def recycling_ratios(rpf_positions_list, simple_CDSs, genome):
+    edge_overlap = 50
+        
+    ratio_lists = {amino_acid: defaultdict(list) for amino_acid in recycling.back_table}
+
+    # Hideous hack that needs to be fixed
+    rpf_positions_list = izip(*rpf_positions_list)
+
+    for gene, rpf_positions in izip(simple_CDSs, rpf_positions_list):
+        (name, _), positions = rpf_positions
+        gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
+        if gene_name != name:
+            print gene_name, name
+        assert gene_name == name
+
+        codon_counts = positions[0][2 * edge_overlap - 15::3]
+        aa_locations = recycling.get_amino_acid_locations(gene, genome)
+        if aa_locations == None:
+            # MT or internal stop codon
+            continue
+        for amino_acid in aa_locations:
+            location_pairs = izip(aa_locations[amino_acid], aa_locations[amino_acid][1:])
+            for (first_position, first_codon), (second_position, second_codon) in location_pairs:
+                first_count = codon_counts[first_position]
+                second_count = codon_counts[second_position]
+                ratio = (first_count, second_count)
+                ratio_lists[amino_acid][first_codon, second_codon].append(ratio)
+        
+    return ratio_lists
+
 if __name__ == '__main__':
     genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
 

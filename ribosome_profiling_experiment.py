@@ -17,6 +17,7 @@ import mapreduce
 import Parallel.split_file
 import gtf
 import Visualize.mismatches
+import mapping
 
 class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
     num_stages = 2
@@ -76,6 +77,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('mismatches_30', 'mismatches', '{name}_mismatches_30.txt'),
             ('mismatches_31', 'mismatches', '{name}_mismatches_31.txt'),
 
+            ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
+
             ('yield', '', '{name}_yield.txt'),
         ]
 
@@ -92,7 +95,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
 
         self.organism_files = [
             ('index', 'genome/genome'),
-            ('genome', 'genome/genome.fa'),
+            ('genome', 'genome'),
             ('genes', 'transcriptome/genes.gtf'),
             ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
             ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
@@ -123,6 +126,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'mismatches_29',
              'mismatches_30',
              'mismatches_31',
+             'recycling_ratios',
             ],
         ]
 
@@ -136,6 +140,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ],
             [(self.get_aggregate_positions, 'Counting mapping positions'),
              (self.get_error_profile, 'Getting error profile'),
+             (self.get_recycling_ratios, 'Getting recycling ratios'),
             ],
         ]
 
@@ -434,6 +439,16 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                              )
         for length, length_counts in zip(range(25, 32), type_counts): 
             self.write_file('mismatches_{0}'.format(length), length_counts)
+
+    def get_recycling_ratios(self):
+        piece_simple_CDSs, _ = self.get_simple_CDSs()
+        rpf_positions_list = self.read_file('rpf_positions')
+        genome = mapping.load_genome(self.file_names['genome'], explicit_path=True)
+        ratio_lists = ribosomes.recycling_ratios(rpf_positions_list,
+                                                 piece_simple_CDSs,
+                                                 genome,
+                                                )
+        self.write_file('recycling_ratios', ratio_lists)
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
