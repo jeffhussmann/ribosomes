@@ -485,6 +485,52 @@ def compare(summary_fns, clean_length_fns, names):
 
     return sample_counts
 
+def get_RPKMs(rpf_positions_list):
+    RPKMs = {}
+    total_mapped_reads = 0
+    for gene_name in rpf_positions_list:
+        counts = rpf_positions_list[gene_name]['counts'][28]
+        length = rpf_positions_list[gene_name]['CDS_length']
+        A_site_offset = 15
+        start_index = 100 - A_site_offset
+        end_index = -(50 + A_site_offset)
+        in_frames = counts[start_index:end_index:3]
+        reads = in_frames.sum()
+        RPKMs[gene_name] = float(reads) / length
+        total_mapped_reads += reads
+
+    for gene_name in RPKMs:
+        RPKMs[gene_name] = 1.e9 * RPKMs[gene_name] / total_mapped_reads
+
+    return RPKMs
+
+def get_TPMs(rpf_positions_list):
+    TPMs = {}
+    T = 0
+    for gene_name in rpf_positions_list:
+        counts = rpf_positions_list[gene_name]['counts'][28]
+        length = rpf_positions_list[gene_name]['CDS_length']
+
+        A_site_offset = 15
+        start_index = 100 - A_site_offset
+        end_index = -(50 + A_site_offset)
+        in_frames = counts[start_index:end_index:3]
+        reads = in_frames.sum()
+        
+        TPMs[gene_name] = float(reads) / length
+        T += TPMs[gene_name]
+
+    for gene_name in rpf_positions_list:
+        length = rpf_positions_list[gene_name]['CDS_length']
+        TPMs[gene_name] = 1.e6 * TPMs[gene_name] / T
+
+    return TPMs
+
+def get_ratios(first, second):
+    assert set(first) == set(second)
+    ratios = {key: np.divide(float(first[key]), second[key]) for key in first}
+    return ratios
+
 def plot_frameshifts(rpf_counts_list,
                      position_ambiguity_list,
                      edge_overlap,
@@ -548,20 +594,73 @@ def plot_frameshifts(rpf_counts_list,
 
     return codon_numbers, frame_counts_list, fraction_frames_so_far, fraction_frames_remaining
 
-def plot_all_aggregates():
+def plot_RPKMs():
     experiments = [
         ('geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
         #('geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
         ('ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
-        ('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
-        ('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
-        ('WT',  '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_rpf_positions.txt'),
+        ('ingolia1_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt'),
+        #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
+        #('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
+        #('WT',  '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_rpf_positions.txt'),
     ]
 
     names = [name for name, _ in experiments]
-    rpf_positions_list = [Serialize.read_file(fn, 'rpf_positions') for _, fn in experiments]
-    fig_file_name = '/home/jah/projects/arlen/results/compare_aggregate_positions.pdf'
-    plot_aggregate(rpf_positions_list, names, fig_file_name)
+    rpf_positions_lists = [Serialize.read_file(fn, 'rpf_positions') for _, fn in experiments]
+    RPKMs_list = [get_TPMs(rpf_positions_list) for rpf_positions_list in rpf_positions_lists]
+    vals = [[val for name, val in sorted(RPKMs.items())] for RPKMs in RPKMs_list]
+    
+    fig = plt.figure(figsize=(12, 12))
+    for r in range(len(names)):
+        for c in range(r + 1, len(names)):
+            ax = fig.add_subplot(len(names) - 1, len(names) - 1, r * (len(names) - 1) + (c - 1) + 1)
+            first = names[c]
+            second = names[r]
+            xs = vals[r]
+            ys = vals[c]
+
+            print sum(xs)
+            print sum(ys)
+            print
+            
+            ax.scatter(xs, ys, s=1)
+            ax.set_yscale('log')
+            ax.set_xscale('log')
+            ax.set_xlim(1e-1, 5e4)
+            ax.set_ylim(1e-1, 5e4)
+            ax.plot([1e-2, 1e5], [1e-2, 1e5], '-', color='red', alpha=0.2)
+            ax.set_xlabel(first)
+            ax.set_ylabel(second)
+
+def density_length_correlation():
+    experiments = [
+        ('ingolia1',
+         '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt',
+         '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt',
+        ),
+        #('geranshenko1',
+        # '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt',
+        # '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_mRNA/results/Initial_rep1_mRNA_rpf_positions.txt',
+        #),
+        ('R98S',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt',
+         '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_mRNA/results/R98S_cDNA_mRNA_rpf_positions.txt',
+        ),
+    ]
+
+    for name, rpf_fn, mRNA_fn in experiments:
+        rpfs = Serialize.read_file(rpf_fn, 'rpf_positions')
+        rpf_TPMs = get_TPMs(rpfs)
+        mRNAs = Serialize.read_file(mRNA_fn, 'rpf_positions')
+        mRNA_TPMs = get_TPMs(mRNAs)
+        ratios = get_ratios(rpf_TPMs, mRNA_TPMs)
+        ratios_vals = [np.log2(val) for _, val in sorted(ratios.items())]
+        lengths = [rpfs[gene_name]['CDS_length'] for gene_name in rpfs]
+        fig, ax = plt.subplots()
+        ax.scatter(lengths, ratios_vals, s=1)
+        ax.set_xlabel('CDS length')
+        ax.set_ylabel('Translational efficiency (log_2 ratio of TPMs)')
+        ax.set_title(name)
     
 def plot_all_starts_ends():
     experiments = [
@@ -675,27 +774,30 @@ def recycling_ratios(rpf_positions_list, simple_CDSs, genome):
         
     return ratio_lists
 
-if __name__ == '__main__':
-    genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
+#if __name__ == '__main__':
+#    genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
+#
+#    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
+#    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_clean.bam'
+#    #clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_clean.bam'
+#    clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_clean.bam'
+#    
+#    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/transcriptome/genes.gtf'
+#    
+#    gene_name = 'YOR239W'
+#    #gene_name = 'YPL052W'
+#    #gene_name = 'YAL053W'
+#    
+#    extent = gtf.get_extent_by_name(gtf_fn, gene_name)
+#    gene_length = extent[3] - extent[2] + 1
+#    position_counts, expression_counts = get_extent_positions(clean_bam_fn, extent, genome_index)
+#    position_ambiguity = determine_ambiguity_of_positions(extent, genome_index)
+#    codon_numbers, frames, so_far, remaining = plot_frameshifts(position_counts,
+#                                                                position_ambiguity,
+#                                                                50,
+#                                                                gene_name,
+#                                                                gene_length,
+#                                                               )
 
-    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
-    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_clean.bam'
-    #clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_clean.bam'
-    clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_clean.bam'
-    
-    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/transcriptome/genes.gtf'
-    
-    gene_name = 'YOR239W'
-    #gene_name = 'YPL052W'
-    #gene_name = 'YAL053W'
-    
-    extent = gtf.get_extent_by_name(gtf_fn, gene_name)
-    gene_length = extent[3] - extent[2] + 1
-    position_counts, expression_counts = get_extent_positions(clean_bam_fn, extent, genome_index)
-    position_ambiguity = determine_ambiguity_of_positions(extent, genome_index)
-    codon_numbers, frames, so_far, remaining = plot_frameshifts(position_counts,
-                                                                position_ambiguity,
-                                                                50,
-                                                                gene_name,
-                                                                gene_length,
-                                                               )
+if __name__ == '__main__':
+    density_length_correlation()
