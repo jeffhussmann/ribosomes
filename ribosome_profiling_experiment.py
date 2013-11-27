@@ -170,7 +170,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             self.max_read_length = int(self.max_read_length)
         
         if self.adapter_type == 'truseq':
-            self.trim_function = trim.trim_adapters
+            self.trim_function = trim.trim_truseq
+        elif self.adapter_type == 'linker':
+            self.trim_function = trim.trim_linker
         elif self.adapter_type == 'polyA':
             self.trim_function = trim.trim_poly_A
         elif self.adapter_type == 'nothing':
