@@ -178,6 +178,9 @@ def get_oligo_hit_lengths(bam_fn,
 
 def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
     oligo_names = [read.name for read in fasta.reads(oligos_fasta_fn)]
+    if len(oligo_names) == 0:
+        # If no oligos have been defined, there is no picture to make.
+        return None
     
     fig, ax = plt.subplots(figsize=(18, 12))
     for oligo_name, oligo_lengths, color in zip(oligo_names, lengths, ribosomes.colors):
