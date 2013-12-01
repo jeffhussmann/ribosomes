@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg', warn=False)
 import mapping as mapping_tools
 import fasta
 import sam
@@ -198,3 +200,11 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
     
     fig.savefig(fig_fn)
     plt.close(fig)
+
+def extract_rRNA_sequences(genome, rRNA_genes, rRNA_sequences_fn):
+    with open(rRNA_sequences_fn, 'w') as rRNA_sequences_fh:
+        for gene in rRNA_genes:
+            name = gtf.parse_attribute(gene.attribute)['gene_name']
+            seq = genome[gene.seqname][gene.start:gene.end + 1]
+            record = fasta.make_record(name, seq)
+            rRNA_sequences_fh.write(record)
