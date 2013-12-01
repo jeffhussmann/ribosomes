@@ -31,6 +31,7 @@ def find_adapter(char *adapter, int max_distance, seq):
         distance = hamming_distance(seq, adapter, seq_length, adapter_length, start)
         if distance <= max_distance:
             return start
+    
     # Convention: position of seq_length means no position was found
     return seq_length
 
