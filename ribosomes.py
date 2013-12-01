@@ -9,6 +9,7 @@ import fastq
 import mutations
 from mutations import base_order, base_to_index, base_to_complement_index
 import numpy as np
+import scipy.stats
 import matplotlib.pyplot as plt
 import Serialize
 from itertools import cycle, izip
@@ -16,6 +17,10 @@ from collections import Counter, defaultdict
 
 fraction_resolution = 10
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
+    
+# To some extent, this is linked to the definition of simple_CDS, which
+# excludes genes that have another gene within 50 bp.
+edge_overlap = 50
 
 def map_tophat(reads_file_name,
                bowtie2_index,
@@ -41,19 +46,16 @@ def get_aggregate_positions(clean_bam_fn,
                             max_gene_length,
                             max_read_length,
                            ):
-    edge_overlap = 50
-    # To some extent, this is linked to the definition of simple_CDS, which
-    # excludes genes that have another gene within 50 bp.
-
+    position_counts = []
     # position_counts will hold, for each gene, for the lengths 28, 29, and 30,
     # for each position from -2 * edge_overlap to gene_length + edge_overlap,
     # the number of reads of that length starting at that position
-    position_counts = []
+    
     gene_names = []
     for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
         gene_length = abs(gene.end - gene.start) + 1  
-        gene_names.append((gene_name, gene_length))
+        gene_infos.append((gene_name, gene_length))
         shape = (3, 3 * edge_overlap + gene_length)
         position_counts.append(np.zeros(shape, int))
     expression_counts = np.zeros((len(simple_CDSs), 2), int)
@@ -66,26 +68,22 @@ def get_aggregate_positions(clean_bam_fn,
     from_starts = np.zeros(shape, int)
     from_ends = np.zeros(shape, int)
 
-    fraction_shape = (max_read_length + 1, fraction_resolution)
-    fractions = np.zeros(fraction_shape, int)
-
     nonunique_mappings = 0
 
     bamfile = pysam.Samfile(clean_bam_fn, 'rb')
     for g, CDS in enumerate(simple_CDSs):
         max_from_start = CDS.end - CDS.start
-        fraction_factor = float(fraction_resolution) / max_from_start
 
-        reads = bamfile.fetch(CDS.seqname,
-                              CDS.start - edge_overlap,
-                              CDS.end + edge_overlap,
-                             )
-        for read in reads:
+        overlapping_reads = bamfile.fetch(CDS.seqname,
+                                          CDS.start - edge_overlap,
+                                          CDS.end + edge_overlap,
+                                         )
+        for read in overlapping_reads:
             if read.mapq != 50:
                 nonunique_mappings += 1
             else:
                 strand = '-' if read.is_reverse else '+'
-                
+
                 if strand != CDS.strand:
                     expression_counts[g, 1] += 1
                     continue
@@ -99,38 +97,26 @@ def get_aggregate_positions(clean_bam_fn,
                         from_start = CDS.end - (read.aend - 1)
                         # CDS.start is the first base after the stop codon
                         from_end = (CDS.start - 1) - (read.aend - 1)
-                
+
                 start_index = 2 * edge_overlap + from_start 
                 from_starts[read.qlen, start_index] += 1
                 if 28 <= read.qlen <= 30:
                     position_counts[g][read.qlen - 28, start_index] += 1
-                # For from_ends, index 2 * edge_overlap + max_gene_length
-                # corresponds to a read that starts right at the stop codon.
-                end_index = 2 * edge_overlap + max_gene_length + from_end
-                if 0 <= end_index < shape[1]:
-                    from_ends[read.qlen, end_index] += 1
-                else:
-                    print "bad from_end index"
-                
-                #if from_start >= 0:
-                #    if from_start == max_from_start:
-                #        fraction = fraction_resolution - 1  
-                #    else:
-                #        fraction = int(fraction_factor * from_start)
-                #    if fraction < fraction_resolution:
-                #        fractions[read.qlen, fraction] += 1
+                    # For from_ends, index 2 * edge_overlap + max_gene_length
+                    # corresponds to a read that starts right at the stop codon.
+                    end_index = 2 * edge_overlap + max_gene_length + from_end
+                    if 0 <= end_index < shape[1]:
+                        from_ends[read.qlen, end_index] += 1
+                    else:
+                        print "bad from_end index"
 
-    return gene_names, position_counts, expression_counts, from_starts, from_ends
+    return gene_infos, position_counts, expression_counts, from_starts, from_ends
 
 def get_extent_positions(clean_bam_fn, extent, genome_index):
     ''' position_counts: an array with rows for length 28, 29, and 30 reads
                          containing the number of uniquely mapped reads of that
                          length starting at that position
     '''
-    edge_overlap = 50
-    # To some extent, this is linked to the definition of simple_CDS, which
-    # excludes genes that have another gene within 50 bp.
-
     seqname, gene_strand, start, end = extent
     gene_length = abs(end - start) + 1  
     # position_counts will hold, for the lengths 28, 29, and 30,
@@ -142,16 +128,16 @@ def get_extent_positions(clean_bam_fn, extent, genome_index):
     expression_counts = np.zeros(2, int)
     
     bamfile = pysam.Samfile(clean_bam_fn, 'rb')
-    reads = bamfile.fetch(seqname,
-                          start - edge_overlap,
-                          end + edge_overlap,
-                         )
-    for read in reads:
+    overlapping_reads = bamfile.fetch(seqname,
+                                      start - edge_overlap,
+                                      end + edge_overlap,
+                                     )
+    for read in overlapping_reads:
         if read.mapq != 50:
             pass
         else:
             strand = '-' if read.is_reverse else '+'
-            
+
             if strand != gene_strand:
                 expression_counts[1] += 1
                 continue
@@ -165,12 +151,78 @@ def get_extent_positions(clean_bam_fn, extent, genome_index):
                     from_start = end - (read.aend - 1)
                     # start is the first base after the stop codon
                     from_end = (start - 1) - (read.aend - 1)
-            
+
             start_index = 2 * edge_overlap + from_start 
             if 28 <= read.qlen <= 30:
                 position_counts[read.qlen - 28, start_index] += 1
-                
+
     return position_counts, expression_counts
+
+def get_codon_counts(rpf_positions, stringent=True):
+    if stringent:
+        length_28s = rpf_positions['counts'][28]
+        A_site_offset = 15
+        start_index = 2 * edge_overlap - A_site_offset
+        end_index = -(edge_overlap + A_site_offset)
+        in_frames = length_28s[start_index:end_index:3]
+        return in_frames
+    else:
+        length_28s = rpf_positions['counts'][28]
+        A_site_offset = 15
+        start_index = 2 * edge_overlap - A_site_offset
+        end_index = -(edge_overlap + A_site_offset)
+        counts_28 = length_28s[start_index:end_index:3] + \
+                    length_28s[start_index-1:end_index-1:3] + \
+                    length_28s[start_index+1:end_index+1:3]
+        
+        length_29s = rpf_positions['counts'][29]
+        A_site_offset = 15
+        start_index = 2 * edge_overlap - A_site_offset
+        end_index = -(edge_overlap + A_site_offset)
+        counts_29 = length_29s[start_index:end_index:3] + \
+                    length_29s[start_index-1:end_index-1:3] + \
+                    length_29s[start_index-2:end_index-2:3]
+
+        length_30s = rpf_positions['counts'][30]
+        A_site_offset = 16
+        start_index = 2 * edge_overlap - A_site_offset
+        end_index = -(edge_overlap + A_site_offset)
+        counts_30 = length_30s[start_index:end_index:3] + \
+                    length_30s[start_index-1:end_index-1:3] + \
+                    length_30s[start_index+1:end_index+1:3]
+
+        return counts_28 + counts_29 + counts_30
+
+def get_RPKMs(rpf_positions_dict):
+    RPKMs = {}
+    total_mapped_reads = 0
+    for gene_name in rpf_positions_dict:
+        counts = get_codon_counts(rpf_positions_dict[gene_name])
+        length = rpf_positions_dict[gene_name]['CDS_length']
+        reads = counts.sum()
+        RPKMs[gene_name] = float(reads) / length
+        total_mapped_reads += reads
+
+    for gene_name in RPKMs:
+        RPKMs[gene_name] = 1.e9 * RPKMs[gene_name] / total_mapped_reads
+
+    return RPKMs
+
+def get_TPMs(rpf_positions_dict):
+    TPMs = {}
+    T = 0
+    for gene_name in rpf_positions_dict:
+        counts = get_codon_counts(rpf_positions_dict[gene_name])
+        length = rpf_positions_dict[gene_name]['CDS_length']
+        reads = counts.sum()
+        TPMs[gene_name] = float(reads) / length
+        T += TPMs[gene_name]
+
+    for gene_name in rpf_positions_dict:
+        length = rpf_positions_dict[gene_name]['CDS_length']
+        TPMs[gene_name] = 1.e6 * TPMs[gene_name] / T
+
+    return TPMs
 
 def determine_ambiguity_of_positions(extent, genome_index):
     edge_overlap = 50
@@ -274,59 +326,17 @@ def plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_n
     end_axs[-1].set_xlim(-35, 5)
     end_axs[-1].set_xlabel('Position of read relative to start of CDS')
 
-def plot_aggregate(rpf_positions_list, names, fig_file_name):
-    edge_overlap = 50
-
-    min_codons = 500
-    start_at_codon = -8
-    end_at_codon = min_codons
-    codons = np.arange(start_at_codon, end_at_codon)
-    codon_starts = np.arange(2 * edge_overlap + 3 * start_at_codon,
-                             2 * edge_overlap + 3 * end_at_codon,
-                             3,
-                            )
-    
-    fig, ax = plt.subplots(figsize=(12, 16))
-
-    for name, rpf_positions in zip(names, rpf_positions_list):
-        counts_in_long_genes = np.zeros((3, 2 * edge_overlap + min_codons * 3), float)
-        for (gene_name, length), positions in zip(*rpf_positions):
-            if length > min_codons * 3:
-                gene_prefix = positions[:, :2 * edge_overlap + min_codons * 3]
-                row_sums = gene_prefix.sum(axis=1)
-                zeros_removed = np.maximum(row_sums, 1)
-                normalized = np.true_divide(gene_prefix, zeros_removed[:, np.newaxis])
-                counts_in_long_genes += normalized
-    
-        counts = [counts_in_long_genes[0][c] for c in codon_starts]
-        ax.plot(codons, counts, '.-', label=name)
-
-    ax.set_xlim(start_at_codon, end_at_codon)
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-    fig.savefig(fig_file_name)
-
-def plot_gene(rpf_positions_list, gene_name):
-    edge_overlap = 50
-
-    fig, ax = plt.subplots(figsize=(12, 16))
-
-    for rpf_positions in rpf_positions_list:
-        by_name = {name: counts for (name, length), counts in zip(*rpf_positions)}
-        lengths = {name: length for (name, length), counts in zip(*rpf_positions)}
-        length = lengths[gene_name]
-        counts = by_name[gene_name]
-        
-        start_at_codon = -8
-        end_at_codon = length / 3
-        codons = np.arange(start_at_codon, end_at_codon)
-        codon_starts = np.arange(2 * edge_overlap + 3 * start_at_codon,
-                                 2 * edge_overlap + 3 * end_at_codon,
-                                 3,
-                                )
-        counts = [counts[0][c] for c in codon_starts]
-        ax.plot(codons, counts, '.-')
-        ax.set_xlim(start_at_codon, end_at_codon)
+def read_premal_file(fn):
+    genes = {}
+    for line in open(fn):
+        name, values = line.strip().split('\t', 1)
+        values = np.fromstring(values, dtype=float, sep='\t')
+        # Their convention is to report the P site. Shift over by one to convert
+        # to A site.
+        values = np.concatenate(([0], values))
+        genes[name] = values
+            
+    return genes
 
 def scatter_positions(rpf_positions_list):
     edge_overlap = 50
@@ -485,47 +495,6 @@ def compare(summary_fns, clean_length_fns, names):
 
     return sample_counts
 
-def get_RPKMs(rpf_positions_list):
-    RPKMs = {}
-    total_mapped_reads = 0
-    for gene_name in rpf_positions_list:
-        counts = rpf_positions_list[gene_name]['counts'][28]
-        length = rpf_positions_list[gene_name]['CDS_length']
-        A_site_offset = 15
-        start_index = 100 - A_site_offset
-        end_index = -(50 + A_site_offset)
-        in_frames = counts[start_index:end_index:3]
-        reads = in_frames.sum()
-        RPKMs[gene_name] = float(reads) / length
-        total_mapped_reads += reads
-
-    for gene_name in RPKMs:
-        RPKMs[gene_name] = 1.e9 * RPKMs[gene_name] / total_mapped_reads
-
-    return RPKMs
-
-def get_TPMs(rpf_positions_list):
-    TPMs = {}
-    T = 0
-    for gene_name in rpf_positions_list:
-        counts = rpf_positions_list[gene_name]['counts'][28]
-        length = rpf_positions_list[gene_name]['CDS_length']
-
-        A_site_offset = 15
-        start_index = 100 - A_site_offset
-        end_index = -(50 + A_site_offset)
-        in_frames = counts[start_index:end_index:3]
-        reads = in_frames.sum()
-        
-        TPMs[gene_name] = float(reads) / length
-        T += TPMs[gene_name]
-
-    for gene_name in rpf_positions_list:
-        length = rpf_positions_list[gene_name]['CDS_length']
-        TPMs[gene_name] = 1.e6 * TPMs[gene_name] / T
-
-    return TPMs
-
 def get_ratios(first, second):
     assert set(first) == set(second)
     ratios = {key: np.divide(float(first[key]), second[key]) for key in first}
@@ -599,6 +568,7 @@ def plot_RPKMs():
         ('geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
         #('geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
         ('ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
+        ('ingolia2', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_rpf_positions.txt'),
         ('ingolia1_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt'),
         #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
         #('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
@@ -658,6 +628,9 @@ def density_length_correlation():
         lengths = [rpfs[gene_name]['CDS_length'] for gene_name in rpfs]
         fig, ax = plt.subplots()
         ax.scatter(lengths, ratios_vals, s=1)
+        print name
+        print scipy.stats.pearsonr(lengths, ratios_vals)
+        print scipy.stats.spearmanr(lengths, ratios_vals)
         ax.set_xlabel('CDS length')
         ax.set_ylabel('Translational efficiency (log_2 ratio of TPMs)')
         ax.set_title(name)
@@ -774,6 +747,178 @@ def recycling_ratios(rpf_positions_list, simple_CDSs, genome):
         
     return ratio_lists
 
+def make_codon_counts_file(rpf_positions_fn, codon_counts_fn):
+    rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+    with open(codon_counts_fn, 'w') as codon_counts_fh:
+        for gene_name in sorted(rpf_positions_dict):
+            counts = get_codon_counts(rpf_positions_dict[gene_name], stringent=False)
+            counts_string = '\t'.join(str(count) for count in counts)
+            line = '{0}\t{1}\n'.format(gene_name, counts_string)
+            codon_counts_fh.write(line)
+
+def make_RPKMs_file(rpf_positions_fn, RPKMs_fn):
+    rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+    RPKMs = get_RPKMs(rpf_positions_dict)
+    with open(RPKMs_fn, 'w') as RPKMs_fh:
+        for gene_name in sorted(RPKMs):
+            line = '{0}\t{1:0.2f}\n'.format(gene_name, RPKMs[gene_name])
+            RPKMs_fh.write(line)
+
+def plot_metagene_averaged():
+    # Generators that yields arrays of counts
+    def counts_from_rpf_postiions_fn(rpf_positions_fn):
+        rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+        for gene_name in rpf_positions_dict:
+            counts = get_codon_counts(rpf_positions_dict[gene_name],
+                                      stringent=False,
+                                     )
+            yield counts
+
+    def counts_from_premal_fn(premal_fn):
+        counts_dict = read_premal_file(premal_fn)
+        for gene_name in counts_dict:
+            counts = counts_dict[gene_name]
+            yield counts
+        
+    rpf_experiments = [
+        #('Geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
+        #('Geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
+        #('Geranshenko_mrna', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/5min_rep1_mRNA/results/5min_rep1_mRNA_rpf_positions.txt'),
+
+        ('Ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
+        #('Ingolia2', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_rpf_positions.txt'),
+        #('Ingolia1_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt'),
+
+        ('Brar1' ,'/home/jah/projects/arlen/experiments/brar_science/s_tA-fp_100211_l3_sequence/results/s_tA-fp_100211_l3_sequence_rpf_positions.txt'),
+        ('Brar2' ,'/home/jah/projects/arlen/experiments/brar_science/s_gb15exp_veg_-fp_100219_l4_sequence/results/s_gb15exp_veg_-fp_100219_l4_sequence_rpf_positions.txt'),
+        ('Brar3' ,'/home/jah/projects/arlen/experiments/brar_science/s_14201exp_veg_-fp_100219_l6_sequence/results/s_14201exp_veg_-fp_100219_l6_sequence_rpf_positions.txt'),
+        ('Brar4' ,'/home/jah/projects/arlen/experiments/brar_science/s_t1-fp_090807_l4/results/s_t1-fp_090807_l4_rpf_positions.txt'),
+
+        #('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
+        #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
+        #('WT',  '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_rpf_positions.txt'),
+    ]
+
+    premal_experiments = [
+        ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt'),
+    ]
+
+    all_experiments = [(name, counts_from_rpf_postiions_fn(fn)) for name, fn in rpf_experiments] + \
+                      [(name, counts_from_premal_fn(fn)) for name, fn in premal_experiments]
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    plot_up_to = 500
+
+    for name, counts_generator in all_experiments:
+        sum_of_normalized = np.zeros(10000)
+        long_enough_genes = np.zeros(10000)
+
+        for counts in counts_generator:
+            if counts.sum() < 64:
+                continue
+
+            num_codons = len(counts)
+            density = counts.sum() / float(num_codons)
+            normalized = counts / float(density)
+            sum_of_normalized[:num_codons] += normalized
+            long_enough_genes[:num_codons] += np.ones(num_codons)
+        
+        mean_densities = sum_of_normalized / long_enough_genes 
+
+        ax.plot(mean_densities[:plot_up_to], '.-', label=name)
+    
+    leg = ax.legend(loc='upper right', fancybox=True)
+    leg.get_frame().set_alpha(0.5)
+
+    ax.set_xlabel('Position (codons)')
+    ax.set_ylabel('Normalized mean reads')
+    
+    ax.plot(np.ones(plot_up_to), color='black', alpha=0.5)
+    ax.set_ylim(0, 3)
+
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    ax.set_aspect((xmax - xmin) / (ymax - ymin))
+
+def plot_metagene_unaveraged(from_end=False):
+    # Generators that yields arrays of counts
+    def counts_from_rpf_postiions_fn(rpf_positions_fn):
+        rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+        for gene_name in rpf_positions_dict:
+            counts = get_codon_counts(rpf_positions_dict[gene_name],
+                                      stringent=False,
+                                     )
+            yield counts
+
+    def counts_from_premal_fn(premal_fn):
+        counts_dict = read_premal_file(premal_fn)
+        for gene_name in counts_dict:
+            counts = counts_dict[gene_name]
+            yield counts
+        
+    rpf_experiments = [
+        #('Geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
+        #('Geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
+        #('Geranshenko_mrna', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/5min_rep1_mRNA/results/5min_rep1_mRNA_rpf_positions.txt'),
+
+        ('Ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
+        #('Ingolia2', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_rpf_positions.txt'),
+        #('Ingolia1_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt'),
+
+        ('Brar1' ,'/home/jah/projects/arlen/experiments/brar_science/s_tA-fp_100211_l3_sequence/results/s_tA-fp_100211_l3_sequence_rpf_positions.txt'),
+        ('Brar2' ,'/home/jah/projects/arlen/experiments/brar_science/s_gb15exp_veg_-fp_100219_l4_sequence/results/s_gb15exp_veg_-fp_100219_l4_sequence_rpf_positions.txt'),
+        ('Brar3' ,'/home/jah/projects/arlen/experiments/brar_science/s_14201exp_veg_-fp_100219_l6_sequence/results/s_14201exp_veg_-fp_100219_l6_sequence_rpf_positions.txt'),
+        ('Brar4' ,'/home/jah/projects/arlen/experiments/brar_science/s_t1-fp_090807_l4/results/s_t1-fp_090807_l4_rpf_positions.txt'),
+
+        #('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
+        #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
+        #('WT',  '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_rpf_positions.txt'),
+    ]
+
+    premal_experiments = [
+        ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt'),
+    ]
+
+    all_experiments = [(name, counts_from_rpf_postiions_fn(fn)) for name, fn in rpf_experiments] + \
+                      [(name, counts_from_premal_fn(fn)) for name, fn in premal_experiments]
+
+    plot_to = 500
+    fig_cumulative, ax_cumulative = plt.subplots()
+
+    if from_end:
+        xs = np.arange(0, -plot_to, -1)
+    else:
+        xs = np.arange(plot_to)
+
+    for name, counts_generator in all_experiments:
+        print name
+
+        expected_counts = np.zeros(5000)
+        actual_counts = np.zeros(5000)
+
+        for counts in counts_generator:
+            num_codons = len(counts)
+            r_g = counts.sum()
+            uniform_counts = np.ones(num_codons) * r_g / num_codons
+            
+            actual_counts[:num_codons] += counts
+            expected_counts[:num_codons] += uniform_counts
+
+        normalized_cumulative = np.cumsum(actual_counts - expected_counts) / actual_counts.sum()
+
+        #ax_cumulative.plot(xs, normalized_cumulative[:plot_to], label=name)
+        ax_cumulative.plot(xs, ((actual_counts - expected_counts) / expected_counts)[:plot_to], label=name)
+
+    ax_cumulative.plot(xs, np.zeros(plot_to), 'k--')
+    ax_cumulative.legend()
+    if from_end:
+        xlabel = 'Codon position relative to end'
+    else:
+        xlabel = 'Codon position relative to start'
+    ax_cumulative.set_xlabel(xlabel)
+    ax_cumulative.set_ylabel('Cumulative sum of (actual - expected)')
+
 #if __name__ == '__main__':
 #    genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
 #
@@ -799,5 +944,5 @@ def recycling_ratios(rpf_positions_list, simple_CDSs, genome):
 #                                                                gene_length,
 #                                                               )
 
-if __name__ == '__main__':
-    density_length_correlation()
+#if __name__ == '__main__':
+#    density_length_correlation()
