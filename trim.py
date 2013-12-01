@@ -17,27 +17,36 @@ def trim(reads, min_length, max_read_length, trimmed_reads_fn, find_position):
     
     with open(trimmed_reads_fn, 'w') as trimmed_reads_fh:
         for read in reads:
-            p = find_position(read.seq)
-            if p < min_length:
-                too_short_lengths[p] += 1
+            position = find_position(read.seq)
+            if position < min_length:
+                too_short_lengths[position] += 1
             else:
-                trimmed_lengths[p] += 1
+                trimmed_lengths[position] += 1
                 trimmed_record = fastq.make_record(read.name, 
-                                                   read.seq[:p],
-                                                   read.qual[:p],
+                                                   read.seq[:position],
+                                                   read.qual[:position],
                                                   )
                 trimmed_reads_fh.write(trimmed_record)
 
     return trimmed_lengths, too_short_lengths
 
 truseq_R2_rc = 'AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC'
+linker = 'CTGTAGGCACCATCAAT'
+
 adapter_prefix_length = 10
-max_distance = 3
-find_adapter = functools.partial(trim_cython.find_adapter,
-                                 truseq_R2_rc[:adapter_prefix_length],
-                                 max_distance,
-                                )
-trim_adapters = functools.partial(trim, find_position=find_adapter)
+max_distance = 1
+
+find_truseq = functools.partial(trim_cython.find_adapter,
+                                truseq_R2_rc[:adapter_prefix_length],
+                                max_distance,
+                               )
+trim_truseq = functools.partial(trim, find_position=find_truseq)
+
+find_linker = functools.partial(trim_cython.find_adapter,
+                                linker[:adapter_prefix_length],
+                                max_distance,
+                               )
+trim_linker = functools.partial(trim, find_position=find_linker)
 
 trim_poly_A = functools.partial(trim, find_position=trim_cython.find_poly_A)
 
