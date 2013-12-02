@@ -326,14 +326,14 @@ def plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_n
     end_axs[-1].set_xlim(-35, 5)
     end_axs[-1].set_xlabel('Position of read relative to start of CDS')
 
-def read_premal_file(fn):
+def read_codon_counts_file(fn, reports_P_site=False):
     genes = {}
     for line in open(fn):
         name, values = line.strip().split('\t', 1)
         values = np.fromstring(values, dtype=float, sep='\t')
-        # Their convention is to report the P site. Shift over by one to convert
-        # to A site.
-        values = np.concatenate(([0], values))
+        # If the P site is reported, shift over by one to convert to A site.
+        if reports_P_site:
+            values = np.concatenate(([0], values))
         genes[name] = values
             
     return genes
@@ -457,33 +457,44 @@ def grouped_bar(rates_list, names, tick_labels, ax):
     leg = ax.legend(loc='upper right', fancybox=True)
     leg.get_frame().set_alpha(0.5)
 
-def compare(summary_fns, clean_length_fns, names):
-    reads_list = [np.loadtxt(fn, dtype=int)[28:31].sum() for fn in clean_length_fns]
+def compare():
 
-    sample_counts = defaultdict(lambda : defaultdict(float))
+    bartel_RPF, bartel_mRNA = read_bartel_file('/home/jah/projects/arlen/experiments/plotkin/RPKM_15aug30stop.txt') 
+    names = [
+        'Ingolia',
+        'Brar',
+        'Gerashchenko',
+        'UT_WT',
+    ]
 
-    for summary_fn, name, reads in zip(summary_fns, names, reads_list):
-        for line in open(summary_fn):
-            gene, length, count, _ = line.split('\t', 3)
-            length = int(length)
-            count = int(count)
-            sample_counts[gene][name] = 1e3 * 1e6 * float(count) / (length * reads)
-            #sample_counts[gene][name] = 1e6 * float(count) / (reads)
+    RPF_fns = ['/home/jah/projects/arlen/results/{0}_RPF_rpkm.txt'.format(name)
+               for name in names]
+    mRNA_fns = ['/home/jah/projects/arlen/results/{0}_mRNA_rpkm.txt'.format(name)
+                for name in names]
+    RPF_rpkms = [read_RPKMs_file(fn) for fn in RPF_fns]
+    mRNA_rpkms = [read_RPKMs_file(fn) for fn in mRNA_fns]
 
+    names += ['Bartel']
+    RPF_rpkms += [bartel_RPF]
+    mRNA_rpkms += [bartel_mRNA]
+
+    # Get the genes common to bartel's and mine.
+    gene_names = list(set(bartel_RPF) & set(RPF_rpkms[0]))
+    
     fig = plt.figure(figsize=(12, 12))
     for r in range(len(names)):
         for c in range(r + 1, len(names)):
-            ax = fig.add_subplot(len(names) - 1, len(names) - 1, r * (len(names) - 1) + (c - 1) + 1)
+            ax = fig.add_subplot(len(names) - 1,
+                                 len(names) - 1,
+                                 r * (len(names) - 1) + (c - 1) + 1,
+                                )
             first = names[c]
             second = names[r]
-            genes = sample_counts.keys()
-            xs = [sample_counts[gene][first] for gene in genes]
-            ys = [sample_counts[gene][second] for gene in genes]
+            xs = [mRNA_rpkms[c][gene_name] for gene_name in gene_names]
+            ys = [mRNA_rpkms[r][gene_name] for gene_name in gene_names]
 
-            print sum(xs)
-            print sum(ys)
-            print
-            
+            print first, second, scipy.stats.pearsonr(xs, ys)
+
             ax.scatter(xs, ys, s=1)
             ax.set_yscale('log')
             ax.set_xscale('log')
@@ -492,8 +503,6 @@ def compare(summary_fns, clean_length_fns, names):
             ax.plot([1e-2, 1e5], [1e-2, 1e5], '-', color='red', alpha=0.2)
             ax.set_xlabel(first)
             ax.set_ylabel(second)
-
-    return sample_counts
 
 def get_ratios(first, second):
     assert set(first) == set(second)
@@ -764,6 +773,29 @@ def make_RPKMs_file(rpf_positions_fn, RPKMs_fn):
             line = '{0}\t{1:0.2f}\n'.format(gene_name, RPKMs[gene_name])
             RPKMs_fh.write(line)
 
+def read_RPKMs_file(RPKMs_fn):
+    def line_to_gene(line):
+        name, value = line.strip().split()
+        value = float(value)
+        return name, value
+
+    return dict(line_to_gene(line) for line in open(RPKMs_fn))
+
+def read_bartel_file(bartel_file):
+    RPF_dict = {}
+    mRNA_dict = {}
+    fh = open(bartel_file)
+    # Skip column labels line
+    fh.readline()
+    for line in fh:
+        name, mRNA_value, RPF_value = line.strip().split()
+        mRNA_value = float(mRNA_value)
+        RPF_value = float(RPF_value)
+        mRNA_dict[name] = mRNA_value
+        RPF_dict[name] = RPF_value
+
+    return RPF_dict, mRNA_dict
+
 def plot_metagene_averaged():
     # Generators that yields arrays of counts
     def counts_from_rpf_postiions_fn(rpf_positions_fn):
@@ -805,6 +837,60 @@ def plot_metagene_averaged():
 
     all_experiments = [(name, counts_from_rpf_postiions_fn(fn)) for name, fn in rpf_experiments] + \
                       [(name, counts_from_premal_fn(fn)) for name, fn in premal_experiments]
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    plot_up_to = 500
+
+    for name, counts_generator in all_experiments:
+        sum_of_normalized = np.zeros(10000)
+        long_enough_genes = np.zeros(10000)
+
+        for counts in counts_generator:
+            if counts.sum() < 64:
+                continue
+
+            num_codons = len(counts)
+            density = counts.sum() / float(num_codons)
+            normalized = counts / float(density)
+            sum_of_normalized[:num_codons] += normalized
+            long_enough_genes[:num_codons] += np.ones(num_codons)
+        
+        mean_densities = sum_of_normalized / long_enough_genes 
+
+        ax.plot(mean_densities[:plot_up_to], '.-', label=name)
+    
+    leg = ax.legend(loc='upper right', fancybox=True)
+    leg.get_frame().set_alpha(0.5)
+
+    ax.set_xlabel('Position (codons)')
+    ax.set_ylabel('Normalized mean reads')
+    
+    ax.plot(np.ones(plot_up_to), color='black', alpha=0.5)
+    ax.set_ylim(0, 3)
+
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    ax.set_aspect((xmax - xmin) / (ymax - ymin))
+
+def plot_metagene_from_codon_counts():
+    # Generators that yields arrays of counts
+    def counts_from_codon_counts_fn(codon_counts_fn, report_P_site):
+        counts_dict = read_codon_counts_file(codon_counts_fn)
+        for gene_name in counts_dict:
+            counts = counts_dict[gene_name]
+            yield counts
+        
+    experiments = [
+        ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
+        ('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
+        ('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
+        ('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
+        ('UT_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+    ]
+
+    all_experiments = [(name, counts_from_codon_counts_fn(fn, reports_P_site))
+                       for name, fn, reports_P_site in experiments]
 
     fig, ax = plt.subplots(figsize=(12, 12))
 
