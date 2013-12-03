@@ -97,6 +97,10 @@ def get_nonoverlapping(genes, edge_buffer=0):
             j += 1
         if gene not in overlapping:
             nonoverlapping.append(gene)
+        # Temporary hack because Arlen mentioned this gene. It overlaps a 
+        # dubious ORF.
+        if parse_attribute(gene.attribute)['gene_id'] == 'YDL220C':
+            nonoverlapping.append(gene)
 
     return nonoverlapping
 
