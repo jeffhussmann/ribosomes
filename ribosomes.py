@@ -193,6 +193,15 @@ def get_codon_counts(rpf_positions, stringent=True):
 
         return counts_28 + counts_29 + counts_30
 
+
+def get_raw_counts(rpf_positions_dict):
+    raw_counts = {}
+    for gene_name in rpf_positions_dict:
+        counts = get_codon_counts(rpf_positions_dict[gene_name])
+        raw_counts[gene_name] = counts.sum()
+
+    return raw_counts
+
 def get_RPKMs(rpf_positions_dict):
     RPKMs = {}
     total_mapped_reads = 0
@@ -458,35 +467,37 @@ def grouped_bar(rates_list, names, tick_labels, ax):
     leg.get_frame().set_alpha(0.5)
 
 def compare():
-
     bartel_RPF, bartel_mRNA = read_bartel_file('/home/jah/projects/arlen/experiments/plotkin/RPKM_15aug30stop.txt') 
     names = [
-        'Ingolia',
-        'Brar',
-        'Gerashchenko',
+        'Ingolia_1',
+        'Ingolia_2',
+        #'Brar',
+        #'Gerashchenko',
         'UT_WT',
+        'UT_R98S',
+        'UT_Suppressed_R98S',
     ]
 
-    RPF_fns = ['/home/jah/projects/arlen/results/{0}_RPF_rpkm.txt'.format(name)
-               for name in names]
-    mRNA_fns = ['/home/jah/projects/arlen/results/{0}_mRNA_rpkm.txt'.format(name)
+    #RPF_fns = ['/home/jah/projects/arlen/results/{0}_RPF_rpkm.txt'.format(name)
+    #           for name in names]
+    mRNA_fns = ['/home/jah/projects/arlen/results/{0}_mRNA_tpm.txt'.format(name)
                 for name in names]
-    RPF_rpkms = [read_RPKMs_file(fn) for fn in RPF_fns]
+    #RPF_rpkms = [read_RPKMs_file(fn) for fn in RPF_fns]
     mRNA_rpkms = [read_RPKMs_file(fn) for fn in mRNA_fns]
 
-    names += ['Bartel']
-    RPF_rpkms += [bartel_RPF]
-    mRNA_rpkms += [bartel_mRNA]
+    #names += ['Bartel']
+    #RPF_rpkms += [bartel_RPF]
+    #mRNA_rpkms += [bartel_mRNA]
 
     # Get the genes common to bartel's and mine.
-    gene_names = list(set(bartel_RPF) & set(RPF_rpkms[0]))
+    gene_names = list(set(bartel_RPF) & set(mRNA_rpkms[0]))
     
     fig = plt.figure(figsize=(12, 12))
     for r in range(len(names)):
-        for c in range(r + 1, len(names)):
-            ax = fig.add_subplot(len(names) - 1,
-                                 len(names) - 1,
-                                 r * (len(names) - 1) + (c - 1) + 1,
+        for c in range(r, len(names)):
+            ax = fig.add_subplot(len(names),
+                                 len(names),
+                                 r * len(names) + c + 1,
                                 )
             first = names[c]
             second = names[r]
@@ -765,13 +776,16 @@ def make_codon_counts_file(rpf_positions_fn, codon_counts_fn):
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
 
-def make_RPKMs_file(rpf_positions_fn, RPKMs_fn):
+def make_expression_file(rpf_positions_fn, expression_fn, kind='RPKM'):
     rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
-    RPKMs = get_RPKMs(rpf_positions_dict)
-    with open(RPKMs_fn, 'w') as RPKMs_fh:
-        for gene_name in sorted(RPKMs):
-            line = '{0}\t{1:0.2f}\n'.format(gene_name, RPKMs[gene_name])
-            RPKMs_fh.write(line)
+    if kind == 'RPKM':
+        expression = get_RPKMs(rpf_positions_dict)
+    elif kind == 'TPM':
+        expression = get_TPMs(rpf_positions_dict)
+    with open(expression_fn, 'w') as expression_fh:
+        for gene_name in sorted(expression):
+            line = '{0}\t{1:0.2f}\n'.format(gene_name, expression[gene_name])
+            expression_fh.write(line)
 
 def read_RPKMs_file(RPKMs_fn):
     def line_to_gene(line):
