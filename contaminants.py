@@ -80,8 +80,6 @@ def post_filter(input_bam_fn,
             if mapping.qname not in qnames_already_used and not mapping.is_secondary:
                 clean_bam_file.write(mapping)
 
-    pysam.index(clean_bam_fn)
-
 def produce_rRNA_coverage(bam_file_names):
     ''' Counts the number of mappings that overlap each position in the
         reference sequences that bam_file_names were mapped to.

@@ -51,7 +51,7 @@ def get_aggregate_positions(clean_bam_fn,
     # for each position from -2 * edge_overlap to gene_length + edge_overlap,
     # the number of reads of that length starting at that position
     
-    gene_names = []
+    gene_infos = []
     for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
         gene_length = abs(gene.end - gene.start) + 1  
