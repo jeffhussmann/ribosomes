@@ -149,6 +149,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              self.plot_lengths,
              self.plot_rRNA_coverage,
              self.plot_oligo_hit_lengths,
+             self.index_clean_bam,
             ],
             [self.plot_starts_and_ends,
              self.plot_mismatch_positions,
@@ -296,6 +297,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                                       )
                 yield_file.write(line)
 
+    def index_clean_bam(self):
+        sam.index_bam(self.file_names['clean_bam'])
+
     def plot_lengths(self):
         too_short_lengths = self.read_file('too_short_lengths')
         tRNA_lengths = self.read_file('tRNA_lengths')
@@ -422,14 +426,13 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
 
     def get_aggregate_positions(self):
         piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
-        data = ribosomes.get_aggregate_positions(self.merged_file_names['clean_bam'],
-                                                 piece_simple_CDSs,
-                                                 max_gene_length,
-                                                 self.max_read_length,
-                                                )
-        gene_names, position_counts, expression_counts, from_starts, from_ends = data
-        self.write_file('rpf_positions', (gene_names, position_counts))
-        self.write_file('expression', (gene_names, expression_counts))
+        genes, from_starts, from_ends = ribosomes.get_aggregate_positions(self.merged_file_names['clean_bam'],
+                                                                          piece_simple_CDSs,
+                                                                          max_gene_length,
+                                                                          self.max_read_length,
+                                                                         )
+        self.write_file('rpf_positions', genes)
+        self.write_file('expression', genes)
         self.write_file('from_starts', from_starts)
         self.write_file('from_ends', from_ends)
 
@@ -444,9 +447,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
 
     def get_recycling_ratios(self):
         piece_simple_CDSs, _ = self.get_simple_CDSs()
-        rpf_positions_list = self.read_file('rpf_positions')
+        rpf_positions_dict = self.read_file('rpf_positions')
         genome = mapping.load_genome(self.file_names['genome'], explicit_path=True)
-        ratio_lists = ribosomes.recycling_ratios(rpf_positions_list,
+        ratio_lists = ribosomes.recycling_ratios(rpf_positions_dict,
                                                  piece_simple_CDSs,
                                                  genome,
                                                 )
