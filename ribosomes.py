@@ -46,19 +46,18 @@ def get_aggregate_positions(clean_bam_fn,
                             max_gene_length,
                             max_read_length,
                            ):
-    position_counts = []
-    # position_counts will hold, for each gene, for the lengths 28, 29, and 30,
-    # for each position from -2 * edge_overlap to gene_length + edge_overlap,
-    # the number of reads of that length starting at that position
-    
-    gene_infos = []
+    genes = {}
     for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
-        gene_length = abs(gene.end - gene.start) + 1  
-        gene_infos.append((gene_name, gene_length))
-        shape = (3, 3 * edge_overlap + gene_length)
-        position_counts.append(np.zeros(shape, int))
-    expression_counts = np.zeros((len(simple_CDSs), 2), int)
+        CDS_length = abs(gene.end - gene.start) + 1  
+        shape = (3, 3 * edge_overlap + CDS_length)
+        # counts will hold, for the lengths 28, 29, and 30,
+        # for each position from -2 * edge_overlap to CDS_length + edge_overlap,
+        # the number of reads of that length starting at that position
+        genes[gene_name] = {'CDS_length': CDS_length,
+                            'counts': dict(zip([28, 29, 30], np.zeros(shape, int))),
+                            'expression': np.zeros(2, int),
+                           }
 
     # For from_starts, dimension 2 should be interpretted as going from 
     # -2 * edge_overlap to max_gene_length + edge_overlap.
@@ -71,7 +70,11 @@ def get_aggregate_positions(clean_bam_fn,
     nonunique_mappings = 0
 
     bamfile = pysam.Samfile(clean_bam_fn, 'rb')
-    for g, CDS in enumerate(simple_CDSs):
+    for CDS in simple_CDSs:
+        gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
+        position_counts = genes[gene_name]['counts']
+        expression_counts = genes[gene_name]['expression']
+
         max_from_start = CDS.end - CDS.start
 
         overlapping_reads = bamfile.fetch(CDS.seqname,
@@ -85,10 +88,10 @@ def get_aggregate_positions(clean_bam_fn,
                 strand = '-' if read.is_reverse else '+'
 
                 if strand != CDS.strand:
-                    expression_counts[g, 1] += 1
+                    expression_counts[1] += 1
                     continue
                 else:
-                    expression_counts[g, 0] += 1
+                    expression_counts[0] += 1
                     if CDS.strand == '+':
                         from_start = read.pos - CDS.start
                         # CDS.end is the last base before the stop codon
@@ -101,7 +104,7 @@ def get_aggregate_positions(clean_bam_fn,
                 start_index = 2 * edge_overlap + from_start 
                 from_starts[read.qlen, start_index] += 1
                 if 28 <= read.qlen <= 30:
-                    position_counts[g][read.qlen - 28, start_index] += 1
+                    position_counts[read.qlen][start_index] += 1
                     # For from_ends, index 2 * edge_overlap + max_gene_length
                     # corresponds to a read that starts right at the stop codon.
                     end_index = 2 * edge_overlap + max_gene_length + from_end
@@ -110,7 +113,7 @@ def get_aggregate_positions(clean_bam_fn,
                     else:
                         print "bad from_end index"
 
-    return gene_infos, position_counts, expression_counts, from_starts, from_ends
+    return genes, from_starts, from_ends
 
 def get_extent_positions(clean_bam_fn, extent, genome_index):
     ''' position_counts: an array with rows for length 28, 29, and 30 reads
@@ -737,22 +740,14 @@ def error_profile(bam_file_name, simple_CDSs, fastq_type):
 
     return type_counts
 
-def recycling_ratios(rpf_positions_list, simple_CDSs, genome):
+def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
     edge_overlap = 50
         
     ratio_lists = {amino_acid: defaultdict(list) for amino_acid in recycling.back_table}
 
-    # Hideous hack that needs to be fixed
-    rpf_positions_list = izip(*rpf_positions_list)
-
-    for gene, rpf_positions in izip(simple_CDSs, rpf_positions_list):
-        (name, _), positions = rpf_positions
+    for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
-        if gene_name != name:
-            print gene_name, name
-        assert gene_name == name
-
-        codon_counts = positions[0][2 * edge_overlap - 15::3]
+        codon_counts = get_codon_counts(rpf_positions_dict[gene_name], stringent=False)
         aa_locations = recycling.get_amino_acid_locations(gene, genome)
         if aa_locations == None:
             # MT or internal stop codon
