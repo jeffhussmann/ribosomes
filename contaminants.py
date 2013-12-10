@@ -184,7 +184,8 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
     
     fig, ax = plt.subplots(figsize=(18, 12))
     for oligo_name, oligo_lengths, color in zip(oligo_names, lengths, ribosomes.colors):
-        normalized_lengths = np.true_divide(oligo_lengths, oligo_lengths.sum())
+        denominator = np.maximum(oligo_lengths.sum(), 1)
+        normalized_lengths = np.true_divide(oligo_lengths, denominator)
         ax.plot(normalized_lengths, 'o-', color=color, label=oligo_name)
     
     leg = ax.legend(loc='upper right', fancybox=True)
