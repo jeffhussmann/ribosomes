@@ -957,14 +957,19 @@ def plot_metagene_unaveraged(from_end=False):
         #('Geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
         #('Geranshenko_mrna', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/5min_rep1_mRNA/results/5min_rep1_mRNA_rpf_positions.txt'),
 
-        ('Ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
+        #('Ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
         #('Ingolia2', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_rpf_positions.txt'),
         #('Ingolia1_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt'),
 
-        ('Brar1' ,'/home/jah/projects/arlen/experiments/brar_science/s_tA-fp_100211_l3_sequence/results/s_tA-fp_100211_l3_sequence_rpf_positions.txt'),
-        ('Brar2' ,'/home/jah/projects/arlen/experiments/brar_science/s_gb15exp_veg_-fp_100219_l4_sequence/results/s_gb15exp_veg_-fp_100219_l4_sequence_rpf_positions.txt'),
-        ('Brar3' ,'/home/jah/projects/arlen/experiments/brar_science/s_14201exp_veg_-fp_100219_l6_sequence/results/s_14201exp_veg_-fp_100219_l6_sequence_rpf_positions.txt'),
-        ('Brar4' ,'/home/jah/projects/arlen/experiments/brar_science/s_t1-fp_090807_l4/results/s_t1-fp_090807_l4_rpf_positions.txt'),
+        #('Brar1' ,'/home/jah/projects/arlen/experiments/brar_science/s_tA-fp_100211_l3_sequence/results/s_tA-fp_100211_l3_sequence_rpf_positions.txt'),
+        #('Brar2' ,'/home/jah/projects/arlen/experiments/brar_science/s_gb15exp_veg_-fp_100219_l4_sequence/results/s_gb15exp_veg_-fp_100219_l4_sequence_rpf_positions.txt'),
+        #('Brar3' ,'/home/jah/projects/arlen/experiments/brar_science/s_14201exp_veg_-fp_100219_l6_sequence/results/s_14201exp_veg_-fp_100219_l6_sequence_rpf_positions.txt'),
+        #('Brar4' ,'/home/jah/projects/arlen/experiments/brar_science/s_t1-fp_090807_l4/results/s_t1-fp_090807_l4_rpf_positions.txt'),
+        
+        ('Nagalakshmi_RH_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_ori/results/RH_ori_rpf_positions.txt'),
+        ('Nagalakshmi_RH_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_ori/results/RH_ori_rpf_positions.txt'),
+        ('Nagalakshmi_dT_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_ori/results/dT_ori_rpf_positions.txt'),
+        ('Nagalakshmi_dT_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_bio/results/dT_bio_rpf_positions.txt'),
 
         #('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
         #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
@@ -972,7 +977,7 @@ def plot_metagene_unaveraged(from_end=False):
     ]
 
     premal_experiments = [
-        ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt'),
+        #('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt'),
     ]
 
     all_experiments = [(name, counts_from_rpf_postiions_fn(fn)) for name, fn in rpf_experiments] + \
