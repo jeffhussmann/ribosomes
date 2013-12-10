@@ -103,15 +103,15 @@ def get_aggregate_positions(clean_bam_fn,
 
                 start_index = 2 * edge_overlap + from_start 
                 from_starts[read.qlen, start_index] += 1
+                # For from_ends, index 2 * edge_overlap + max_gene_length
+                # corresponds to a read that starts right at the stop codon.
+                end_index = 2 * edge_overlap + max_gene_length + from_end
+                if 0 <= end_index < shape[1]:
+                    from_ends[read.qlen, end_index] += 1
+                else:
+                    print "bad from_end index"
                 if 28 <= read.qlen <= 30:
                     position_counts[read.qlen][start_index] += 1
-                    # For from_ends, index 2 * edge_overlap + max_gene_length
-                    # corresponds to a read that starts right at the stop codon.
-                    end_index = 2 * edge_overlap + max_gene_length + from_end
-                    if 0 <= end_index < shape[1]:
-                        from_ends[read.qlen, end_index] += 1
-                    else:
-                        print "bad from_end index"
 
     return genes, from_starts, from_ends
 
@@ -195,7 +195,6 @@ def get_codon_counts(rpf_positions, stringent=True):
                     length_30s[start_index+1:end_index+1:3]
 
         return counts_28 + counts_29 + counts_30
-
 
 def get_raw_counts(rpf_positions_dict):
     raw_counts = {}
@@ -895,7 +894,10 @@ def plot_metagene_from_codon_counts():
         ('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
         ('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
         ('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
-        ('UT_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+        ('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+        ('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
+        ('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
+        #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
     ]
 
     all_experiments = [(name, counts_from_codon_counts_fn(fn, reports_P_site))
