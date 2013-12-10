@@ -41,11 +41,68 @@ def map_tophat(reads_file_name,
     # console, so discard output.
     subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
-def get_aggregate_positions(clean_bam_fn,
-                            simple_CDSs,
-                            max_gene_length,
-                            max_read_length,
-                           ):
+def get_read_positions(clean_bam_fn,
+                       simple_CDSs,
+                       relevant_lengths,
+                       allow_opposite_strand):
+    genes = {}
+    for gene in simple_CDSs:
+        gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
+        CDS_length = abs(gene.end - gene.start) + 1  
+        shape = (3, 3 * edge_overlap + CDS_length)
+        # position_counts will hold, for each valid length, for each position from 
+        # -2 * edge_overlap to CDS_length + edge_overlap, the number of reads of
+        # that length starting at that position.
+        position_counts = {l: np.zeros(3 * edge_overlap + CDS_length, int)
+                           for l in relevant_lengths}
+        genes[gene_name] = {'CDS_length': CDS_length,
+                            'position_counts': position_counts,
+                            'expression': np.zeros(2, int),
+                            'nonunique': 0,
+                           }
+
+    bamfile = pysam.Samfile(clean_bam_fn, 'rb')
+    for CDS in simple_CDSs:
+        gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
+        position_counts = genes[gene_name]['position_counts']
+        expression_counts = genes[gene_name]['expression']
+
+        overlapping_reads = bamfile.fetch(CDS.seqname,
+                                          CDS.start - edge_overlap,
+                                          CDS.end + edge_overlap,
+                                         )
+        for read in overlapping_reads:
+            if read.mapq != 50:
+                genes[gene_name]['nonunique'] += 1
+            else:
+                strand = '-' if read.is_reverse else '+'
+
+                if strand != CDS.strand:
+                    expression_counts[1] += 1
+                    if not allow_opposite_strand:
+                        # For RPF reads, we don't want to record positions
+                        # of reads on the opposite strand.
+                        continue
+                else:
+                    expression_counts[0] += 1
+
+                if read.qlen in relevant_lengths:
+                    if CDS.strand == '+':
+                        from_start = read.pos - CDS.start
+                    elif CDS.strand == '-':
+                        from_start = CDS.end - (read.aend - 1)
+
+                    start_index = 2 * edge_overlap + from_start 
+                    position_counts[read.qlen][start_index] += 1
+
+    return genes
+
+def old_aggregate(clean_bam_fn,
+                  simple_CDSs,
+                  max_gene_length,
+                  max_read_length,
+                  valid_lengths,
+                 ):
     genes = {}
     for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
@@ -74,8 +131,6 @@ def get_aggregate_positions(clean_bam_fn,
         gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
         position_counts = genes[gene_name]['counts']
         expression_counts = genes[gene_name]['expression']
-
-        max_from_start = CDS.end - CDS.start
 
         overlapping_reads = bamfile.fetch(CDS.seqname,
                                           CDS.start - edge_overlap,

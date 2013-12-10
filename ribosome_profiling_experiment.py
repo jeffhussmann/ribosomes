@@ -59,7 +59,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('from_ends', 'array', '{name}_from_ends.txt'),
             ('from_starts_unambiguous', 'array', '{name}_from_starts_unambiguous.txt'),
             ('from_ends_unambiguous', 'array', '{name}_from_ends_unambiguous.txt'),
-            ('rpf_positions', 'rpf_positions', '{name}_rpf_positions.txt'),
+            ('read_positions', 'read_positions', '{name}_read_positions.txt'),
             ('expression', 'expression', '{name}_expression.txt'),
 
             ('rRNA_coverage', 'coverage', '{name}_rRNA_coverage.txt'),
@@ -115,18 +115,16 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'oligo_hit_lengths',
              'clean_bam',
             ],
-            ['from_starts',
-             'from_ends',
-             'rpf_positions',
+            ['read_positions',
              'expression',
-             'mismatches_25',
-             'mismatches_26',
-             'mismatches_27',
-             'mismatches_28',
-             'mismatches_29',
-             'mismatches_30',
-             'mismatches_31',
-             'recycling_ratios',
+             #'mismatches_25',
+             #'mismatches_26',
+             #'mismatches_27',
+             #'mismatches_28',
+             #'mismatches_29',
+             #'mismatches_30',
+             #'mismatches_31',
+             #'recycling_ratios',
             ],
         ]
 
@@ -138,9 +136,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              (self.get_rRNA_coverage, 'Counting rRNA coverage'),
              (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
-            [(self.get_aggregate_positions, 'Counting mapping positions'),
-             (self.get_error_profile, 'Getting error profile'),
-             (self.get_recycling_ratios, 'Getting recycling ratios'),
+            [(self.get_read_positions, 'Counting mapping positions'),
+             #(self.get_error_profile, 'Getting error profile'),
+             #(self.get_recycling_ratios, 'Getting recycling ratios'),
             ],
         ]
 
@@ -151,9 +149,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              self.plot_oligo_hit_lengths,
              self.index_clean_bam,
             ],
-            [self.plot_starts_and_ends,
-             self.plot_mismatch_positions,
-             self.plot_mismatch_types,
+            [#self.plot_starts_and_ends,
+             #self.plot_mismatch_positions,
+             #self.plot_mismatch_types,
             ],
         ]
 
@@ -424,17 +422,15 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         reads = fastq.reads(lines)
         return reads
 
-    def get_aggregate_positions(self):
+    def get_read_positions(self):
         piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
-        genes, from_starts, from_ends = ribosomes.get_aggregate_positions(self.merged_file_names['clean_bam'],
-                                                                          piece_simple_CDSs,
-                                                                          max_gene_length,
-                                                                          self.max_read_length,
-                                                                         )
-        self.write_file('rpf_positions', genes)
+        genes = ribosomes.get_read_positions(self.merged_file_names['clean_bam'],
+                                             piece_simple_CDSs,
+                                             relevant_lengths=[33],
+                                             allow_opposite_strand=True,
+                                            )
+        self.write_file('read_positions', genes)
         self.write_file('expression', genes)
-        self.write_file('from_starts', from_starts)
-        self.write_file('from_ends', from_ends)
 
     def get_error_profile(self):
         piece_simple_CDSs, _ = self.get_simple_CDSs()
