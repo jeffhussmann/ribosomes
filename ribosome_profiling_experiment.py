@@ -426,7 +426,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
         genes = ribosomes.get_read_positions(self.merged_file_names['clean_bam'],
                                              piece_simple_CDSs,
-                                             relevant_lengths=[33],
+                                             relevant_lengths=range(22, 33),
                                              allow_opposite_strand=True,
                                             )
         self.write_file('read_positions', genes)
