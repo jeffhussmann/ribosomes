@@ -216,16 +216,16 @@ def get_extent_positions(clean_bam_fn, extent, genome_index):
 
     return position_counts, expression_counts
 
-def get_codon_counts(rpf_positions, stringent=True):
+def get_codon_counts(gene, stringent=True):
     if stringent:
-        length_28s = rpf_positions['counts'][28]
+        length_28s = gene['position_counts'][28]
         A_site_offset = 15
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
         in_frames = length_28s[start_index:end_index:3]
         return in_frames
     else:
-        length_28s = rpf_positions['counts'][28]
+        length_28s = gene['position_counts'][28]
         A_site_offset = 15
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
@@ -233,7 +233,7 @@ def get_codon_counts(rpf_positions, stringent=True):
                     length_28s[start_index-1:end_index-1:3] + \
                     length_28s[start_index+1:end_index+1:3]
         
-        length_29s = rpf_positions['counts'][29]
+        length_29s = gene['position_counts'][29]
         A_site_offset = 15
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
@@ -241,7 +241,7 @@ def get_codon_counts(rpf_positions, stringent=True):
                     length_29s[start_index-1:end_index-1:3] + \
                     length_29s[start_index-2:end_index-2:3]
 
-        length_30s = rpf_positions['counts'][30]
+        length_30s = gene['position_counts'][30]
         A_site_offset = 16
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
@@ -259,12 +259,12 @@ def get_raw_counts(rpf_positions_dict):
 
     return raw_counts
 
-def get_RPKMs(rpf_positions_dict):
+def get_RPKMs(genes_dict):
     RPKMs = {}
     total_mapped_reads = 0
-    for gene_name in rpf_positions_dict:
-        counts = get_codon_counts(rpf_positions_dict[gene_name])
-        length = rpf_positions_dict[gene_name]['CDS_length']
+    for gene_name in genes_dict:
+        counts = get_codon_counts(genes_dict[gene_name])
+        length = genes_dict[gene_name]['CDS_length']
         reads = counts.sum()
         RPKMs[gene_name] = float(reads) / length
         total_mapped_reads += reads
@@ -816,21 +816,19 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
         
     return ratio_lists
 
-def make_codon_counts_file(rpf_positions_fn, codon_counts_fn):
-    rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+def make_codon_counts_file(genes_dict, codon_counts_fn):
     with open(codon_counts_fn, 'w') as codon_counts_fh:
-        for gene_name in sorted(rpf_positions_dict):
-            counts = get_codon_counts(rpf_positions_dict[gene_name], stringent=False)
+        for gene_name in sorted(genes_dict):
+            counts = get_codon_counts(genes_dict[gene_name], stringent=False)
             counts_string = '\t'.join(str(count) for count in counts)
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
 
-def make_expression_file(rpf_positions_fn, expression_fn, kind='RPKM'):
-    rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+def make_expression_file(genes_dict, expression_fn, kind='RPKM'):
     if kind == 'RPKM':
-        expression = get_RPKMs(rpf_positions_dict)
+        expression = get_RPKMs(genes_dict)
     elif kind == 'TPM':
-        expression = get_TPMs(rpf_positions_dict)
+        expression = get_TPMs(genes_dict)
     with open(expression_fn, 'w') as expression_fh:
         for gene_name in sorted(expression):
             line = '{0}\t{1:0.2f}\n'.format(gene_name, expression[gene_name])
@@ -1075,6 +1073,7 @@ def plot_metagene_unaveraged(from_end=False):
         xlabel = 'Codon position relative to start'
     ax_cumulative.set_xlabel(xlabel)
     ax_cumulative.set_ylabel('Cumulative sum of (actual - expected)')
+
 
 #if __name__ == '__main__':
 #    genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
