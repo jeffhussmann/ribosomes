@@ -66,10 +66,12 @@ def get_extent_by_name(gtf_fn, name):
     start_codon = [entry for entry in entries if entry.feature == 'start_codon'][0]
     stop_codon = [entry for entry in entries if entry.feature == 'stop_codon'][0]
     if any(entry.strand == '-' for entry in entries):
-        raise RuntimeError, 'minus strand NYI'
-    start = start_codon.start
-    # Haven't decided what the convention should be for which base is the end
-    end = stop_codon.end
+        start = stop_codon.end
+        end = start_codon.start + 2
+    else:
+        start = start_codon.start
+        # Haven't decided what the convention should be for which base is the end
+        end = stop_codon.end
     seqname = start_codon.seqname
     strand = start_codon.strand
     return seqname, strand, start, end
