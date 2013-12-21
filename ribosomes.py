@@ -41,11 +41,68 @@ def map_tophat(reads_file_name,
     # console, so discard output.
     subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
-def get_aggregate_positions(clean_bam_fn,
-                            simple_CDSs,
-                            max_gene_length,
-                            max_read_length,
-                           ):
+def get_read_positions(clean_bam_fn,
+                       simple_CDSs,
+                       relevant_lengths,
+                       allow_opposite_strand):
+    genes = {}
+    for gene in simple_CDSs:
+        gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
+        CDS_length = abs(gene.end - gene.start) + 1  
+        shape = (3, 3 * edge_overlap + CDS_length)
+        # position_counts will hold, for each valid length, for each position from 
+        # -2 * edge_overlap to CDS_length + edge_overlap, the number of reads of
+        # that length starting at that position.
+        position_counts = {l: np.zeros(3 * edge_overlap + CDS_length, int)
+                           for l in relevant_lengths}
+        genes[gene_name] = {'CDS_length': CDS_length,
+                            'position_counts': position_counts,
+                            'expression': np.zeros(2, int),
+                            'nonunique': 0,
+                           }
+
+    bamfile = pysam.Samfile(clean_bam_fn, 'rb')
+    for CDS in simple_CDSs:
+        gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
+        position_counts = genes[gene_name]['position_counts']
+        expression_counts = genes[gene_name]['expression']
+
+        overlapping_reads = bamfile.fetch(CDS.seqname,
+                                          CDS.start - edge_overlap,
+                                          CDS.end + edge_overlap,
+                                         )
+        for read in overlapping_reads:
+            if read.mapq != 50:
+                genes[gene_name]['nonunique'] += 1
+            else:
+                strand = '-' if read.is_reverse else '+'
+
+                if strand != CDS.strand:
+                    expression_counts[1] += 1
+                    if not allow_opposite_strand:
+                        # For RPF reads, we don't want to record positions
+                        # of reads on the opposite strand.
+                        continue
+                else:
+                    expression_counts[0] += 1
+
+                if read.qlen in relevant_lengths:
+                    if CDS.strand == '+':
+                        from_start = read.pos - CDS.start
+                    elif CDS.strand == '-':
+                        from_start = CDS.end - (read.aend - 1)
+
+                    start_index = 2 * edge_overlap + from_start 
+                    position_counts[read.qlen][start_index] += 1
+
+    return genes
+
+def old_aggregate(clean_bam_fn,
+                  simple_CDSs,
+                  max_gene_length,
+                  max_read_length,
+                  valid_lengths,
+                 ):
     genes = {}
     for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
@@ -75,8 +132,6 @@ def get_aggregate_positions(clean_bam_fn,
         position_counts = genes[gene_name]['counts']
         expression_counts = genes[gene_name]['expression']
 
-        max_from_start = CDS.end - CDS.start
-
         overlapping_reads = bamfile.fetch(CDS.seqname,
                                           CDS.start - edge_overlap,
                                           CDS.end + edge_overlap,
@@ -103,15 +158,15 @@ def get_aggregate_positions(clean_bam_fn,
 
                 start_index = 2 * edge_overlap + from_start 
                 from_starts[read.qlen, start_index] += 1
+                # For from_ends, index 2 * edge_overlap + max_gene_length
+                # corresponds to a read that starts right at the stop codon.
+                end_index = 2 * edge_overlap + max_gene_length + from_end
+                if 0 <= end_index < shape[1]:
+                    from_ends[read.qlen, end_index] += 1
+                else:
+                    print "bad from_end index"
                 if 28 <= read.qlen <= 30:
                     position_counts[read.qlen][start_index] += 1
-                    # For from_ends, index 2 * edge_overlap + max_gene_length
-                    # corresponds to a read that starts right at the stop codon.
-                    end_index = 2 * edge_overlap + max_gene_length + from_end
-                    if 0 <= end_index < shape[1]:
-                        from_ends[read.qlen, end_index] += 1
-                    else:
-                        print "bad from_end index"
 
     return genes, from_starts, from_ends
 
@@ -161,16 +216,16 @@ def get_extent_positions(clean_bam_fn, extent, genome_index):
 
     return position_counts, expression_counts
 
-def get_codon_counts(rpf_positions, stringent=True):
+def get_codon_counts(gene, stringent=True):
     if stringent:
-        length_28s = rpf_positions['counts'][28]
+        length_28s = gene['position_counts'][28]
         A_site_offset = 15
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
         in_frames = length_28s[start_index:end_index:3]
         return in_frames
     else:
-        length_28s = rpf_positions['counts'][28]
+        length_28s = gene['position_counts'][28]
         A_site_offset = 15
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
@@ -178,7 +233,7 @@ def get_codon_counts(rpf_positions, stringent=True):
                     length_28s[start_index-1:end_index-1:3] + \
                     length_28s[start_index+1:end_index+1:3]
         
-        length_29s = rpf_positions['counts'][29]
+        length_29s = gene['position_counts'][29]
         A_site_offset = 15
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
@@ -186,7 +241,7 @@ def get_codon_counts(rpf_positions, stringent=True):
                     length_29s[start_index-1:end_index-1:3] + \
                     length_29s[start_index-2:end_index-2:3]
 
-        length_30s = rpf_positions['counts'][30]
+        length_30s = gene['position_counts'][30]
         A_site_offset = 16
         start_index = 2 * edge_overlap - A_site_offset
         end_index = -(edge_overlap + A_site_offset)
@@ -204,12 +259,12 @@ def get_raw_counts(rpf_positions_dict):
 
     return raw_counts
 
-def get_RPKMs(rpf_positions_dict):
+def get_RPKMs(genes_dict):
     RPKMs = {}
     total_mapped_reads = 0
-    for gene_name in rpf_positions_dict:
-        counts = get_codon_counts(rpf_positions_dict[gene_name])
-        length = rpf_positions_dict[gene_name]['CDS_length']
+    for gene_name in genes_dict:
+        counts = get_codon_counts(genes_dict[gene_name])
+        length = genes_dict[gene_name]['CDS_length']
         reads = counts.sum()
         RPKMs[gene_name] = float(reads) / length
         total_mapped_reads += reads
@@ -765,21 +820,19 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
         
     return ratio_lists
 
-def make_codon_counts_file(rpf_positions_fn, codon_counts_fn):
-    rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+def make_codon_counts_file(genes_dict, codon_counts_fn):
     with open(codon_counts_fn, 'w') as codon_counts_fh:
-        for gene_name in sorted(rpf_positions_dict):
-            counts = get_codon_counts(rpf_positions_dict[gene_name], stringent=False)
+        for gene_name in sorted(genes_dict):
+            counts = get_codon_counts(genes_dict[gene_name], stringent=False)
             counts_string = '\t'.join(str(count) for count in counts)
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
 
-def make_expression_file(rpf_positions_fn, expression_fn, kind='RPKM'):
-    rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
+def make_expression_file(genes_dict, expression_fn, kind='RPKM'):
     if kind == 'RPKM':
-        expression = get_RPKMs(rpf_positions_dict)
+        expression = get_RPKMs(genes_dict)
     elif kind == 'TPM':
-        expression = get_TPMs(rpf_positions_dict)
+        expression = get_TPMs(genes_dict)
     with open(expression_fn, 'w') as expression_fh:
         for gene_name in sorted(expression):
             line = '{0}\t{1:0.2f}\n'.format(gene_name, expression[gene_name])
@@ -898,7 +951,10 @@ def plot_metagene_from_codon_counts():
         ('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
         ('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
         ('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
-        ('UT_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+        ('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+        ('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
+        ('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
+        #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
     ]
 
     all_experiments = [(name, counts_from_codon_counts_fn(fn, reports_P_site))

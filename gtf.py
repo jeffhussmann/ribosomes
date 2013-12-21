@@ -101,7 +101,10 @@ def get_nonoverlapping(genes, edge_buffer=0):
             nonoverlapping.append(gene)
         # Temporary hack because Arlen mentioned this gene. It overlaps a 
         # dubious ORF.
+        # Another hack: RPL10/YLR075W also overlaps a dubious ORF.
         if parse_attribute(gene.attribute)['gene_id'] == 'YDL220C':
+            nonoverlapping.append(gene)
+        elif parse_attribute(gene.attribute)['gene_id'] == 'YLR075W':
             nonoverlapping.append(gene)
 
     return nonoverlapping
@@ -125,3 +128,7 @@ def get_simple_CDSs(gtf_fn):
     simple_CDSs = set(nonoverlapping) & set(single_exons)
     simple_CDSs = sort_genes(list(simple_CDSs))
     return simple_CDSs
+
+def gene_list_to_dict(genes):
+    gene_dict = {parse_attribute(gene.attribute)['gene_id']: gene for gene in genes}
+    return gene_dict
