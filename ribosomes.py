@@ -196,7 +196,6 @@ def get_codon_counts(rpf_positions, stringent=True):
 
         return counts_28 + counts_29 + counts_30
 
-
 def get_raw_counts(rpf_positions_dict):
     raw_counts = {}
     for gene_name in rpf_positions_dict:
@@ -528,6 +527,7 @@ def plot_frameshifts(rpf_counts_list,
                      edge_overlap,
                      gene_name,
                      gene_length,
+                     exp_name,
                     ):
     ambiguity_to_color = {0: 'red',
                           1: 'green',
@@ -536,7 +536,7 @@ def plot_frameshifts(rpf_counts_list,
 
     length_data = zip([28, 29, 30], rpf_counts_list, position_ambiguity_list)
     for fragment_length, rpf_counts, position_ambiguity in length_data:
-        start_at_codon = -8
+        start_at_codon = 0 
         # codon_starts[i] is the index into a position array at which codon i
         # starts.
         codon_starts = np.arange(2 * edge_overlap + (start_at_codon * 3),
@@ -573,16 +573,19 @@ def plot_frameshifts(rpf_counts_list,
             ax.set_xlim(codon_numbers[0], codon_numbers[-1])
             ax.set_title('Frame {0}'.format(frame))
 
-        for so_far, remaining, color in zip(fraction_frames_so_far, fraction_frames_remaining, colors):
-            cumulative_ax.plot(codon_numbers, so_far, color=color)
-            cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--')
+        for frame, so_far, remaining, color in zip([0, 1, 2], fraction_frames_so_far, fraction_frames_remaining, colors):
+            cumulative_ax.plot(codon_numbers, so_far, color=color, label='{0} so far'.format(frame))
+            cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--', label='{0} remaining'.format(frame))
             #difference = so_far - remaining
             #cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
             #difference = remaining - so_far
             #cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
         cumulative_ax.set_xlim(codon_numbers[0])
+        cumulative_ax.set_ylim(-0.02, 1.02)
         
-        fig.suptitle('{0} - length {1} fragments'.format(gene_name, fragment_length))
+        leg = cumulative_ax.legend(loc='upper right', fancybox=True)
+        leg.get_frame().set_alpha(0.5)
+        fig.suptitle('{0} - length {1} fragments\n{2}'.format(gene_name, fragment_length, exp_name))
 
     return codon_numbers, frame_counts_list, fraction_frames_so_far, fraction_frames_remaining
 
@@ -1019,30 +1022,40 @@ def plot_metagene_unaveraged(from_end=False):
     ax_cumulative.set_xlabel(xlabel)
     ax_cumulative.set_ylabel('Cumulative sum of (actual - expected)')
 
-#if __name__ == '__main__':
-#    genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
-#
-#    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
-#    #clean_bam_fn = '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_clean.bam'
-#    #clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_clean.bam'
-#    clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_clean.bam'
-#    
-#    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/transcriptome/genes.gtf'
-#    
-#    gene_name = 'YOR239W'
-#    #gene_name = 'YPL052W'
-#    #gene_name = 'YAL053W'
-#    
-#    extent = gtf.get_extent_by_name(gtf_fn, gene_name)
-#    gene_length = extent[3] - extent[2] + 1
-#    position_counts, expression_counts = get_extent_positions(clean_bam_fn, extent, genome_index)
-#    position_ambiguity = determine_ambiguity_of_positions(extent, genome_index)
-#    codon_numbers, frames, so_far, remaining = plot_frameshifts(position_counts,
-#                                                                position_ambiguity,
-#                                                                50,
-#                                                                gene_name,
-#                                                                gene_length,
-#                                                               )
+if __name__ == '__main__':
+    genome_index = mapping_tools.get_genome_index('/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/genome', explicit_path=True)
+
+    #clean_bam_fn = '/home/jah/remote/slate/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_clean.bam'
+    clean_bam_fn = '/home/jah/remote/slate/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_clean.bam'
+    #clean_bam_fn = '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_clean.bam'
+    #clean_bam_fn = '/home/jah/remote/slate/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_clean.bam'
+    _, exp_name = os.path.split(clean_bam_fn)
+    
+    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/transcriptome/genes.gtf'
+    
+    #gene_name = 'YOR239W'
+    #gene_name = 'YPL052W'
+    #gene_name = 'YBL030C'
+    #gene_name = 'YLR318W'   # EST2
+    #gene_name = 'YIL009C-A'
+    #gene_name = 'YDL220C' # CDC13
+    #gene_name = 'YLR233C' # EST1
+    #gene_name = 'YDR082W' # STN1
+    #gene_name = 'YER103W' # higher mRNA in Suppressed than R98S
+    #gene_name = 'YNL067W' # lower mRNA in R98S than WT
+    gene_name = 'YHR096C' # higher mRNA in R98S than WT
+    
+    extent = gtf.get_extent_by_name(gtf_fn, gene_name)
+    gene_length = extent[3] - extent[2] + 1
+    position_counts, expression_counts = get_extent_positions(clean_bam_fn, extent, genome_index)
+    position_ambiguity = determine_ambiguity_of_positions(extent, genome_index)
+    codon_numbers, frames, so_far, remaining = plot_frameshifts(position_counts,
+                                                                position_ambiguity,
+                                                                50,
+                                                                gene_name,
+                                                                gene_length,
+                                                                exp_name,
+                                                               )
 
 #if __name__ == '__main__':
 #    density_length_correlation()
