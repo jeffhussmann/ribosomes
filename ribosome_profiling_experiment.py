@@ -168,14 +168,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         else:
             self.max_read_length = int(self.max_read_length)
         
-        if self.adapter_type == 'truseq':
-            self.trim_function = trim.trim_truseq
-        elif self.adapter_type == 'linker':
-            self.trim_function = trim.trim_linker
-        elif self.adapter_type == 'polyA':
-            self.trim_function = trim.trim_poly_A
-        elif self.adapter_type == 'nothing':
-            self.trim_function = trim.trim_nothing
+        self.trim_function = getattr(trim, 'trim_{}'.format(self.adapter_type))
 
         for key, tail in self.organism_files:
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
