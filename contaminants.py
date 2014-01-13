@@ -28,6 +28,7 @@ def pre_filter(contaminant_index,
                               unaligned_reads_file_name=filtered_reads_fn,
                               threads=1,
                               report_all=True,
+                              seed_mismatches=1,
                               error_file_name=error_fn,
                              )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
