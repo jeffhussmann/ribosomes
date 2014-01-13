@@ -1,6 +1,6 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
-import mapping as mapping_tools
+import mapping_tools
 import fasta
 import sam
 import gtf
@@ -28,7 +28,7 @@ def pre_filter(contaminant_index,
                               unaligned_reads_file_name=filtered_reads_fn,
                               threads=1,
                               report_all=True,
-                              explicit_path=True,
+                              seed_mismatches=1,
                               error_file_name=error_fn,
                              )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
@@ -40,44 +40,44 @@ def post_filter(input_bam_fn,
                 tRNA_bam_fn,
                ):
     ''' Removes any remaining mappings to tRNA or rRNA genes.
-        Removes secondary mappings so that each read is represented at most
-        once, but this DOES NOT mean that only unique mappings are retained.
+        If a read has any mappings to an rRNA gene, write all such mappings to
+        more_rRNA_bam_fn with exactly one flagged primary.
+        If a read has no mappings to an rRNA gene but any mapping to a tRNA
+        gene, write all such mappings to tRNA_bam_fn with exactly one
+        flagged primary.
+        Write all remaining mappings to clean_bam_fn.
     '''
-    qnames_already_used = set()
+    contaminant_qnames = set()
 
     rRNA_genes = gtf.get_rRNA_genes(gtf_fn)
     tRNA_genes = gtf.get_tRNA_genes(gtf_fn)
 
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
    
-    # Find reads with any mappings that overlap rRNA or tRNA genes and write one
-    # mapping for each such read to a contaminant bam file.
+    # Find reads with any mappings that overlap rRNA or tRNA genes and write any
+    # such mappings to a contaminant bam file.
     for genes, bam_fn in [(rRNA_genes, more_rRNA_bam_fn),
                           (tRNA_genes, tRNA_bam_fn)]:
-        contaminant_reads = defaultdict(list)
-        for gene in genes:
-            overlapping_mappings = input_bam_file.fetch(gene.seqname,
-                                                        gene.start,
-                                                        gene.end,
-                                                       )
-            for mapping in overlapping_mappings:
-                contaminant_reads[mapping.qname].append(mapping)
-
-        with pysam.Samfile(bam_fn, 'wb', header=input_bam_file.header) as bam_file:
-            for qname in contaminant_reads:
-                if qname not in qnames_already_used:
-                    mapping = random.choice(contaminant_reads[qname])
-                    bam_file.write(mapping)
-                    qnames_already_used.add(qname)
+        with pysam.Samfile(bam_fn, 'wb', template=input_bam_file) as bam_file:
+            for gene in genes:
+                overlapping_mappings = input_bam_file.fetch(gene.seqname,
+                                                            gene.start,
+                                                            gene.end,
+                                                           )
+                for mapping in overlapping_mappings:
+                    if mapping.qname not in contaminant_qnames:
+                        mapping.is_secondary = False
+                        bam_file.write(mapping)
+                        contaminant_qnames.add(mapping.qname)
 
     input_bam_file.close()
          
-    # Create a new clean bam file consisting of the primary mapping of each
+    # Create a new clean bam file consisting of all mappings of each
     # read that wasn't flagged as a contaminant.
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
-    with pysam.Samfile(clean_bam_fn, 'wb', header=input_bam_file.header) as clean_bam_file:
+    with pysam.Samfile(clean_bam_fn, 'wb', template=input_bam_file) as clean_bam_file:
         for mapping in input_bam_file:
-            if mapping.qname not in qnames_already_used and not mapping.is_secondary:
+            if mapping.qname not in contaminant_qnames:
                 clean_bam_file.write(mapping)
 
 def produce_rRNA_coverage(bam_file_names):

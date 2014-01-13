@@ -17,7 +17,7 @@ cdef int hamming_distance(char *seq,
 
     return mismatches
 
-def find_adapter(char *adapter, int max_distance, seq):
+def find_adapter(char *adapter, int max_distance, char *seq):
     ''' Returns the leftmost position in seq for which seq[position:] is within
         hamming distance max_distance of adapter. Only checks positions for
         which adapter is completely contained in seq[position:].
@@ -33,6 +33,20 @@ def find_adapter(char *adapter, int max_distance, seq):
             return start
     
     # Convention: position of seq_length means no position was found
+    return seq_length
+
+def find_short_adapter(char *adapter, char *seq):
+    ''' Searches for exact matches of a suffix of seq with a prefix of adapter.
+    '''
+    cdef int seq_length = len(seq)
+    cdef int adapter_length = len(adapter)
+    cdef int start
+
+    for start in range(seq_length):
+        distance = hamming_distance(seq, adapter, seq_length, adapter_length, start)
+        if distance == 0:
+            return start
+
     return seq_length
 
 def find_poly_A(char *seq):

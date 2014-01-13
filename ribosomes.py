@@ -1,4 +1,4 @@
-import mapping as mapping_tools
+import mapping_tools
 import os.path
 import gtf
 import recycling
@@ -15,12 +15,11 @@ import Serialize
 from itertools import cycle, izip
 from collections import Counter, defaultdict
 
-fraction_resolution = 10
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
     
 # To some extent, this is linked to the definition of simple_CDS, which
 # excludes genes that have another gene within 50 bp.
-edge_overlap = 50
+edge_buffer = 50
 
 def map_tophat(reads_file_name,
                bowtie2_index,
@@ -37,65 +36,60 @@ def map_tophat(reads_file_name,
                       bowtie2_index,
                       reads_file_name,
                      ]
-    # tophat maintains its own logs of everything that is writted to the
+    # tophat maintains its own logs of everything that is written to the
     # console, so discard output.
     subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
 def get_read_positions(clean_bam_fn,
                        simple_CDSs,
                        relevant_lengths,
-                       allow_opposite_strand):
-    genes = {}
+                      ):
+    gene_infos = {}
     for gene in simple_CDSs:
         gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
         CDS_length = abs(gene.end - gene.start) + 1  
-        shape = (3, 3 * edge_overlap + CDS_length)
-        # position_counts will hold, for each valid length, for each position from 
-        # -2 * edge_overlap to CDS_length + edge_overlap, the number of reads of
-        # that length starting at that position.
-        position_counts = {l: np.zeros(3 * edge_overlap + CDS_length, int)
+        # position_counts will hold, for each valid length, for each position
+        # from -2 * edge_buffer to CDS_length + edge_buffer, the number of
+        # reads of that length starting at that position.
+        position_counts = {l: np.zeros(3 * edge_buffer + CDS_length, int)
                            for l in relevant_lengths}
-        genes[gene_name] = {'CDS_length': CDS_length,
-                            'position_counts': position_counts,
-                            'expression': np.zeros(2, int),
-                            'nonunique': 0,
-                           }
+        gene_infos[gene_name] = {'CDS_length': CDS_length,
+                                 'position_counts': position_counts,
+                                 'expression': np.zeros(2, int),
+                                 'nonunique': 0,
+                                }
 
     bamfile = pysam.Samfile(clean_bam_fn, 'rb')
     for CDS in simple_CDSs:
         gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
-        position_counts = genes[gene_name]['position_counts']
-        expression_counts = genes[gene_name]['expression']
+        position_counts = gene_infos[gene_name]['position_counts']
+        expression_counts = gene_infos[gene_name]['expression']
 
         overlapping_reads = bamfile.fetch(CDS.seqname,
-                                          CDS.start - edge_overlap,
-                                          CDS.end + edge_overlap,
+                                          CDS.start - edge_buffer,
+                                          CDS.end + edge_buffer,
                                          )
         for read in overlapping_reads:
             if read.mapq != 50:
-                genes[gene_name]['nonunique'] += 1
+                gene_infos[gene_name]['nonunique'] += 1
             else:
                 strand = '-' if read.is_reverse else '+'
 
                 if strand != CDS.strand:
                     expression_counts[1] += 1
-                    if not allow_opposite_strand:
-                        # For RPF reads, we don't want to record positions
-                        # of reads on the opposite strand.
-                        continue
                 else:
                     expression_counts[0] += 1
 
-                if read.qlen in relevant_lengths:
-                    if CDS.strand == '+':
-                        from_start = read.pos - CDS.start
-                    elif CDS.strand == '-':
-                        from_start = CDS.end - (read.aend - 1)
+                    if read.qlen in relevant_lengths:
+                        if CDS.strand == '+':
+                            from_start = read.pos - CDS.start
+                        elif CDS.strand == '-':
+                            from_start = CDS.end - (read.aend - 1)
 
-                    start_index = 2 * edge_overlap + from_start 
-                    position_counts[read.qlen][start_index] += 1
+                        start_index = 2 * edge_buffer + from_start 
+                        position_counts[read.qlen][start_index] += 1
 
-    return genes
+    return gene_infos
 
 def old_aggregate(clean_bam_fn,
                   simple_CDSs,
@@ -216,48 +210,40 @@ def get_extent_positions(clean_bam_fn, extent, genome_index):
 
     return position_counts, expression_counts
 
-def get_codon_counts(gene, stringent=True):
+def get_codon_counts(gene_info, stringent=True):
     if stringent:
-        length_28s = gene['position_counts'][28]
+        length_28s = gene_info['position_counts'][28]
         A_site_offset = 15
-        start_index = 2 * edge_overlap - A_site_offset
-        end_index = -(edge_overlap + A_site_offset)
+        start_index = 2 * edge_buffer - A_site_offset
+        end_index = -(edge_buffer + A_site_offset)
         in_frames = length_28s[start_index:end_index:3]
         return in_frames
     else:
-        length_28s = gene['position_counts'][28]
+        length_28s = gene_info['position_counts'][28]
         A_site_offset = 15
-        start_index = 2 * edge_overlap - A_site_offset
-        end_index = -(edge_overlap + A_site_offset)
+        start_index = 2 * edge_buffer - A_site_offset
+        end_index = -(edge_buffer + A_site_offset)
         counts_28 = length_28s[start_index:end_index:3] + \
                     length_28s[start_index-1:end_index-1:3] + \
                     length_28s[start_index+1:end_index+1:3]
         
-        length_29s = gene['position_counts'][29]
+        length_29s = gene_info['position_counts'][29]
         A_site_offset = 15
-        start_index = 2 * edge_overlap - A_site_offset
-        end_index = -(edge_overlap + A_site_offset)
+        start_index = 2 * edge_buffer - A_site_offset
+        end_index = -(edge_buffer + A_site_offset)
         counts_29 = length_29s[start_index:end_index:3] + \
                     length_29s[start_index-1:end_index-1:3] + \
                     length_29s[start_index-2:end_index-2:3]
 
-        length_30s = gene['position_counts'][30]
+        length_30s = gene_info['position_counts'][30]
         A_site_offset = 16
-        start_index = 2 * edge_overlap - A_site_offset
-        end_index = -(edge_overlap + A_site_offset)
+        start_index = 2 * edge_buffer - A_site_offset
+        end_index = -(edge_buffer + A_site_offset)
         counts_30 = length_30s[start_index:end_index:3] + \
                     length_30s[start_index-1:end_index-1:3] + \
                     length_30s[start_index+1:end_index+1:3]
 
         return counts_28 + counts_29 + counts_30
-
-def get_raw_counts(rpf_positions_dict):
-    raw_counts = {}
-    for gene_name in rpf_positions_dict:
-        counts = get_codon_counts(rpf_positions_dict[gene_name])
-        raw_counts[gene_name] = counts.sum()
-
-    return raw_counts
 
 def get_RPKMs(genes_dict):
     RPKMs = {}
@@ -426,53 +412,6 @@ def scatter_positions(rpf_positions_list):
         counts_list.append(experiment_counts)
       
     ax.scatter(counts_list[0], counts_list[1], s=1)
-
-def plot_mRNA(from_starts_fns, from_ends_fns, fractions_fns, names, read_lengths, fragment_lengths):
-    from_starts_list = [np.loadtxt(fn) for fn in from_starts_fns]
-    from_ends_list = [np.loadtxt(fn) for fn in from_ends_fns]
-    fractions_list = [np.loadtxt(fn) for fn in fractions_fns]
-
-    #fig, (start_ax, end_ax, fraction_ax) = plt.subplots(3, 1, figsize=(12, 24))
-    fig, fraction_ax = plt.subplots(1, 1, figsize=(12, 8))
-
-    for from_starts, from_ends, fractions, name, read_length in zip(from_starts_list, from_ends_list, fractions_list, names, read_lengths):
-        start_xs = np.arange(-read_length, 10000 + 1)
-        end_xs = np.arange(-10000, read_length + 1)
-        fraction_xs = np.linspace(0.5 / fraction_resolution,
-                                  1 - 0.5 / fraction_resolution,
-                                  fraction_resolution,
-                                 )
-        
-        style = '.-'
-
-        starts = np.true_divide(from_starts[fragment_lengths].sum(axis=0),
-                                from_starts[fragment_lengths].sum(),
-                               )
-        #start_ax.plot(start_xs, starts, style, label=name)
-
-        ends = np.true_divide(from_ends[fragment_lengths].sum(axis=0),
-                              from_ends[fragment_lengths].sum(),
-                             )
-        #end_ax.plot(end_xs, ends, style, label=name)
-        
-        fractions = np.true_divide(fractions[fragment_lengths].sum(axis=0),
-                                   fractions[fragment_lengths].sum(),
-                                  )
-        fraction_ax.plot(fraction_xs, fractions, 'o-', label=name)
-
-    #start_ax.set_xlim(-max(read_lengths), 10000)
-    #start_ax.legend()
-    #
-    #end_ax.set_xlim(-10000, max(read_lengths))
-    #end_ax.legend()
-    
-    fraction_ax.set_xlim(0, 1)
-    fraction_ax.set_ylim(ymin=0)
-    fraction_ax.set_ylabel('Fraction of reads')
-    fraction_ax.set_xlabel('Fraction of distance along CDS')
-    fraction_ax.set_title('3\' bias in mRNA reads')
-    leg = fraction_ax.legend(loc='upper left', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
 
 def plot_frames(summary_fns, names):
     frames = {}
@@ -820,10 +759,10 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
         
     return ratio_lists
 
-def make_codon_counts_file(genes_dict, codon_counts_fn):
+def make_codon_counts_file(gene_infos, codon_counts_fn):
     with open(codon_counts_fn, 'w') as codon_counts_fh:
-        for gene_name in sorted(genes_dict):
-            counts = get_codon_counts(genes_dict[gene_name], stringent=False)
+        for gene_name in sorted(gene_infos):
+            counts = get_codon_counts(gene_infos[gene_name], stringent=True)
             counts_string = '\t'.join(str(count) for count in counts)
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
@@ -948,12 +887,15 @@ def plot_metagene_from_codon_counts():
         
     experiments = [
         ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
-        ('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
-        ('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
-        ('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
-        ('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
-        ('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
-        ('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
+        ('Weinberg_stringent', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_stringent_codon_counts.txt', False),
+        ('Weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_codon_counts.txt', False),
+        #('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
+        #('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
+        #('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
+        #('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+        #('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
+        #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_codon_counts.txt', False),
+        #('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
         #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
     ]
 
