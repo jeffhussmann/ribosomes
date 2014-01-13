@@ -6,14 +6,14 @@ import trim_cython
 import pysam
 from functools import partial
 from itertools import chain
+from collections import Counter
 from annotation import Annotation_factory
 
-trimmed_annotation_fields = [
+payload_annotation_fields = [
     ('original_name', 's'),
-    ('trimmed_from_begining', 's'),
-    ('trimmed_from_end', 's'),
+    ('barcode', 's'),
 ]
-TrimmedAnnotation = Annotation_factory(trimmed_annotation_fields)
+PayloadAnnotation = Annotation_factory(payload_annotation_fields)
 
 def trim(reads,
          trimmed_reads_fn,
@@ -28,6 +28,7 @@ def trim(reads,
     '''
     trimmed_lengths = np.zeros(max_read_length + 1, int)
     too_short_lengths = np.zeros(max_read_length + 1, int)
+    barcode_counts = Counter()
     
     with open(trimmed_reads_fn, 'w') as trimmed_reads_fh:
         for read in reads:
@@ -39,9 +40,10 @@ def trim(reads,
                 too_short_lengths[length] += 1
             else:
                 trimmed_lengths[length] += 1
-                annotation = TrimmedAnnotation(original_name=read.name,
-                                               trimmed_from_begining=read.seq[:start],
-                                               trimmed_from_end=read.seq[end:],
+                barcode = read.seq[:start]
+                barcode_counts[barcode] += 1
+                annotation = PayloadAnnotation(original_name=read.name,
+                                               barcode=barcode,
                                               )
                 trimmed_record = fastq.make_record(annotation.identifier,
                                                    read.seq[start:end],
@@ -49,7 +51,7 @@ def trim(reads,
                                                   )
                 trimmed_reads_fh.write(trimmed_record)
 
-    return trimmed_lengths, too_short_lengths
+    return trimmed_lengths, too_short_lengths, barcode_counts
 
 truseq_R2_rc = 'AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC'
 linker = 'CTGTAGGCACCATCAAT'
@@ -98,7 +100,8 @@ trim_weinberg = partial(
 
 trim_nothing = partial(
     trim,
-    find_position=len,
+    find_start=lambda seq: 0,
+    find_end=len,
 )
 
 def unambiguously_trimmed(filtered_bam_fn, unambiguous_bam_fn, genome_dir):
