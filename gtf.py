@@ -105,7 +105,7 @@ def get_nonoverlapping(genes, edge_buffer=0):
         elif parse_attribute(gene.attribute)['gene_id'] == 'YLR075W':
             nonoverlapping.append(gene)
 
-    return nonoverlapping
+    return nonoverlapping, overlapping
 
 def get_single_exons(CDSs):
     ''' Returns all CDSs that only have a single exon. '''
@@ -121,7 +121,7 @@ def get_single_exons(CDSs):
 def get_simple_CDSs(gtf_fn):
     ''' Returns all single exon CDSs that do not overlap any other CDS. '''
     CDSs = get_all_CDSs(gtf_fn)
-    nonoverlapping = get_nonoverlapping(CDSs, edge_buffer=50)
+    nonoverlapping, overlapping = get_nonoverlapping(CDSs, edge_buffer=20)
     single_exons = get_single_exons(CDSs)
     simple_CDSs = set(nonoverlapping) & set(single_exons)
     simple_CDSs = sort_genes(list(simple_CDSs))
