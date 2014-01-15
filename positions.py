@@ -118,3 +118,63 @@ class PositionCounts(object):
         def __setitem__(self, key, value):
             adjusted_key = self.adjust_relative_to_end(key)
             self.counts[adjusted_key] = value
+
+edge_buffer = 50
+left_buffer = 2 * edge_buffer
+right_buffer = edge_buffer
+
+def get_CDS_position_counts(clean_bam_fn, simple_CDSs, relevant_lengths):
+    gene_infos = {}
+    bam_file = pysam.Samfile(clean_bam_fn)
+    for CDS in simple_CDSs:
+        gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
+        extent = (CDS.seqname, CDS.strand, CDS.start, CDS.end)
+        CDS_length = abs(CDS.end - CDS.start) + 1  
+        position_counts, expression, nonunique = get_extent_counts(bam_file,
+                                                                   extent,
+                                                                   relevant_lengths,
+                                                                  )
+        gene_infos[gene_name] = {'CDS_length': CDS_length,
+                                 'position_counts': position_counts,
+                                 'expression': expression,
+                                 'nonunique': nonunique,
+                                }
+
+    return gene_infos
+
+def get_extent_counts(bam_file, extent, relevant_lengths):
+    ''' Returns counts of reads whose 5' edge falls at each position in extent
+        stratified by length for each length in relevant_lengths, as well as
+        cumulative counts for all lengths.
+    '''
+    seqname, extent_strand, start, end = extent
+    extent_length = abs(end - start) + 1
+    position_counts = {l: PositionCounts(extent_length, left_buffer, right_buffer)
+                       for l in relevant_lengths + ['all']}
+    expression = np.zeros(2, int)
+    nonunique = 0
+    
+    region_start = start - edge_overlap
+    region_end = end + edge_overlap
+    overlapping_reads = bamfile.fetch(seqname, region_start, region_end)
+    for read in overlapping_reads:
+        if read.mapq != 50:
+            nonunique += 1
+        else:
+            read_strand = '-' if read.is_reverse else '+'
+
+            if read_strand != extent_strand:
+                expression[1] += 1
+                continue
+            else:
+                expression[0] += 1
+                if gene_strand == '+':
+                    from_start = read.pos - start
+                elif gene_strand == '-':
+                    from_start = end - (read.aend - 1)
+
+            position_counts['all'][from_start] += 1
+            if read.qlen in relevant_lengths:
+                position_counts[read.qlen][from_start] += 1
+
+    return position_counts, expression, nonunique
