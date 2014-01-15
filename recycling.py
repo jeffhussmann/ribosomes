@@ -1,7 +1,6 @@
 import Bio.Seq
 import Bio.Data.CodonTable
 import gtf
-import mapping
 import mutations
 from collections import defaultdict
 from itertools import izip
