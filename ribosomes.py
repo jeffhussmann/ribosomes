@@ -249,7 +249,7 @@ def get_RPKMs(genes_dict):
     RPKMs = {}
     total_mapped_reads = 0
     for gene_name in genes_dict:
-        counts = get_codon_counts(genes_dict[gene_name])
+        counts = get_codon_counts(genes_dict[gene_name], stringent=False)
         length = genes_dict[gene_name]['CDS_length']
         reads = counts.sum()
         RPKMs[gene_name] = float(reads) / length
@@ -758,7 +758,7 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
 def make_codon_counts_file(gene_infos, codon_counts_fn):
     with open(codon_counts_fn, 'w') as codon_counts_fh:
         for gene_name in sorted(gene_infos):
-            counts = get_codon_counts(gene_infos[gene_name], stringent=True)
+            counts = get_codon_counts(gene_infos[gene_name], stringent=False)
             counts_string = '\t'.join(str(count) for count in counts)
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
@@ -875,14 +875,14 @@ def plot_metagene_averaged():
 
 def plot_metagene_from_codon_counts():
     # Generators that yields arrays of counts
-    def counts_from_codon_counts_fn(codon_counts_fn, report_P_site):
-        counts_dict = read_codon_counts_file(codon_counts_fn)
+    def counts_from_codon_counts_fn(codon_counts_fn, reports_P_site):
+        counts_dict = read_codon_counts_file(codon_counts_fn, reports_P_site)
         for gene_name in counts_dict:
             counts = counts_dict[gene_name]
             yield counts
         
     experiments = [
-        ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
+        #('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
         ('Weinberg_stringent', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_stringent_codon_counts.txt', False),
         ('Weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_codon_counts.txt', False),
         #('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
@@ -893,6 +893,10 @@ def plot_metagene_from_codon_counts():
         #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_codon_counts.txt', False),
         #('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
         #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
+        ('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+        ('CHX', '/home/jah/projects/arlen/experiments/guydosh/wild-type_CHX/results/wild-type_CHX_codon_counts.txt', False),
+        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
     ]
 
     all_experiments = [(name, counts_from_codon_counts_fn(fn, reports_P_site))
