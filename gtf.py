@@ -1,4 +1,5 @@
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, Counter
+from itertools import islice
 
 gtf_fields = ['seqname',
               'source',
@@ -12,6 +13,10 @@ gtf_fields = ['seqname',
              ]
 Gene = namedtuple('Gene', gtf_fields)
 
+# Work-around (temporary?) to reconcile automatic parsing of attribute string
+# into a dictionary with the need to hash Genes to check for set membership
+Gene.__hash__ = lambda self: hash(self[:-1])
+
 def parse_attribute(attribute):
     fields = attribute.strip(';').split('; ')
     pairs = [field.split() for field in fields]
@@ -19,7 +24,9 @@ def parse_attribute(attribute):
     return parsed
 
 def parse_gtf_line(line):
-    gene = Gene._make(line.strip().split('\t'))
+    fields = line.strip().split('\t')
+    fields[-1] = parse_attribute(fields[-1])
+    gene = Gene._make(fields)
     start = int(gene.start) - 1
     # Convert from 1-based indexing to 0-based
     end = int(gene.end) - 1
@@ -30,39 +37,77 @@ def parse_gtf_line(line):
     gene = gene._replace(start=start, end=end, frame=frame)
     return gene
 
-def get_all_genes(gtf_fn):
-    all_genes = [parse_gtf_line(line) for line in open(gtf_fn)]
-    return all_genes
+def get_all_features(gtf_fn):
+    all_features = [parse_gtf_line(line) for line in open(gtf_fn)]
+    return all_features
 
-def get_tRNA_genes(gtf_fn):
-    all_genes = get_all_genes(gtf_fn)
-    tRNA_genes = [gene for gene in all_genes if gene.source == 'tRNA']
-    return tRNA_genes
+def get_noncoding_RNA_genes(gtf_fn):
+    all_features = get_all_features(gtf_fn)
+    rRNA_genes = []
+    tRNA_genes = []
+    other_ncRNA_genes = []
+    for feature in all_features:
+        if feature.source == 'rRNA':
+            rRNA_genes.append(feature)
+        elif feature.source == 'tRNA':
+            tRNA_genes.append(feature)
+        elif 'RNA' in feature.source:
+            other_ncRNA_genes.append(feature)
+    return rRNA_genes, tRNA_genes, other_ncRNA_genes
 
-def get_rRNA_genes(gtf_fn):
-    all_genes = get_all_genes(gtf_fn)
-    rRNA_genes = [gene for gene in all_genes if gene.source == 'rRNA']
-    return rRNA_genes
+def get_all_sources(gtf_fn):
+    all_features = get_all_features(gtf_fn)
+    sources = Counter(feature.source for feature in all_features)
+    return sources
 
 def get_all_CDSs(gtf_fn):
-    def is_CDS(gene):
-        return gene.source == 'protein_coding' and gene.feature == 'CDS'
-    
-    all_genes = get_all_genes(gtf_fn)
-    CDSs = [gene for gene in all_genes if is_CDS(gene)]
+    all_features = get_all_features(gtf_fn)
+    # This used to also check if gene.source == 'protein_coding', but as I
+    # generalize to other organisms, I am encountering GTF files that don't fill
+    # in meaningful source values.
+    CDSs = [feature for feature in all_features if feature.feature == 'CDS']
 
     return CDSs
 
-def sort_genes(genes):
-    def key(gene):
-        return gene.seqname, gene.start, gene.feature
+def sort_features(features):
+    def key(feature):
+        return feature.seqname, feature.start, feature.feature
 
-    return sorted(genes, key=key)
+    return sorted(features, key=key)
+
+def get_transcripts(all_features):
+    feature_lists = defaultdict(list)
+    for feature in all_features:
+        transcript_name = feature.attribute['transcript_id']
+        feature_lists[transcript_name].append(feature)
+
+    transcripts = [Transcript(name, features) for name, features in feature_lists.iteritems()]
+
+    return transcripts
+
+def contained_in(exon, CDS):
+    return exon.seqname == CDS.seqname and \
+           CDS.start >= exon.start and \
+           CDS.end <= exon.end
+
+class Transcript(object):
+    def __init__(self, name, features):
+        self.name = name
+        self.exons = [feature for feature in features if feature.feature == 'exon']
+        self.CDSs = [None for exon in self.exons]
+        
+        CDSs = [feature for feature in features if feature.feature == 'CDS']
+        for CDS in CDSs:
+            for e, exon in enumerate(self.exons):
+                if contained_in(exon, CDS):
+                    self.CDSs[e] = CDS
+                    break
+            else:
+                raise ValueError(CDS, self.exons)
 
 def get_extent_by_name(gtf_fn, name):
-    all_genes = get_all_genes(gtf_fn)
-    entries = [gene for gene in all_genes
-               if parse_attribute(gene.attribute)['gene_id'] == name]
+    all_features = get_all_features(gtf_fn)
+    entries = [feature for feature in all_features if feature.attribute['gene_id'] == name]
     start_codon = [entry for entry in entries if entry.feature == 'start_codon'][0]
     stop_codon = [entry for entry in entries if entry.feature == 'stop_codon'][0]
     if any(entry.strand == '-' for entry in entries):
@@ -76,59 +121,82 @@ def get_extent_by_name(gtf_fn, name):
     strand = start_codon.strand
     return seqname, strand, start, end
 
-def get_nonoverlapping(genes, edge_buffer=0):
-    ''' Returns all elements of genes that do not overlap any other element of
-        genes..
+def get_nonoverlapping(features, edge_buffer=0):
+    ''' Returns all elements of features that do not overlap any other element of
+        features.
     '''
-    def overlaps(l, r):
-        ''' r is guaranteed to start after l because it comes after l
-            in a sorted list of genes, so r and l overlap iff r
-            hasn't ended by the time l starts.
-        '''
-        return (r.seqname, r.start - edge_buffer) <= (l.seqname, l.end + edge_buffer)
+    def overlaps(first, second):
+        first_left = first.start - edge_buffer
+        first_right = first.end + edge_buffer
+        second_left = second.start - edge_buffer
+        second_right = second.end + edge_buffer
+        return first.seqname == second.seqname and \
+               second_left <= first_right and \
+               second_right >= first_left
 
     overlapping = set()
-    nonoverlapping = []
+    nonoverlapping = set()
 
-    genes = sort_genes(genes)
-    for i, gene in enumerate(genes):
-        j = i + 1
-        while j < len(genes) and overlaps(gene, genes[j]):
-            overlapping.add(gene)
-            overlapping.add(genes[j])
-            j += 1
-        if gene not in overlapping:
-            nonoverlapping.append(gene)
-        # Temporary hack because Arlen mentioned this gene. It overlaps a 
-        # dubious ORF.
-        # Another hack: RPL10/YLR075W also overlaps a dubious ORF.
-        if parse_attribute(gene.attribute)['gene_id'] == 'YDL220C':
-            nonoverlapping.append(gene)
-        elif parse_attribute(gene.attribute)['gene_id'] == 'YLR075W':
-            nonoverlapping.append(gene)
+    overlap_connections = [[] for f in features]
 
-    return nonoverlapping, overlapping
+    # Sort by starting position, so that if sorted_features[i] does not overlap
+    # sorted_features[j] for i < j, then sorted_features[i] can't overlap
+    # sorted_features[k] for k > j.
+    sorted_features = sort_features(features) 
+    for i in xrange(len(sorted_features)):
+        first_feature = sorted_features[i]
+        for j in xrange(i + 1, len(sorted_features)):
+            second_feature = sorted_features[j]
+            if overlaps(first_feature, second_feature):
+                overlap_connections[i].append(second_feature)
+                overlap_connections[j].append(first_feature)
+            else:
+                break
 
-def get_single_exons(CDSs):
-    ''' Returns all CDSs that only have a single exon. '''
+    nonoverlapping = [g for i, g in enumerate(sorted_features) if not overlap_connections[i]]
+
+    return nonoverlapping, overlap_connections
+
+def exclude_dubious_ORFs(CDSs, dubious_ORFs_fn):
+    dubious_ORF_names = {line.strip() for line in open(dubious_ORFs_fn)}
+    non_dubious_ORFs = [CDS for CDS in CDSs if CDS.attribute['gene_id'] not in dubious_ORF_names]
+    return non_dubious_ORFs
+
+def get_single_exons(transcripts):
+    ''' Returns all CDSs that are part of transcripts that only have a single
+        exon.
+    '''
     proteins = defaultdict(list)
-    for gene in CDSs:
-        attribute = parse_attribute(gene.attribute)
-        proteins[attribute['protein_id']].append(gene)
+    for CDS in CDSs:
+        # Note: this used to check protein_id instead of transcript_id
+        proteins[CDS.attribute['transcript_id']].append(CDS)
     
     single_exons = [exons[0] for protein, exons in proteins.items() if len(exons) == 1]
-    single_exons = sort_genes(single_exons)
+    single_exons = sort_features(single_exons)
     return single_exons
 
-def get_simple_CDSs(gtf_fn):
-    ''' Returns all single exon CDSs that do not overlap any other CDS. '''
+def get_simple_CDSs(gtf_fn, exclude_from=None):
+    ''' Returns all single exon CDSs that do not overlap any other CDS.
+        Any gene IDs listed in any file name in exclude_from are not eligible
+        but also do not disqualify a CDS by overlapping it - think dubious ORFs
+        or uncharacterized genes.
+    '''
     CDSs = get_all_CDSs(gtf_fn)
-    nonoverlapping, overlapping = get_nonoverlapping(CDSs, edge_buffer=20)
+
+    relevant_CDSs = CDSs
+    if exclude_from:
+        for name_list_fn in exclude_from:
+            relevant_CDSs = exclude_dubious_ORFs(relevant_CDSs, name_list_fn)
+
+    nonoverlapping, _ = get_nonoverlapping(relevant_CDSs, edge_buffer=20)
     single_exons = get_single_exons(CDSs)
     simple_CDSs = set(nonoverlapping) & set(single_exons)
-    simple_CDSs = sort_genes(list(simple_CDSs))
+    simple_CDSs = sort_features(list(simple_CDSs))
+
     return simple_CDSs
 
-def gene_list_to_dict(genes):
-    gene_dict = {parse_attribute(gene.attribute)['gene_id']: gene for gene in genes}
-    return gene_dict
+def feature_list_to_dict(features):
+    feature_dict = defaultdict(list)
+    for feature in features:
+        feature_dict[feature.attribute['gene_id']].append(feature)
+    return feature_dict

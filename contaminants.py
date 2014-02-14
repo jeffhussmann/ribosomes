@@ -38,26 +38,31 @@ def post_filter(input_bam_fn,
                 clean_bam_fn,
                 more_rRNA_bam_fn,
                 tRNA_bam_fn,
+                other_ncRNA_bam_fn,
                ):
     ''' Removes any remaining mappings to tRNA or rRNA genes.
         If a read has any mappings to an rRNA gene, write all such mappings to
         more_rRNA_bam_fn with exactly one flagged primary.
-        If a read has no mappings to an rRNA gene but any mapping to a tRNA
+        If a read has no mappings to any rRNA gene but any mapping to a tRNA
         gene, write all such mappings to tRNA_bam_fn with exactly one
         flagged primary.
+        If a read has no mappings to any rRNA or tRNA genes but any mapping to
+        any other noncoding RNA gene, write all such mappings to
+        other_RNA_bam_fn with exactly one flagged primary.
         Write all remaining mappings to clean_bam_fn.
     '''
     contaminant_qnames = set()
 
-    rRNA_genes = gtf.get_rRNA_genes(gtf_fn)
-    tRNA_genes = gtf.get_tRNA_genes(gtf_fn)
+    rRNA_genes, tRNA_genes, other_ncRNA_genes = gtf.get_noncoding_RNA_genes(gtf_fn)
 
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
    
     # Find reads with any mappings that overlap rRNA or tRNA genes and write any
     # such mappings to a contaminant bam file.
     for genes, bam_fn in [(rRNA_genes, more_rRNA_bam_fn),
-                          (tRNA_genes, tRNA_bam_fn)]:
+                          (tRNA_genes, tRNA_bam_fn),
+                          (other_ncRNA_genes, other_ncRNA_bam_fn),
+                         ]:
         with pysam.Samfile(bam_fn, 'wb', template=input_bam_file) as bam_file:
             for gene in genes:
                 overlapping_mappings = input_bam_file.fetch(gene.seqname,
@@ -203,7 +208,7 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
 def extract_rRNA_sequences(genome, rRNA_genes, rRNA_sequences_fn):
     with open(rRNA_sequences_fn, 'w') as rRNA_sequences_fh:
         for gene in rRNA_genes:
-            name = gtf.parse_attribute(gene.attribute)['gene_name']
+            name = gene.attribute['gene_name']
             seq = genome[gene.seqname][gene.start:gene.end + 1]
             record = fasta.make_record(name, seq)
             rRNA_sequences_fh.write(record)

@@ -82,6 +82,16 @@ trim_linker = partial(
     find_end=find_linker,
 )
 
+find_linker_short = partial(
+    trim_cython.find_short_adapter,
+    linker,
+)
+trim_linker_short = partial(
+    trim,
+    find_start=lambda seq: 0,
+    find_end=find_linker_short,
+)
+
 trim_polyA = partial(
     trim,
     find_start=lambda seq: 0,

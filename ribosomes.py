@@ -31,6 +31,7 @@ def map_tophat(reads_file_name,
                       '--GTF', gtf_file_name,
                       '--no-novel-juncs',
                       '--num-threads', '1',
+                      #'--bt2-mm',
                       '--output-dir', tophat_dir,
                       '--transcriptome-index', transcriptome_index,
                       bowtie2_index,
@@ -91,79 +92,6 @@ def get_read_positions(clean_bam_fn,
 
     return gene_infos
 
-def old_aggregate(clean_bam_fn,
-                  simple_CDSs,
-                  max_gene_length,
-                  max_read_length,
-                  valid_lengths,
-                 ):
-    genes = {}
-    for gene in simple_CDSs:
-        gene_name = gtf.parse_attribute(gene.attribute)['protein_id']
-        CDS_length = abs(gene.end - gene.start) + 1  
-        shape = (3, 3 * edge_overlap + CDS_length)
-        # counts will hold, for the lengths 28, 29, and 30,
-        # for each position from -2 * edge_overlap to CDS_length + edge_overlap,
-        # the number of reads of that length starting at that position
-        genes[gene_name] = {'CDS_length': CDS_length,
-                            'counts': dict(zip([28, 29, 30], np.zeros(shape, int))),
-                            'expression': np.zeros(2, int),
-                           }
-
-    # For from_starts, dimension 2 should be interpretted as going from 
-    # -2 * edge_overlap to max_gene_length + edge_overlap.
-    # For from_ends, dimension 2 should be interpretted as going from 
-    # -(2 * edge_overlap + max_gene_length) to edge_overlap.
-    shape = (max_read_length + 1, 3 * edge_overlap + max_gene_length)
-    from_starts = np.zeros(shape, int)
-    from_ends = np.zeros(shape, int)
-
-    nonunique_mappings = 0
-
-    bamfile = pysam.Samfile(clean_bam_fn, 'rb')
-    for CDS in simple_CDSs:
-        gene_name = gtf.parse_attribute(CDS.attribute)['protein_id']
-        position_counts = genes[gene_name]['counts']
-        expression_counts = genes[gene_name]['expression']
-
-        overlapping_reads = bamfile.fetch(CDS.seqname,
-                                          CDS.start - edge_overlap,
-                                          CDS.end + edge_overlap,
-                                         )
-        for read in overlapping_reads:
-            if read.mapq != 50:
-                nonunique_mappings += 1
-            else:
-                strand = '-' if read.is_reverse else '+'
-
-                if strand != CDS.strand:
-                    expression_counts[1] += 1
-                    continue
-                else:
-                    expression_counts[0] += 1
-                    if CDS.strand == '+':
-                        from_start = read.pos - CDS.start
-                        # CDS.end is the last base before the stop codon
-                        from_end = read.pos - (CDS.end + 1)
-                    elif CDS.strand == '-':
-                        from_start = CDS.end - (read.aend - 1)
-                        # CDS.start is the first base after the stop codon
-                        from_end = (CDS.start - 1) - (read.aend - 1)
-
-                start_index = 2 * edge_overlap + from_start 
-                from_starts[read.qlen, start_index] += 1
-                # For from_ends, index 2 * edge_overlap + max_gene_length
-                # corresponds to a read that starts right at the stop codon.
-                end_index = 2 * edge_overlap + max_gene_length + from_end
-                if 0 <= end_index < shape[1]:
-                    from_ends[read.qlen, end_index] += 1
-                else:
-                    print "bad from_end index"
-                if 28 <= read.qlen <= 30:
-                    position_counts[read.qlen][start_index] += 1
-
-    return genes, from_starts, from_ends
-
 def get_extent_positions(clean_bam_fn, extent, genome_index):
     ''' position_counts: an array with rows for length 28, 29, and 30 reads
                          containing the number of uniquely mapped reads of that
@@ -210,50 +138,71 @@ def get_extent_positions(clean_bam_fn, extent, genome_index):
 
     return position_counts, expression_counts
 
-def get_codon_counts(gene_info, stringent=True):
-    if stringent:
+def get_codon_counts(gene_info, stringency):
+    if stringency == 'strict':
         length_28s = gene_info['position_counts'][28]
         A_site_offset = 15
-        start_index = 2 * edge_buffer - A_site_offset
-        end_index = -(edge_buffer + A_site_offset)
+        start_index = -A_site_offset
+        # gene_info['CDS_length'] is the index of the first nucleotide of the
+        # stop codon. Ingolia's original model never has the stop codon in the
+        # A site, but subsequent data show an accumulation of (typically
+        # length 29 or 30) reads that do advance this far. The +3 has been
+        # added to include this.
+        end_index = gene_info['CDS_length'] - A_site_offset + 3
         in_frames = length_28s[start_index:end_index:3]
         return in_frames
-    else:
+    elif stringency == 'relaxed':
         length_28s = gene_info['position_counts'][28]
         A_site_offset = 15
-        start_index = 2 * edge_buffer - A_site_offset
-        end_index = -(edge_buffer + A_site_offset)
+        start_index = -A_site_offset
+        end_index = gene_info['CDS_length'] - A_site_offset + 3
         counts_28 = length_28s[start_index:end_index:3] + \
                     length_28s[start_index-1:end_index-1:3] + \
                     length_28s[start_index+1:end_index+1:3]
         
         length_29s = gene_info['position_counts'][29]
         A_site_offset = 15
-        start_index = 2 * edge_buffer - A_site_offset
-        end_index = -(edge_buffer + A_site_offset)
+        start_index = -A_site_offset
+        end_index = gene_info['CDS_length'] - A_site_offset + 3
         counts_29 = length_29s[start_index:end_index:3] + \
                     length_29s[start_index-1:end_index-1:3] + \
                     length_29s[start_index-2:end_index-2:3]
 
         length_30s = gene_info['position_counts'][30]
         A_site_offset = 16
-        start_index = 2 * edge_buffer - A_site_offset
-        end_index = -(edge_buffer + A_site_offset)
+        start_index = -A_site_offset
+        end_index = gene_info['CDS_length'] - A_site_offset + 3
         counts_30 = length_30s[start_index:end_index:3] + \
                     length_30s[start_index-1:end_index-1:3] + \
                     length_30s[start_index+1:end_index+1:3]
 
         return counts_28 + counts_29 + counts_30
 
-def get_RPKMs(genes_dict):
+def get_total_read_count(gene_info):
+    A_site_offset = 15
+    start_index = -A_site_offset
+    end_index = gene_info['CDS_length'] - A_site_offset + 3
+    count = gene_info['position_counts']['all'][start_index:end_index].sum()
+    return count
+
+def compute_read_counts(gene_infos, stringency):
+    for gene_name in gene_infos:
+        if stringency == 'everything':
+            read_count = get_total_read_count(gene_infos[gene_name])
+        else:
+            read_count = get_codon_counts(gene_infos[gene_name], stringency).sum()
+        expression = np.array([read_count, 0])
+        gene_infos[gene_name]['expression'] = expression
+    return gene_infos
+
+def compute_RPKMs(gene_infos):
     RPKMs = {}
     total_mapped_reads = 0
-    for gene_name in genes_dict:
-        counts = get_codon_counts(genes_dict[gene_name], stringent=False)
-        length = genes_dict[gene_name]['CDS_length']
-        reads = counts.sum()
-        RPKMs[gene_name] = float(reads) / length
-        total_mapped_reads += reads
+    for gene_name in gene_infos:
+        read_count = gene_infos[gene_name]['expression'][0]
+        length = gene_infos[gene_name]['CDS_length']
+        RPKMs[gene_name] = float(read_count) / length
+        total_mapped_reads += read_count
 
     for gene_name in RPKMs:
         RPKMs[gene_name] = 1.e9 * RPKMs[gene_name] / total_mapped_reads
@@ -307,77 +256,6 @@ def determine_ambiguity_of_positions(extent, genome_index):
                 
     return position_ambiguity
 
-def plot_starts_and_ends(from_starts_list, from_ends_list, names, fig_file_name):
-    edge_overlap = 50
-
-    fig, (start_ax, end_ax) = plt.subplots(2, 1, figsize=(12, 16))
-
-    experiments = zip(from_starts_list, from_ends_list, names)
-    for from_starts, from_ends, name in experiments:
-        starts_xs = np.arange(-2 * edge_overlap, 1000)
-        ends_xs = np.arange(-1000, edge_overlap)
-        for length in [28, 29, 30]:
-            starts = np.true_divide(from_starts[length], from_starts[length].sum())
-            ends = np.true_divide(from_ends[length], from_starts[length].sum())
-            start_ax.plot(starts_xs, starts[:len(starts_xs)],
-                          '.-',
-                          label=name + '_{0}'.format(length),
-                         )
-            end_ax.plot(ends_xs, ends[-len(ends_xs):],
-                        '.-',
-                        label=name + '_{0}'.format(length),
-                       )
-
-    start_ax.set_xlim(-20, 20)
-    start_ax.set_xlabel('Position of read relative to start of CDS')
-    start_ax.set_ylabel('Fraction of uniquely mapped reads of specific length')
-    
-    end_ax.set_xlim(-35, 5)
-    end_ax.set_xlabel('Position of read relative to stop codon')
-    end_ax.set_ylabel('Fraction of uniquely mapped readsof specific length')
-
-    leg = start_ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-    leg = end_ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-
-
-    fig.savefig(fig_file_name)
-
-def plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_name):
-    edge_overlap = 50
-
-    start_fig, start_axs = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
-    end_fig, end_axs = plt.subplots(3, 1, figsize=(12, 16), sharex=True)
-
-    experiments = zip(from_starts_list, names)
-    for from_starts, name in experiments:
-        starts_xs = np.arange(-2 * edge_overlap, 1000)
-        for length, ax in zip([28, 29, 30], start_axs):
-            starts = np.true_divide(from_starts[length], from_starts[length].sum())
-            ax.plot(starts_xs, starts[:len(starts_xs)], '.-', label=name)
-            ax.set_ylabel('Fraction of uniquely mapped reads of specific length')
-            ax.set_title('Length {0} fragments'.format(length))
-    
-    experiments = zip(from_ends_list, names)
-    for from_ends, name in experiments:
-        ends_xs = np.arange(-1000, edge_overlap)
-        for length, ax in zip([28, 29, 30], end_axs):
-            ends = np.true_divide(from_ends[length], from_ends[length].sum())
-            ax.plot(ends_xs, ends[-len(ends_xs):], '.-', label=name)
-            ax.set_ylabel('Fraction of uniquely mapped reads of specific length')
-            ax.set_title('Length {0} fragments'.format(length))
-
-    leg = start_axs[0].legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-    start_axs[-1].set_xlim(-20, 20)
-    start_axs[-1].set_xlabel('Position of read relative to start of CDS')
-
-    leg = end_axs[0].legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-    end_axs[-1].set_xlim(-35, 5)
-    end_axs[-1].set_xlabel('Position of read relative to start of CDS')
-
 def read_codon_counts_file(fn, reports_P_site=False):
     genes = {}
     for line in open(fn):
@@ -412,104 +290,6 @@ def scatter_positions(rpf_positions_list):
         counts_list.append(experiment_counts)
       
     ax.scatter(counts_list[0], counts_list[1], s=1)
-
-def plot_frames(summary_fns, names):
-    frames = {}
-    for summary_fn, name in zip(summary_fns, names):
-        counts = np.loadtxt(summary_fn, usecols=range(4, 13))
-        frames[name, 28] = counts[:, 0:3].sum(axis=0)
-        frames[name, 29] = counts[:, 3:6].sum(axis=0)
-        frames[name, 30] = counts[:, 6:9].sum(axis=0)
-
-    #fig, (ax_28, ax_29, ax_30) = plt.subplots(3, 1, figsize=(6, 12))
-    #for ax, length in zip([ax_28, ax_29, ax_30], [28, 29, 30]):
-    fig, (ax_28, ax_29) = plt.subplots(2, 1, figsize=(6, 12))
-    for ax, length in zip([ax_28, ax_29], [28, 29]):
-        rates_list = [frames[name, length] / frames[name, length].sum() for name in names]
-        tick_labels = ['0', '1', '2']
-
-        grouped_bar(rates_list, names, tick_labels, ax)
-        ax.set_title('Length {0}'.format(length))
-        ax.set_xlabel('Frame')
-        ax.set_ylabel('Fraction of uniquely mapped reads')
-
-    return counts
-
-def grouped_bar(rates_list, names, tick_labels, ax):
-    N = len(rates_list[0])
-
-    group_starts = np.arange(N)
-    gap = 1 # in multiples of bar width
-
-    width = 1. / (len(rates_list) + gap)
-
-    zipped = zip(rates_list, colors, names)
-    for i, (rates, color, name) in enumerate(zipped):
-        ax.bar(group_starts + i * width,
-               rates,
-               width,
-               color=color,
-               label=name,
-              )
-
-    ax.set_xlim(xmin=-width / 2, xmax=N - width / 2)
-
-    ax.set_xticks(group_starts + (width * len(rates_list) / 2))
-    ax.set_xticklabels(tick_labels)
-    ax.xaxis.set_ticks_position('none')
-    ax.set_ylim(0, 1)
-
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-
-def compare():
-    bartel_RPF, bartel_mRNA = read_bartel_file('/home/jah/projects/arlen/experiments/plotkin/RPKM_15aug30stop.txt') 
-    names = [
-        'Ingolia_1',
-        'Ingolia_2',
-        #'Brar',
-        #'Gerashchenko',
-        'UT_WT',
-        'UT_R98S',
-        'UT_Suppressed_R98S',
-    ]
-
-    #RPF_fns = ['/home/jah/projects/arlen/results/{0}_RPF_rpkm.txt'.format(name)
-    #           for name in names]
-    mRNA_fns = ['/home/jah/projects/arlen/results/{0}_mRNA_tpm.txt'.format(name)
-                for name in names]
-    #RPF_rpkms = [read_RPKMs_file(fn) for fn in RPF_fns]
-    mRNA_rpkms = [read_RPKMs_file(fn) for fn in mRNA_fns]
-
-    #names += ['Bartel']
-    #RPF_rpkms += [bartel_RPF]
-    #mRNA_rpkms += [bartel_mRNA]
-
-    # Get the genes common to bartel's and mine.
-    gene_names = list(set(bartel_RPF) & set(mRNA_rpkms[0]))
-    
-    fig = plt.figure(figsize=(12, 12))
-    for r in range(len(names)):
-        for c in range(r, len(names)):
-            ax = fig.add_subplot(len(names),
-                                 len(names),
-                                 r * len(names) + c + 1,
-                                )
-            first = names[c]
-            second = names[r]
-            xs = [mRNA_rpkms[c][gene_name] for gene_name in gene_names]
-            ys = [mRNA_rpkms[r][gene_name] for gene_name in gene_names]
-
-            print first, second, scipy.stats.pearsonr(xs, ys)
-
-            ax.scatter(xs, ys, s=1)
-            ax.set_yscale('log')
-            ax.set_xscale('log')
-            ax.set_xlim(1e-1, 5e4)
-            ax.set_ylim(1e-1, 5e4)
-            ax.plot([1e-2, 1e5], [1e-2, 1e5], '-', color='red', alpha=0.2)
-            ax.set_xlabel(first)
-            ax.set_ylabel(second)
 
 def get_ratios(first, second):
     assert set(first) == set(second)
@@ -759,23 +539,20 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
         
     return ratio_lists
 
-def make_codon_counts_file(gene_infos, codon_counts_fn):
+def make_codon_counts_file(gene_infos, codon_counts_fn, stringency):
     with open(codon_counts_fn, 'w') as codon_counts_fh:
         for gene_name in sorted(gene_infos):
-            counts = get_codon_counts(gene_infos[gene_name], stringent=False)
+            counts = get_codon_counts(gene_infos[gene_name], stringency)
             counts_string = '\t'.join(str(count) for count in counts)
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
 
-def make_expression_file(genes_dict, expression_fn, kind='RPKM'):
-    if kind == 'RPKM':
-        expression = get_RPKMs(genes_dict)
-    elif kind == 'TPM':
-        expression = get_TPMs(genes_dict)
-    with open(expression_fn, 'w') as expression_fh:
-        for gene_name in sorted(expression):
-            line = '{0}\t{1:0.2f}\n'.format(gene_name, expression[gene_name])
-            expression_fh.write(line)
+def make_RPKMs_file(gene_infos, RPKMs_fn):
+    RPKMs = compute_RPKMs(gene_infos)
+    with open(RPKMs_fn, 'w') as RPKMs_fh:
+        for gene_name in sorted(RPKMs):
+            line = '{0}\t{1:0.2f}\n'.format(gene_name, RPKMs[gene_name])
+            RPKMs_fh.write(line)
 
 def read_RPKMs_file(RPKMs_fn):
     def line_to_gene(line):
@@ -802,7 +579,7 @@ def read_bartel_file(bartel_file):
 
 def plot_metagene_averaged():
     # Generators that yields arrays of counts
-    def counts_from_rpf_postiions_fn(rpf_positions_fn):
+    def counts_from_rpf_positions_fn(rpf_positions_fn):
         rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
         for gene_name in rpf_positions_dict:
             counts = get_codon_counts(rpf_positions_dict[gene_name],
@@ -839,7 +616,7 @@ def plot_metagene_averaged():
         ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt'),
     ]
 
-    all_experiments = [(name, counts_from_rpf_postiions_fn(fn)) for name, fn in rpf_experiments] + \
+    all_experiments = [(name, counts_from_rpf_positions_fn(fn)) for name, fn in rpf_experiments] + \
                       [(name, counts_from_premal_fn(fn)) for name, fn in premal_experiments]
 
     fig, ax = plt.subplots(figsize=(12, 12))

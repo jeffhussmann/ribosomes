@@ -5,6 +5,7 @@ import glob
 import trim
 import os
 import ribosomes
+import positions
 import contaminants
 import fastq
 from itertools import chain
@@ -42,6 +43,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('filtered_lengths', 'array_1d', '{name}_filtered_lengths.txt'),
             ('tRNA_lengths', 'array_1d', '{name}_tRNA_lengths.txt'),
             ('rRNA_lengths', 'array_1d', '{name}_rRNA_lengths.txt'),
+            ('other_ncRNA_lengths', 'array_1d', '{name}_ncRNA_lengths.txt'),
             ('clean_lengths', 'array_1d', '{name}_clean_lengths.txt'),
             ('unmapped_lengths', 'array_1d', '{name}_unmapped_lengths.txt'),
             ('unambiguous_lengths', 'array_1d', '{name}_unambiguous_lengths.txt'),
@@ -52,16 +54,17 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('clean_bam', 'bam', '{name}_clean.bam'),
             ('more_rRNA_bam', 'bam', '{name}_more_rRNA.bam'),
             ('tRNA_bam', 'bam', '{name}_tRNA.bam'),
+            ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
             ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
-            ('from_starts', 'array', '{name}_from_starts.txt'),
-            ('from_ends', 'array', '{name}_from_ends.txt'),
-            ('from_starts_unambiguous', 'array', '{name}_from_starts_unambiguous.txt'),
-            ('from_ends_unambiguous', 'array', '{name}_from_ends_unambiguous.txt'),
             ('read_positions', 'read_positions', '{name}_read_positions.txt'),
-            ('codon_counts', 'codon_counts', '{name}_codon_counts.txt'),
-            ('rpkm', 'rpkm', '{name}_rpkm.txt'),
-            ('expression', 'expression', '{name}_expression.txt'),
+            ('from_starts', 'read_positions', '{name}_from_starts.txt'),
+            ('from_ends', 'read_positions', '{name}_from_ends.txt'),
+            ('codon_counts_strict', 'codon_counts', '{name}_codon_counts_strict.txt'),
+            ('codon_counts_relaxed', 'codon_counts', '{name}_codon_counts_relaxed.txt'),
+            ('RPKMs', 'RPKMs', '{name}_RPKMs.txt'),
+            ('read_counts', 'expression', '{name}_read_counts.txt'),
+            ('strand_counts', 'expression', '{name}_strand_counts.txt'),
 
             ('rRNA_coverage', 'coverage', '{name}_rRNA_coverage.txt'),
 
@@ -87,16 +90,18 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('clean_lengths', '{name}_clean_lengths.pdf'),
             ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
             ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
-            ('starts_and_ends', '{name}_starts_and_ends.png'),
+            ('starts_and_ends', '{name}_starts_and_ends.pdf'),
             ('mismatch_positions', '{name}_mismatch_positions.png'),
             ('first_mismatch_types', '{name}_first_mismatch_types.png'),
             ('last_mismatch_types', '{name}_last_mismatch_types.png'),
+            ('frames', '{name}_frames.pdf'),
         ]
 
         self.organism_files = [
             ('bowtie2_index_prefix', 'genome/genome'),
             ('genome', 'genome'),
             ('genes', 'transcriptome/genes.gtf'),
+            ('dubious_ORFs', 'transcriptome/dubious_ORF_gene_ids.txt'),
             ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
             ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
             ('oligos', 'contaminant/subtraction_oligos.fasta'),
@@ -109,6 +114,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'filtered_lengths',
              'tRNA_lengths',
              'rRNA_lengths',
+             'other_ncRNA_lengths',
              'clean_lengths',
              'unmapped_lengths',
              'rRNA_coverage',
@@ -116,7 +122,12 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'clean_bam',
             ],
             ['read_positions',
-             'expression',
+             'codon_counts_strict',
+             'codon_counts_relaxed',
+             'from_starts',
+             'from_ends',
+             'strand_counts',
+             'read_counts'
              #'mismatches_25',
              #'mismatches_26',
              #'mismatches_27',
@@ -136,7 +147,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              (self.get_rRNA_coverage, 'Counting rRNA coverage'),
              (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
-            [#(self.get_read_positions, 'Counting mapping positions'),
+            [(self.get_read_positions, 'Counting mapping positions'),
+             (self.get_metagene_positions, 'Aggregating metagene positions'),
+             (self.compute_codon_occupancy_counts, 'Computing codon occupancies'),
              #(self.get_error_profile, 'Getting error profile'),
              #(self.get_recycling_ratios, 'Getting recycling ratios'),
             ],
@@ -149,10 +162,11 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              self.plot_oligo_hit_lengths,
              self.index_clean_bam,
             ],
-            [#self.plot_starts_and_ends,
+            [self.compute_RPKMs,
+             self.plot_starts_and_ends,
+             self.plot_frames,
              #self.plot_mismatch_positions,
              #self.plot_mismatch_types,
-             self.compute_codon_occupancy_counts,
             ],
         ]
 
@@ -175,7 +189,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
 
     def get_simple_CDSs(self):
-        all_simple_CDSs = gtf.get_simple_CDSs(self.file_names['genes'])
+        all_simple_CDSs = gtf.get_simple_CDSs(self.file_names['genes'],
+                                              #exclude_from=(self.file_names['dubious_ORFs'],),
+                                             )
         max_gene_length = max(abs(gene.end - gene.start) + 1 for gene in all_simple_CDSs)
         piece_simple_CDSs = Parallel.split_file.piece_of_list(all_simple_CDSs,
                                                               self.num_pieces,
@@ -221,11 +237,16 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                  self.file_names['clean_bam'],
                                  self.file_names['more_rRNA_bam'],
                                  self.file_names['tRNA_bam'],
+                                 self.file_names['other_ncRNA_bam'],
                                 )
 
         tRNA_length_counts = sam.get_length_counts(self.file_names['tRNA_bam'])
         tRNA_lengths = self.zero_padded_array(tRNA_length_counts)
         self.write_file('tRNA_lengths', tRNA_lengths)
+        
+        other_ncRNA_length_counts = sam.get_length_counts(self.file_names['other_ncRNA_bam'])
+        other_ncRNA_lengths = self.zero_padded_array(other_ncRNA_length_counts)
+        self.write_file('other_ncRNA_lengths', other_ncRNA_lengths)
 
         # Anything that was in trimmed_reads and didn't make it to
         # filtered_reads was an rRNA read.
@@ -264,6 +285,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         too_short_lengths = self.read_file('too_short_lengths')
         tRNA_lengths = self.read_file('tRNA_lengths')
         rRNA_lengths = self.read_file('rRNA_lengths')
+        other_ncRNA_lengths = self.read_file('other_ncRNA_lengths')
         unmapped_lengths = self.read_file('unmapped_lengths')
         clean_lengths = self.read_file('clean_lengths')
 
@@ -271,6 +293,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         long_enough_reads = trimmed_lengths.sum()
         rRNA_reads = rRNA_lengths.sum()
         tRNA_reads = tRNA_lengths.sum()
+        other_ncRNA_reads = other_ncRNA_lengths.sum()
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
 
@@ -279,6 +302,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             for category, count in [('Long enough reads', long_enough_reads),
                                     ('rRNA reads', rRNA_reads),
                                     ('tRNA reads', tRNA_reads),
+                                    ('Other ncRNA reads', other_ncRNA_reads),
                                     ('Unmapped reads', unmapped_reads),
                                     ('Clean reads', clean_reads),
                                    ]:
@@ -296,6 +320,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         too_short_lengths = self.read_file('too_short_lengths')
         tRNA_lengths = self.read_file('tRNA_lengths')
         rRNA_lengths = self.read_file('rRNA_lengths')
+        other_ncRNA_lengths = self.read_file('other_ncRNA_lengths')
         unmapped_lengths = self.read_file('unmapped_lengths')
         clean_lengths = self.read_file('clean_lengths')
 
@@ -303,6 +328,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
     
         ax_all.plot(rRNA_lengths, '.-', label='rRNA', color='red')
         ax_all.plot(tRNA_lengths, '.-', label='tRNA', color='blue')
+        ax_all.plot(other_ncRNA_lengths, '.-', label='other_ncRNA', color='black')
         ax_all.plot(unmapped_lengths, '.-', label='unmapped', color='cyan')
         ax_all.plot(too_short_lengths, '.-', label='too short', color='purple')
         ax_all.plot(clean_lengths, '.-', label='clean', color='green')
@@ -346,11 +372,17 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         from_starts = self.read_file('from_starts')
         from_ends = self.read_file('from_ends')
 
-        ribosomes.plot_starts_and_ends([from_starts],
-                                       [from_ends],
-                                       [self.name],
-                                       self.figure_file_names['starts_and_ends'],
-                                      )
+        positions.plot_metagene_positions(from_starts['from_starts']['position_counts'],
+                                          from_ends['from_ends']['position_counts'],
+                                          self.figure_file_names['starts_and_ends'],
+                                         )
+
+    def plot_frames(self):
+        from_starts = self.read_file('from_starts')
+
+        positions.plot_frames(from_starts['from_starts']['position_counts'],
+                              self.figure_file_names['frames'],
+                             )
 
     def plot_mismatch_positions(self):
         fig, ax = plt.subplots(figsize=(16, 12))
@@ -406,8 +438,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         return padded_array
 
     def get_reads(self):
-        ''' Returns a generator over the reads ina piece of each data file.
-            Can handle a mixture of different fastq encoding across (but not
+        ''' Returns a generator over the reads in a piece of each data file.
+            Can handle a mixture of different fastq encodings across (but not
             within) files.
         '''
         file_pieces = [Parallel.split_file.piece(file_name,
@@ -423,12 +455,33 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
 
     def get_read_positions(self):
         piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
-        genes = ribosomes.get_read_positions(self.merged_file_names['clean_bam'],
-                                             piece_simple_CDSs,
-                                             relevant_lengths=range(27, 31),
-                                            )
+        genes = positions.get_CDS_position_counts(self.merged_file_names['clean_bam'],
+                                                  piece_simple_CDSs,
+                                                  relevant_lengths=range(27, 31),
+                                                 )
         self.write_file('read_positions', genes)
-        self.write_file('expression', genes)
+        self.write_file('strand_counts', genes)
+
+    def get_metagene_positions(self):
+        piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
+        gene_infos = self.read_file('read_positions')
+        from_starts, from_ends = positions.compute_metagene_positions(gene_infos, max_gene_length)
+
+        from_starts = {'from_starts': {'CDS_length': max_gene_length,
+                                       'position_counts': from_starts,
+                                      }
+                      }
+        from_ends = {'from_ends': {'CDS_length': max_gene_length,
+                                   'position_counts': from_ends,
+                                  }
+                    }
+
+        self.write_file('from_starts', from_starts)
+        self.write_file('from_ends', from_ends)
+        
+        # Motivated by temporary disk-space concerns.
+        # This is in an arbitrary post-stage-0 function. 
+        #os.remove(self.file_names['rRNA_sam'])
 
     def get_error_profile(self):
         piece_simple_CDSs, _ = self.get_simple_CDSs()
@@ -449,9 +502,21 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         self.write_file('recycling_ratios', ratio_lists)
 
     def compute_codon_occupancy_counts(self):
-        genes_dict = self.read_file('read_positions')
-        ribosomes.make_codon_counts_file(genes_dict, self.file_names['codon_counts'])
-        ribosomes.make_expression_file(genes_dict, self.file_names['rpkm'], kind='RPKM')
+        gene_infos = self.read_file('read_positions')
+        ribosomes.make_codon_counts_file(gene_infos,
+                                         self.file_names['codon_counts_strict'],
+                                         stringency='strict',
+                                        )
+        ribosomes.make_codon_counts_file(gene_infos,
+                                         self.file_names['codon_counts_relaxed'],
+                                         stringency='relaxed',
+                                        )
+        gene_infos = ribosomes.compute_read_counts(gene_infos, stringency='everything')
+        self.write_file('read_counts', gene_infos)
+
+    def compute_RPKMs(self):
+        gene_infos = self.read_file('read_counts', merged=True)
+        ribosomes.make_RPKMs_file(gene_infos, self.file_names['RPKMs'])
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
