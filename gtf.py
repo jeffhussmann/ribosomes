@@ -60,14 +60,17 @@ def get_all_sources(gtf_fn):
     sources = Counter(feature.source for feature in all_features)
     return sources
 
-def get_all_CDSs(gtf_fn):
-    all_features = get_all_features(gtf_fn)
+def get_all_CDSs(all_features):
     # This used to also check if gene.source == 'protein_coding', but as I
     # generalize to other organisms, I am encountering GTF files that don't fill
     # in meaningful source values.
     CDSs = [feature for feature in all_features if feature.feature == 'CDS']
 
     return CDSs
+
+def get_all_exons(all_features):
+    exons = [feature for feature in all_features if feature.feature == 'exon']
+    return exons
 
 def sort_features(features):
     def key(feature):
@@ -162,18 +165,12 @@ def exclude_dubious_ORFs(CDSs, dubious_ORFs_fn):
     non_dubious_ORFs = [CDS for CDS in CDSs if CDS.attribute['gene_id'] not in dubious_ORF_names]
     return non_dubious_ORFs
 
-def get_single_exons(transcripts):
-    ''' Returns all CDSs that are part of transcripts that only have a single
-        exon.
+def get_single_exon_transcripts(transcripts):
+    ''' Returns all transcripts that have a single exon and a CDS.
     '''
-    proteins = defaultdict(list)
-    for CDS in CDSs:
-        # Note: this used to check protein_id instead of transcript_id
-        proteins[CDS.attribute['transcript_id']].append(CDS)
-    
-    single_exons = [exons[0] for protein, exons in proteins.items() if len(exons) == 1]
-    single_exons = sort_features(single_exons)
-    return single_exons
+    single_exon_transcripts = [transcript for transcript in transcripts
+                               if len(transcript.exons) == 1 and transcript.CDSs[0]]
+    return single_exon_transcripts
 
 def get_simple_CDSs(gtf_fn, exclude_from=None):
     ''' Returns all single exon CDSs that do not overlap any other CDS.
@@ -181,16 +178,21 @@ def get_simple_CDSs(gtf_fn, exclude_from=None):
         but also do not disqualify a CDS by overlapping it - think dubious ORFs
         or uncharacterized genes.
     '''
-    CDSs = get_all_CDSs(gtf_fn)
+    all_features = get_all_features(gtf_fn)
+    #CDSs = get_all_CDSs(all_features)
+    exons = get_all_exons(all_features)
+    transcripts = get_transcripts(all_features)
 
-    relevant_CDSs = CDSs
+    relevant_exons = exons
     if exclude_from:
         for name_list_fn in exclude_from:
-            relevant_CDSs = exclude_dubious_ORFs(relevant_CDSs, name_list_fn)
+            relevant_exons = exclude_dubious_ORFs(relevant_exons, name_list_fn)
 
-    nonoverlapping, _ = get_nonoverlapping(relevant_CDSs, edge_buffer=20)
-    single_exons = get_single_exons(CDSs)
-    simple_CDSs = set(nonoverlapping) & set(single_exons)
+    nonoverlapping, _ = get_nonoverlapping(relevant_exons, edge_buffer=20)
+    nonoverlapping = set(nonoverlapping)
+    single_exon_transcripts = get_single_exon_transcripts(transcripts)
+    simple_CDSs = [transcript.CDSs[0] for transcript in single_exon_transcripts
+                   if transcript.exons[0] in nonoverlapping]
     simple_CDSs = sort_features(list(simple_CDSs))
 
     return simple_CDSs
