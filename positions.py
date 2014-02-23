@@ -160,12 +160,12 @@ def get_CDS_position_counts(clean_bam_fn, simple_CDSs, relevant_lengths):
 
         try:
             extent_info = get_extent_position_counts(bam_file, extent, relevant_lengths)
+            gene_infos[gene_name].update(extent_info)
         except IndexError:
+            # For now, this means there were spliced reads in the extent
             print gene_name
-            raise IndexError
-        
-        gene_infos[gene_name].update(extent_info)
-    
+            del gene_infos[gene_name]
+
     return gene_infos
 
 def get_extent_position_counts(bam_file, extent, relevant_lengths):
@@ -202,7 +202,7 @@ def get_extent_position_counts(bam_file, extent, relevant_lengths):
             try:
                 position_counts['all'][from_start] += 1
             except IndexError:
-                print read
+                #print read
                 raise IndexError
             if read.qlen in relevant_lengths:
                 position_counts[read.qlen][from_start] += 1
