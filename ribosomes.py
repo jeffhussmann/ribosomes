@@ -469,27 +469,25 @@ def plot_all_starts_ends():
     fig_file_name = '/home/jah/projects/arlen/results/compare_starts_and_ends.pdf'
     plot_starts_and_ends_new(from_starts_list, from_ends_list, names, fig_file_name)
 
-def error_profile(bam_file_name, simple_CDSs, fastq_type):
-    edge_overlap = 50
-    type_shape = (7,
-                  50,
+def error_profile(bam_file_name, simple_CDSs, relevant_lengths):
+    type_shape = (50,
                   fastq.MAX_EXPECTED_QUAL + 1,
                   len(base_order),
                   len(base_order),
                  )
-    type_counts = np.zeros(shape=type_shape, dtype=int)
+    type_counts = {length: np.zeros(type_shape, int) for length in relevant_lengths}
 
     bamfile = pysam.Samfile(bam_file_name, 'rb')
     for CDS in simple_CDSs:
         reads = bamfile.fetch(CDS.seqname,
-                              CDS.start - edge_overlap,
-                              CDS.end + edge_overlap,
+                              CDS.start - edge_buffer,
+                              CDS.end + edge_buffer,
                              )
         for read in reads:
             if read.mapq != 50:
                 # Non-unique mapping
                 continue
-            elif read.qlen < 25 or read.qlen > 31:
+            elif read.qlen not in relevant_lengths:
                 continue
             elif sam.contains_indel_pysam(read):
                 continue
@@ -499,21 +497,18 @@ def error_profile(bam_file_name, simple_CDSs, fastq_type):
                 if strand != CDS.strand:
                     continue
                 else:
-                    alignment = sam.produce_alignment(read,
-                                                      from_pysam=True,
-                                                      fastq_type=fastq_type,
-                                                     )
+                    alignment = sam.produce_alignment(read, from_pysam=True)
 
                     if strand == '+':
                         index_lookup = base_to_index
                     else:
                         index_lookup = base_to_complement_index
-                   
+
                     for ref_char, read_char, qual, ref_pos, read_pos in alignment:
                         ref_index = index_lookup[ref_char]
                         read_index = index_lookup[read_char]
-                        coords = (read.qlen - 25, read_pos, qual, ref_index, read_index)
-                        type_counts[coords] += 1
+                        coords = (read_pos, qual, ref_index, read_index)
+                        type_counts[read.qlen][coords] += 1
 
     return type_counts
 
