@@ -108,6 +108,16 @@ trim_weinberg = partial(
     find_end=find_weinberg_linker,
 )
 
+find_weinberg_linker_short = partial(
+    trim_cython.find_short_adapter,
+    weinberg_linker,
+)
+trim_weinberg_linker_short = partial(
+    trim,
+    find_start=lambda seq: 0,
+    find_end=find_weinberg_linker_short,
+)
+
 trim_nothing = partial(
     trim,
     find_start=lambda seq: 0,
