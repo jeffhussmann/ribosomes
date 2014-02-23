@@ -30,6 +30,12 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
         self.max_read_length = kwargs.get('max_read_length', None)
+        length_range = kwargs.get('relevant_lengths', None)
+        if length_range == None:
+            self.relevant_lengths = range(27, 32)
+        else:
+            start, stop = map(int, length_range.split(','))
+            self.relevant_lengths = range(start, stop + 1)
         
         self.min_length = 10
         
@@ -72,18 +78,17 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
             ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
 
-            ('mismatches_25', 'mismatches', '{name}_mismatches_25.txt'),
-            ('mismatches_26', 'mismatches', '{name}_mismatches_26.txt'),
-            ('mismatches_27', 'mismatches', '{name}_mismatches_27.txt'),
-            ('mismatches_28', 'mismatches', '{name}_mismatches_28.txt'),
-            ('mismatches_29', 'mismatches', '{name}_mismatches_29.txt'),
-            ('mismatches_30', 'mismatches', '{name}_mismatches_30.txt'),
-            ('mismatches_31', 'mismatches', '{name}_mismatches_31.txt'),
-
             ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
 
             ('yield', '', '{name}_yield.txt'),
         ]
+
+        for length in self.relevant_lengths:
+            entry = ('mismatches_{0}'.format(length),
+                     'mismatches',
+                     '{{name}}_mismatches_{0}.txt'.format(length),
+                    )
+            specific_results_files.append(entry)
 
         specific_figure_files = [
             ('all_lengths', '{name}_all_lengths.pdf'),
@@ -128,21 +133,16 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              'from_ends',
              'strand_counts',
              'read_counts'
-             #'mismatches_25',
-             #'mismatches_26',
-             #'mismatches_27',
-             #'mismatches_28',
-             #'mismatches_29',
-             #'mismatches_30',
-             #'mismatches_31',
              #'recycling_ratios',
             ],
         ]
 
+        specific_outputs[1].extend(['mismatches_{0}'.format(length) for length in self.relevant_lengths])
+
         specific_work = [
             [(self.trim_reads, 'Trim reads'),
              (self.pre_filter_rRNA, 'Filter contaminants'),
-             (self.tophat, 'Map with tophat'),
+             (self.map_tophat, 'Map with tophat'),
              (self.post_filter_contaminants, 'Further contaminant filtering'),
              (self.get_rRNA_coverage, 'Counting rRNA coverage'),
              (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
@@ -150,7 +150,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             [(self.get_read_positions, 'Counting mapping positions'),
              (self.get_metagene_positions, 'Aggregating metagene positions'),
              (self.compute_codon_occupancy_counts, 'Computing codon occupancies'),
-             #(self.get_error_profile, 'Getting error profile'),
+             (self.get_error_profile, 'Getting error profile'),
              #(self.get_recycling_ratios, 'Getting recycling ratios'),
             ],
         ]
@@ -165,7 +165,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             [self.compute_RPKMs,
              self.plot_starts_and_ends,
              self.plot_frames,
-             #self.plot_mismatch_positions,
+             self.plot_mismatch_positions,
              #self.plot_mismatch_types,
             ],
         ]
@@ -222,7 +222,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         filtered_lengths = self.zero_padded_array(filtered_lengths)
         self.write_file('filtered_lengths', filtered_lengths)
 
-    def tophat(self):
+    def map_tophat(self):
         ribosomes.map_tophat(self.file_names['filtered_reads'],
                              self.file_names['bowtie2_index_prefix'],
                              self.file_names['genes'],
@@ -386,10 +386,10 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
 
     def plot_mismatch_positions(self):
         fig, ax = plt.subplots(figsize=(16, 12))
-        for length in range(25, 32):
+        for length in self.relevant_lengths:
             type_counts = self.read_file('mismatches_{0}'.format(length))
             Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
-        ax.set_xlim(-1, 31)
+        ax.set_xlim(-1, max(self.relevant_lengths))
         leg = ax.legend(loc='upper right', fancybox=True)  
         leg.get_frame().set_alpha(0.5)
         fig.savefig(self.figure_file_names['mismatch_positions'])
@@ -397,7 +397,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
     def plot_mismatch_types(self):
         first_data_sets = []
         last_data_sets = []
-        for length in range(27, 32):
+        for length in self.relevant_lengths:
             type_counts = self.read_file('mismatches_{0}'.format(length))
             first_counts = type_counts[0]
             last_counts = type_counts[length - 1]
@@ -457,7 +457,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
         genes = positions.get_CDS_position_counts(self.merged_file_names['clean_bam'],
                                                   piece_simple_CDSs,
-                                                  relevant_lengths=range(27, 31),
+                                                  relevant_lengths=self.relevant_lengths,
                                                  )
         self.write_file('read_positions', genes)
         self.write_file('strand_counts', genes)
@@ -487,9 +487,10 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         piece_simple_CDSs, _ = self.get_simple_CDSs()
         type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
                                               piece_simple_CDSs,
+                                              self.relevant_lengths,
                                              )
-        for length, length_counts in zip(range(25, 32), type_counts): 
-            self.write_file('mismatches_{0}'.format(length), length_counts)
+        for length in type_counts:
+            self.write_file('mismatches_{0}'.format(length), type_counts[length])
 
     def get_recycling_ratios(self):
         piece_simple_CDSs, _ = self.get_simple_CDSs()
