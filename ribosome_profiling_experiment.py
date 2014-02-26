@@ -29,6 +29,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
+        self.transcripts_file_name = kwargs['transcripts_file_name']
         self.max_read_length = kwargs.get('max_read_length', None)
         length_range = kwargs.get('relevant_lengths', None)
         if length_range == None:
@@ -147,7 +148,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              (self.get_rRNA_coverage, 'Counting rRNA coverage'),
              (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
-            [(self.get_read_positions, 'Counting mapping positions'),
+            [#(self.get_read_positions, 'Counting mapping positions'),
+             (self.get_read_positions_splicing, 'Counting mapping positions, splicing'),
              (self.get_metagene_positions, 'Aggregating metagene positions'),
              (self.compute_codon_occupancy_counts, 'Computing codon occupancies'),
              (self.get_error_profile, 'Getting error profile'),
@@ -166,7 +168,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
              self.plot_starts_and_ends,
              self.plot_frames,
              self.plot_mismatch_positions,
-             #self.plot_mismatch_types,
+             self.plot_mismatch_types,
             ],
         ]
 
@@ -198,6 +200,21 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                                               self.which_piece,
                                                              )
         return piece_simple_CDSs, max_gene_length
+    
+    def get_CDSs(self):
+        all_CDSs = gtf.get_CDSs(self.file_names['genes'])
+        transcripts = {line.strip() for line in open(self.transcripts_file_name)}
+        CDSs = [t for t in all_CDSs if t.name in transcripts]
+        max_gene_length = 0
+        for CDS in CDSs:
+            CDS.build_coordinate_maps()
+            max_gene_length = max(max_gene_length, CDS.CDS_length)
+            CDS.delete_coordinate_maps()
+        piece_CDSs = Parallel.split_file.piece_of_list(CDSs,
+                                                       self.num_pieces,
+                                                       self.which_piece,
+                                                      )
+        return piece_CDSs, max_gene_length
         
     def trim_reads(self):
         trimmed_lengths, too_short_lengths, barcode_counts = self.trim_function(self.get_reads(),
@@ -461,9 +478,19 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
                                                  )
         self.write_file('read_positions', genes)
         self.write_file('strand_counts', genes)
+    
+    def get_read_positions_splicing(self):
+        piece_CDSs, max_gene_length = self.get_CDSs()
+        genes = positions.get_Transcript_position_counts(self.merged_file_names['clean_bam'],
+                                                         piece_CDSs,
+                                                         relevant_lengths=self.relevant_lengths,
+                                                        )
+        self.write_file('read_positions', genes)
+        self.write_file('strand_counts', genes)
 
     def get_metagene_positions(self):
-        piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
+        #piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
+        piece_CDSs, max_gene_length = self.get_CDSs()
         gene_infos = self.read_file('read_positions')
         from_starts, from_ends = positions.compute_metagene_positions(gene_infos, max_gene_length)
 
@@ -484,7 +511,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         #os.remove(self.file_names['rRNA_sam'])
 
     def get_error_profile(self):
-        piece_simple_CDSs, _ = self.get_simple_CDSs()
+        #piece_simple_CDSs, _ = self.get_simple_CDSs()
+        piece_simple_CDSs, _ = self.get_CDSs()
         type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
                                               piece_simple_CDSs,
                                               self.relevant_lengths,
@@ -493,7 +521,8 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
             self.write_file('mismatches_{0}'.format(length), type_counts[length])
 
     def get_recycling_ratios(self):
-        piece_simple_CDSs, _ = self.get_simple_CDSs()
+        #piece_simple_CDSs, _ = self.get_simple_CDSs()
+        piece_simple_CDSs, _ = self.get_CDSs()
         rpf_positions_dict = self.read_file('rpf_positions')
         genome = mapping_tools.load_genome(self.file_names['genome'], explicit_path=True)
         ratio_lists = ribosomes.recycling_ratios(rpf_positions_dict,

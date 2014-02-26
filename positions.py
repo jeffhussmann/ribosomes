@@ -214,6 +214,67 @@ def get_extent_position_counts(bam_file, extent, relevant_lengths):
 
     return extent_info
 
+def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
+    gene_infos = {}
+    bam_file = pysam.Samfile(clean_bam_fn)
+    for transcript in transcripts:
+        transcript.build_coordinate_maps()
+        if transcript.CDS_length < 0:
+            print transcript.name, transcript.CDS_length
+
+        expression = np.zeros(2, int)
+        nonunique = 0
+        alternatively_spliced = 0
+
+        transcript_position_counts = {l: PositionCounts(transcript.transcript_length, left_buffer, right_buffer)
+                                      for l in relevant_lengths + ['all']}
+        
+        overlapping_reads = bam_file.fetch(transcript.seqname, transcript.start, transcript.end)
+        for read in overlapping_reads:
+            if any(position not in transcript.genomic_to_transcript for position in read.positions):
+                # Alternative splicing
+                alternatively_spliced += 1
+                continue
+            
+            if read.mapq != 50:
+                nonunique += 1
+                continue
+
+            read_strand = '-' if read.is_reverse else '+'
+            if read_strand != transcript.strand:
+                expression[1] += 1
+                continue
+
+            expression[0] += 1
+
+            if read_strand == '+':
+                five_prime_position = read.pos
+            elif read_strand == '-':
+                five_prime_position = read.aend - 1
+
+            transcript_coord = transcript.genomic_to_transcript[five_prime_position]
+            transcript_position_counts['all'][transcript_coord] += 1
+            if read.qlen in relevant_lengths:
+                transcript_position_counts[read.qlen][transcript_coord] += 1
+
+        CDS_position_counts = {l: PositionCounts(transcript.CDS_length, left_buffer, right_buffer)
+                               for l in relevant_lengths + ['all']}
+
+        for key in CDS_position_counts:
+            CDS_slice = slice(transcript.transcript_start_codon - left_buffer, transcript.transcript_stop_codon + right_buffer)
+            # [:] is to cause an error if the lengths aren't the same.
+            CDS_position_counts[key].counts[:] = transcript_position_counts[key][CDS_slice]
+        
+        gene_infos[transcript.name] = {'CDS_length': transcript.CDS_length,
+                                       'position_counts': CDS_position_counts,
+                                       'expression': expression,
+                                       'nonunique': nonunique,
+                                       'alternatively_spliced': alternatively_spliced,
+                                      }
+        transcript.delete_coordinate_maps()
+
+    return gene_infos
+
 def dump_CDS_to_sam(bam_file_name, sam_file_name, CDS):
     bam_file = pysam.Samfile(bam_file_name)
     sam_file = pysam.Samfile(sam_file_name, 'wh', template=bam_file)
@@ -239,9 +300,9 @@ def dump_CDS_to_sam(bam_file_name, sam_file_name, CDS):
 def compute_metagene_positions(gene_infos, max_gene_length):
     random_gene = gene_infos.itervalues().next()
     relevant_lengths = sorted(random_gene['position_counts'].keys())
-    random_position_counts = random_gene['position_counts'][relevant_lengths[0]]
-    left_buffer = random_position_counts.left_buffer
-    right_buffer = random_position_counts.right_buffer
+    representative_position_counts = random_gene['position_counts'][relevant_lengths[0]]
+    left_buffer = representative_position_counts.left_buffer
+    right_buffer = representative_position_counts.right_buffer
     
     from_starts = {length: PositionCounts(max_gene_length, left_buffer, right_buffer)
                    for length in relevant_lengths}
@@ -270,12 +331,18 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn):
         end_ax.plot(-end_xs, from_ends[length].relative_to_end[end_xs], '.-', label=length)
 
     start_ax.set_xlim(min(start_xs), max(start_xs))
-    start_ax.set_xticks([x for x in start_xs if x % 3 == 0])
+    mod_3 = [x for x in start_xs if x % 3 == 0]
+    start_ax.set_xticks(mod_3)
+    for x in mod_3:
+        start_ax.axvline(x, color='black', alpha=0.1)
     start_ax.set_xlabel('Position of read relative to start of CDS')
     start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
     
     end_ax.set_xlim(min(-end_xs), max(-end_xs))
-    end_ax.set_xticks([x for x in -end_xs if x % 3 == 0])
+    mod_3 = [x for x in -end_xs if x % 3 == 0]
+    end_ax.set_xticks(mod_3)
+    for x in mod_3:
+        end_ax.axvline(x, color='black', alpha=0.1)
     end_ax.set_xlabel('Position of read relative to stop codon')
     end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
 
