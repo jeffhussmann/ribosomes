@@ -1,5 +1,5 @@
 from collections import namedtuple, defaultdict, Counter
-from itertools import islice
+import numpy as np
 
 gtf_fields = ['seqname',
               'source',
@@ -9,13 +9,14 @@ gtf_fields = ['seqname',
               'score',
               'strand',
               'frame',
+              'attribute_string',
               'attribute',
              ]
-Gene = namedtuple('Gene', gtf_fields)
+Feature = namedtuple('Feature', gtf_fields)
 
-# Work-around (temporary?) to reconcile automatic parsing of attribute string
-# into a dictionary with the need to hash Genes to check for set membership
-Gene.__hash__ = lambda self: hash(self[:-1])
+# The attributed dictionary can't be hashed, but it is enough to hash the string
+# that it was parsed out of.
+Feature.__hash__ = lambda self: hash(self[:-1])
 
 def parse_attribute(attribute):
     fields = attribute.strip(';').split('; ')
@@ -25,48 +26,41 @@ def parse_attribute(attribute):
 
 def parse_gtf_line(line):
     fields = line.strip().split('\t')
-    fields[-1] = parse_attribute(fields[-1])
-    gene = Gene._make(fields)
-    start = int(gene.start) - 1
+    fields.append(parse_attribute(fields[-1]))
+    feature = Feature._make(fields)
+    start = int(feature.start) - 1
     # Convert from 1-based indexing to 0-based
-    end = int(gene.end) - 1
-    if gene.frame != '.':
-        frame = int(gene.frame)
+    end = int(feature.end) - 1
+    if feature.frame != '.':
+        frame = int(feature.frame)
     else:
-        frame = gene.frame
-    gene = gene._replace(start=start, end=end, frame=frame)
-    return gene
+        frame = feature.frame
+    feature = feature._replace(start=start, end=end, frame=frame)
+    return feature
 
 def get_all_features(gtf_fn):
     all_features = [parse_gtf_line(line) for line in open(gtf_fn)]
     return all_features
 
-def get_noncoding_RNA_genes(gtf_fn):
+def get_noncoding_RNA_transcripts(gtf_fn):
     all_features = get_all_features(gtf_fn)
-    rRNA_genes = []
-    tRNA_genes = []
-    other_ncRNA_genes = []
-    for feature in all_features:
-        if feature.source == 'rRNA':
-            rRNA_genes.append(feature)
-        elif feature.source == 'tRNA':
-            tRNA_genes.append(feature)
-        elif 'RNA' in feature.source:
-            other_ncRNA_genes.append(feature)
-    return rRNA_genes, tRNA_genes, other_ncRNA_genes
+    transcripts = get_transcripts(all_features)
+    rRNA_transcripts = []
+    tRNA_transcripts = []
+    other_ncRNA_transcripts = []
+    for transcript in transcripts:
+        if any(exon.source == 'rRNA' for exon in transcript.exons):
+            rRNA_transcripts.append(transcript)
+        elif any(exon.source == 'tRNA' for exon in transcript.exons):
+            tRNA_transcripts.append(transcript)
+        elif any('RNA' in exon.source for exon in transcript.exons):
+            other_ncRNA_transcripts.append(transcript)
+    return rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts
 
 def get_all_sources(gtf_fn):
     all_features = get_all_features(gtf_fn)
     sources = Counter(feature.source for feature in all_features)
     return sources
-
-def get_all_CDSs(all_features):
-    # This used to also check if gene.source == 'protein_coding', but as I
-    # generalize to other organisms, I am encountering GTF files that don't fill
-    # in meaningful source values.
-    CDSs = [feature for feature in all_features if feature.feature == 'CDS']
-
-    return CDSs
 
 def get_all_exons(all_features):
     exons = [feature for feature in all_features if feature.feature == 'exon']
@@ -77,6 +71,12 @@ def sort_features(features):
         return feature.seqname, feature.start, feature.feature
 
     return sorted(features, key=key)
+
+def sort_transcripts(transcripts):
+    def key(transcript):
+        return transcript.seqname, transcript.start, transcript.end, transcript.strand
+
+    return sorted(transcripts, key=key)
 
 def get_transcripts(all_features):
     feature_lists = defaultdict(list)
@@ -96,9 +96,18 @@ def contained_in(exon, CDS):
 class Transcript(object):
     def __init__(self, name, features):
         self.name = name
+
+        # Further processing assumes that features is sorted by (start, end).
+        features = sort_features(features)
+
         self.exons = [feature for feature in features if feature.feature == 'exon']
-        self.CDSs = [None for exon in self.exons]
+
+        # A transcript can have more than one start_codon or stop_codon feature
+        # if the codon is split across multiple exons.
+        self.start_codons = [feature for feature in features if feature.feature == 'start_codon']
+        self.stop_codons = [feature for feature in features if feature.feature == 'stop_codon']
         
+        self.CDSs = [None for exon in self.exons]
         CDSs = [feature for feature in features if feature.feature == 'CDS']
         for CDS in CDSs:
             for e, exon in enumerate(self.exons):
@@ -107,6 +116,67 @@ class Transcript(object):
                     break
             else:
                 raise ValueError(CDS, self.exons)
+
+        strands = {feature.strand for feature in features}
+        if len(strands) > 1:
+            raise ValueError(self.name)
+        self.strand = strands.pop()
+
+        seqnames = {feature.seqname for feature in features}
+        if len(seqnames) > 1:
+            raise ValueError(self.name)
+        self.seqname = seqnames.pop()
+
+        self.start = min(exon.start for exon in self.exons)
+        self.end = max(exon.end for exon in self.exons)
+
+    def build_coordinate_maps(self):
+        ''' Make dictionaries mapping from genomic coordinates to transcript
+            coordinates and vice-versa.
+        '''
+        if self.strand == '+':
+            exon_position_lists = [np.arange(exon.start, exon.end + 1) for exon in self.exons]
+        elif self.strand == '-':
+            exon_position_lists = [np.arange(exon.end, exon.start - 1, -1) for exon in self.exons[::-1]]
+        
+        exon_positions = np.concatenate(exon_position_lists)
+
+        self.transcript_length = len(exon_positions)
+        # Add some upstream and downstream bases to support yeast's lack of
+        # annotated UTRs.
+        # This could cause problems in other organisms if one isoform is a
+        # truncation of another.
+        buffer_length = 50
+        upstream_transcript = np.arange(-buffer_length, 0)
+        downstream_transcript = np.arange(self.transcript_length, self.transcript_length + buffer_length)
+        if self.strand == '+':
+            upstream_positions = np.arange(self.start - buffer_length, self.start)
+            downstream_positions = np.arange(self.end + 1, self.end + 1 + buffer_length)
+        elif self.strand == '-':
+            upstream_positions = np.arange(self.end + buffer_length, self.end, -1)
+            downstream_positions = np.arange(self.start - 1, self.start - 1 - buffer_length, -1)
+
+        self.transcript_to_genomic = dict(enumerate(exon_positions))
+        self.transcript_to_genomic.update(zip(upstream_transcript, upstream_positions)) 
+        self.transcript_to_genomic.update(zip(downstream_transcript, downstream_positions)) 
+
+        self.genomic_to_transcript = {g: t for t, g in self.transcript_to_genomic.iteritems()}
+
+        if self.start_codons and self.stop_codons:
+            if self.strand == '+':
+                genomic_start_codon = min(sc.start for sc in self.start_codons)
+                genomic_stop_codon = min(sc.start for sc in self.stop_codons)
+            elif self.strand == '-':
+                genomic_start_codon = max(sc.end for sc in self.start_codons)
+                genomic_stop_codon = max(sc.end for sc in self.stop_codons)
+            self.transcript_start_codon = self.genomic_to_transcript[genomic_start_codon]
+            self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
+            # By convention, CDS_lengths includes no bases of the stop codon.
+            self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
+
+    def delete_coordinate_maps(self):
+        del self.transcript_to_genomic
+        del self.genomic_to_transcript
 
 def get_extent_by_name(gtf_fn, name):
     all_features = get_all_features(gtf_fn)
@@ -166,11 +236,16 @@ def exclude_dubious_ORFs(CDSs, dubious_ORFs_fn):
     return non_dubious_ORFs
 
 def get_single_exon_transcripts(transcripts):
-    ''' Returns all transcripts that have a single exon and a CDS.
+    ''' Returns a list of all elements in transcripts that have a single exon.
     '''
-    single_exon_transcripts = [transcript for transcript in transcripts
-                               if len(transcript.exons) == 1 and transcript.CDSs[0]]
+    single_exon_transcripts = [transcript for transcript in transcripts if len(transcript.exons) == 1]
     return single_exon_transcripts
+
+def get_translated_transcripts(transcripts):
+    ''' Returns a list of all elements in transcripts that are translated.
+    '''
+    translated_transcripts = [transcript for transcript in transcripts if any(transcript.CDSs)]
+    return translated_transcripts
 
 def get_simple_CDSs(gtf_fn, exclude_from=None):
     ''' Returns all single exon CDSs that do not overlap any other CDS.
@@ -179,9 +254,7 @@ def get_simple_CDSs(gtf_fn, exclude_from=None):
         or uncharacterized genes.
     '''
     all_features = get_all_features(gtf_fn)
-    #CDSs = get_all_CDSs(all_features)
     exons = get_all_exons(all_features)
-    transcripts = get_transcripts(all_features)
 
     relevant_exons = exons
     if exclude_from:
@@ -190,12 +263,22 @@ def get_simple_CDSs(gtf_fn, exclude_from=None):
 
     nonoverlapping, _ = get_nonoverlapping(relevant_exons, edge_buffer=20)
     nonoverlapping = set(nonoverlapping)
-    single_exon_transcripts = get_single_exon_transcripts(transcripts)
+
+    transcripts = get_transcripts(all_features)
+    translated_transcripts = get_translated_transcripts(transcripts)
+    single_exon_transcripts = get_single_exon_transcripts(translated_transcripts)
     simple_CDSs = [transcript.CDSs[0] for transcript in single_exon_transcripts
                    if transcript.exons[0] in nonoverlapping]
     simple_CDSs = sort_features(list(simple_CDSs))
 
     return simple_CDSs
+
+def get_CDSs(gtf_fn):
+    all_features = get_all_features(gtf_fn)
+    transcripts = get_transcripts(all_features)
+    translated_transcripts = get_translated_transcripts(transcripts)
+
+    return sort_transcripts(translated_transcripts)
 
 def feature_list_to_dict(features):
     feature_dict = defaultdict(list)
