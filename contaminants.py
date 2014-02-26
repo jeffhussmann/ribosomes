@@ -40,40 +40,45 @@ def post_filter(input_bam_fn,
                 tRNA_bam_fn,
                 other_ncRNA_bam_fn,
                ):
-    ''' Removes any remaining mappings to tRNA or rRNA genes.
-        If a read has any mappings to an rRNA gene, write all such mappings to
-        more_rRNA_bam_fn with exactly one flagged primary.
-        If a read has no mappings to any rRNA gene but any mapping to a tRNA
-        gene, write all such mappings to tRNA_bam_fn with exactly one
+    ''' Removes any remaining mappings to tRNA or rRNA transcripts.
+        If a read has any mappings to an rRNA transcript, write all such
+        mappings to more_rRNA_bam_fn with exactly one flagged primary.
+        If a read has no mappings to any rRNA transcript but any mapping to a
+        tRNA transcript, write all such mappings to tRNA_bam_fn with exactly one
         flagged primary.
-        If a read has no mappings to any rRNA or tRNA genes but any mapping to
-        any other noncoding RNA gene, write all such mappings to
-        other_RNA_bam_fn with exactly one flagged primary.
+        If a read has no mappings to any rRNA or tRNA transcripts but any
+        mapping to any other noncoding RNA transcript, write all such mappings
+        to other_RNA_bam_fn with exactly one flagged primary.
         Write all remaining mappings to clean_bam_fn.
     '''
     contaminant_qnames = set()
 
-    rRNA_genes, tRNA_genes, other_ncRNA_genes = gtf.get_noncoding_RNA_genes(gtf_fn)
+    rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts = gtf.get_noncoding_RNA_transcripts(gtf_fn)
 
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
    
-    # Find reads with any mappings that overlap rRNA or tRNA genes and write any
+    # Find reads with any mappings that overlap rRNA or tRNA transcripts and write any
     # such mappings to a contaminant bam file.
-    for genes, bam_fn in [(rRNA_genes, more_rRNA_bam_fn),
-                          (tRNA_genes, tRNA_bam_fn),
-                          (other_ncRNA_genes, other_ncRNA_bam_fn),
-                         ]:
+    for transcripts, bam_fn in [(rRNA_transcripts, more_rRNA_bam_fn),
+                                (tRNA_transcripts, tRNA_bam_fn),
+                                (other_ncRNA_transcripts, other_ncRNA_bam_fn),
+                               ]:
         with pysam.Samfile(bam_fn, 'wb', template=input_bam_file) as bam_file:
-            for gene in genes:
-                overlapping_mappings = input_bam_file.fetch(gene.seqname,
-                                                            gene.start,
-                                                            gene.end,
+            for transcript in transcripts:
+                transcript.build_coordinate_maps()
+                overlapping_mappings = input_bam_file.fetch(transcript.seqname,
+                                                            transcript.start,
+                                                            transcript.end,
                                                            )
                 for mapping in overlapping_mappings:
-                    if mapping.qname not in contaminant_qnames:
-                        mapping.is_secondary = False
-                        bam_file.write(mapping)
-                        contaminant_qnames.add(mapping.qname)
+                    # Confirm that there is at least one base from the read
+                    # mapped to a position in the transcript (i.e. it isn't just
+                    # a spliced read whose junction contains the transcript).
+                    if any(p in transcript.genomic_to_transcript for p in mapping.positions):
+                        if mapping.qname not in contaminant_qnames:
+                            mapping.is_secondary = False
+                            bam_file.write(mapping)
+                            contaminant_qnames.add(mapping.qname)
 
     input_bam_file.close()
          
