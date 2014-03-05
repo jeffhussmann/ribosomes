@@ -14,7 +14,7 @@ gtf_fields = ['seqname',
              ]
 Feature = namedtuple('Feature', gtf_fields)
 
-# The attributed dictionary can't be hashed, but it is enough to hash the string
+# The attribute dictionary can't be hashed, but it is enough to hash the string
 # that it was parsed out of.
 Feature.__hash__ = lambda self: hash(self[:-1])
 
