@@ -35,6 +35,23 @@ def find_adapter(char *adapter, int max_distance, char *seq):
     # Convention: position of seq_length means no position was found
     return seq_length
 
+def find_medium_adapter(char *adapter, char *seq):
+    ''' Searches for exact matches of a suffix of seq with a prefix of adapter.
+        Allows 1 mismatch if the compared regions are long enough.
+    '''
+    cdef int seq_length = len(seq)
+    cdef int adapter_length = len(adapter)
+    cdef int start
+
+    for start in range(seq_length):
+        distance = hamming_distance(seq, adapter, seq_length, adapter_length, start)
+        if distance == 0:
+            return start
+        elif seq_length - start >= 5 and distance <= 1:
+            return start
+
+    return seq_length
+
 def find_short_adapter(char *adapter, char *seq):
     ''' Searches for exact matches of a suffix of seq with a prefix of adapter.
     '''

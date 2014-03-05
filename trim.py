@@ -108,14 +108,14 @@ trim_weinberg = partial(
     find_end=find_weinberg_linker,
 )
 
-find_weinberg_linker_short = partial(
-    trim_cython.find_short_adapter,
+find_bartel_linker_medium = partial(
+    trim_cython.find_medium_adapter,
     weinberg_linker,
 )
-trim_weinberg_linker_short = partial(
+trim_bartel_linker_medium = partial(
     trim,
     find_start=lambda seq: 0,
-    find_end=find_weinberg_linker_short,
+    find_end=find_bartel_linker_medium,
 )
 
 trim_nothing = partial(
@@ -151,7 +151,7 @@ def unambiguously_trimmed(filtered_bam_fn, unambiguous_bam_fn, genome_dir):
                 start = read.pos - 10
                 end = read.pos
                 after = loaded_genome[seqname][start:end]
-                after = mutations.reverse_complement(after)
+                after = utilities.reverse_complement(after)
 
             if first_non_A(after) == 0:
                 unambiguous_bam_fh.write(read)
