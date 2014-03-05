@@ -1,16 +1,16 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
-import mapping_tools
-import fasta
-import sam
-import gtf
-import pysam
-import ribosomes
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+import pysam
 from collections import defaultdict
 from itertools import chain, izip
+from Circles import mapping_tools
+from Circles import fasta
+from Circles import sam
+import gtf
+import ribosomes
 
 def pre_filter(contaminant_index,
                trimmed_reads_fn,

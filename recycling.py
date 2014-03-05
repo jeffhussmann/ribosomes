@@ -1,7 +1,7 @@
 import Bio.Seq
 import Bio.Data.CodonTable
 import gtf
-import mutations
+from Circles import utilities
 from collections import defaultdict
 from itertools import izip
 
@@ -33,7 +33,7 @@ def get_amino_acid_locations(gene, genome):
             # gene.start is the first base after the (rc of the) stop codon
             # gene.end is the last base of the (rc of the) start codon
             rc_seq = genome[gene.seqname][gene.start - 3:gene.end + 1]
-            seq = mutations.reverse_complement(rc_seq)
+            seq = utilities.reverse_complement(rc_seq)
             translation = Bio.Seq.translate(seq, cds=True)
     except Bio.Seq.CodonTable.TranslationError, err:
         print err

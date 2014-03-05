@@ -1,13 +1,13 @@
 import numpy as np
-import mapping_tools
-import mutations
-import fastq
-import trim_cython
 import pysam
 from functools import partial
 from itertools import chain
 from collections import Counter
-from annotation import Annotation_factory
+from Circles import mapping_tools
+from Circles import utilities
+from Circles import fastq
+from Circles.annotation import Annotation_factory
+import trim_cython
 
 payload_annotation_fields = [
     ('original_name', 's'),
