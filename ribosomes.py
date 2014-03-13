@@ -259,8 +259,7 @@ def plot_frameshifts(rpf_counts_list,
         cumulative_ax.set_xlim(codon_numbers[0])
         cumulative_ax.set_ylim(-0.02, 1.02)
         
-        leg = cumulative_ax.legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
+        cumulative_ax.legend(loc='upper right', framealpha=0.5)
         fig.suptitle('{0} - length {1} fragments\n{2}'.format(gene_name, fragment_length, exp_name))
 
     return codon_numbers, frame_counts_list, fraction_frames_so_far, fraction_frames_remaining
@@ -538,8 +537,7 @@ def plot_metagene_averaged():
 
         ax.plot(mean_densities[:plot_up_to], '.-', label=name)
     
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
+    ax.legend(loc='upper right', framealpha=0.5)
 
     ax.set_xlabel('Position (codons)')
     ax.set_ylabel('Normalized mean reads')
@@ -602,8 +600,7 @@ def plot_metagene_from_codon_counts():
 
         ax.plot(mean_densities[:plot_up_to], '.-', label=name)
     
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
+    ax.legend(loc='upper right', framealpha=0.5)
 
     ax.set_xlabel('Position (codons)')
     ax.set_ylabel('Normalized mean reads')

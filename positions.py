@@ -346,10 +346,8 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn):
     end_ax.set_xlabel('Position of read relative to stop codon')
     end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
 
-    leg = start_ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
-    leg = end_ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
+    start_ax.legend(loc='upper right', framealpha=0.5)
+    end_ax.legend(loc='upper right', framealpha=0.5)
     
     fig.savefig(figure_fn)
 

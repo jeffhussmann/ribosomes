@@ -150,8 +150,7 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
                             verticalalignment='top',
                            )
     for rname in rnames:
-        leg = axs[rname].legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
+        axs[rname].legend(loc='upper right', framealpha=0.5)
         axs[rname].set_xlabel('Position in rRNA')
         axs[rname].set_ylabel('Fraction of all reads mapping to position')
         figs[rname].savefig(fig_fn_template.format(rname))
@@ -198,8 +197,7 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
         normalized_lengths = np.true_divide(oligo_lengths, denominator)
         ax.plot(normalized_lengths, 'o-', color=color, label=oligo_name)
     
-    leg = ax.legend(loc='upper right', fancybox=True)
-    leg.get_frame().set_alpha(0.5)
+    ax.legend(loc='upper right', framealpha=0.5)
     
     ax.set_xlim(0, lengths.shape[1] - 1)
 

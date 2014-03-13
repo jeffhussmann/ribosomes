@@ -353,8 +353,7 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         ax_all.set_title('Fragment length distribution by source')
         ax_all.set_xlabel('Length of original RNA fragment')
         ax_all.set_ylabel('Number of reads')
-        leg = ax_all.legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
+        ax_all.legend(loc='upper left', framealpha=0.5)
         fig_all.savefig(self.figure_file_names['all_lengths'])
         
         fig_clean, ax_clean = plt.subplots(figsize=(12, 8))
@@ -366,16 +365,27 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         ax_clean.set_title('Fragment length distribution by source')
         ax_clean.set_xlabel('Length of original RNA fragment')
         ax_clean.set_ylabel('Number of reads')
-        leg = ax_clean.legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
+        ax_clean.legend(loc='upper left', framealpha=0.5)
     
         fig_clean.savefig(self.figure_file_names['clean_lengths'])
 
     def plot_rRNA_coverage(self):
-        coverage_data = {self.name: self.read_file('rRNA_coverage')}
+        trimmed_lengths = self.read_file('trimmed_lengths')
+        too_short_lengths = self.read_file('too_short_lengths')
+
+        total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
+        _, counts = self.read_file('rRNA_coverage')
+        coverage_data = {self.name: (total_reads, counts, 'blue')}
         contaminants.plot_rRNA_coverage(coverage_data,
                                         self.file_names['oligos_sam'],
                                         self.figure_file_names['rRNA_coverage_template'],
+                                       )
+        
+        _, counts = self.read_file('rRNA_coverage_length_28')
+        coverage_data = {self.name: (total_reads, counts, 'blue')}
+        contaminants.plot_rRNA_coverage(coverage_data,
+                                        self.file_names['oligos_sam'],
+                                        self.figure_file_names['rRNA_coverage_length_28_template'],
                                        )
 
     def plot_oligo_hit_lengths(self):
@@ -405,10 +415,9 @@ class RibosomeProfilingExperiment(mapreduce.MapReduceExperiment):
         fig, ax = plt.subplots(figsize=(16, 12))
         for length in self.relevant_lengths:
             type_counts = self.read_file('mismatches_{0}'.format(length))
-            Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
+            Circles.Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
         ax.set_xlim(-1, max(self.relevant_lengths))
-        leg = ax.legend(loc='upper right', fancybox=True)  
-        leg.get_frame().set_alpha(0.5)
+        ax.legend(loc='upper right', framealpha=0.5)
         fig.savefig(self.figure_file_names['mismatch_positions'])
 
     def plot_mismatch_types(self):
