@@ -40,47 +40,46 @@ def map_tophat(reads_file_name,
     # console, so discard output.
     subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
-def get_codon_counts(gene_info, stringency):
-    if stringency == 'strict':
-        length_28s = gene_info['position_counts'][28]
-        A_site_offset = 15
-        start_index = -A_site_offset
-        # gene_info['CDS_length'] is the index of the first nucleotide of the
-        # stop codon. Ingolia's original model never has the stop codon in the
-        # A site, but subsequent data show an accumulation of (typically
-        # length 29 or 30) reads that do advance this far. The +3 has been
-        # added to include this.
-        end_index = gene_info['CDS_length'] - A_site_offset + 3
-        in_frames = length_28s[start_index:end_index:3]
-        return in_frames
-    elif stringency == 'relaxed':
-        length_28s = gene_info['position_counts'][28]
-        A_site_offset = 15
-        start_index = -A_site_offset
-        end_index = gene_info['CDS_length'] - A_site_offset + 3
-        counts_28 = length_28s[start_index:end_index:3] + \
-                    length_28s[start_index-1:end_index-1:3] + \
-                    length_28s[start_index+1:end_index+1:3]
-        
-        length_29s = gene_info['position_counts'][29]
-        A_site_offset = 15
-        start_index = -A_site_offset
-        end_index = gene_info['CDS_length'] - A_site_offset + 3
-        counts_29 = length_29s[start_index:end_index:3] + \
-                    length_29s[start_index-1:end_index-1:3] + \
-                    length_29s[start_index-2:end_index-2:3]
+A_site_offsets = {'ingolia_cell': {29: 15,
+                                   30: 15,
+                                   31: 16,
+                                   32: 16,
+                                   33: 16,
+                                   34: 17,
+                                   35: 17,
+                                  },
+                  'guo_nature':   {27: 15,
+                                   28: 15,
+                                   29: 15,
+                                   30: 15,
+                                   31: 15,
+                                   32: 15,
+                                  },
+                  'yeast':        {28: 15,
+                                   29: 15,
+                                   30: 16,
+                                  },
+                 }
 
-        length_30s = gene_info['position_counts'][30]
-        A_site_offset = 16
-        start_index = -A_site_offset
-        end_index = gene_info['CDS_length'] - A_site_offset + 3
-        counts_30 = length_30s[start_index:end_index:3] + \
-                    length_30s[start_index-1:end_index-1:3] + \
-                    length_30s[start_index+1:end_index+1:3]
+def get_codon_counts(gene_info, offset_type):
+    # gene_info['CDS_length'] is the index of the first nucleotide of the
+    # stop codon. Ingolia's original model never has the stop codon in the
+    # A site, but subsequent data show an accumulation of (typically
+    # length 29 or 30) reads that do advance this far. The +1 has been
+    # added to include this.
+    codon_counts = np.zeros(gene_info['CDS_length'] // 3 + 1, int)
+    for length in set(gene_info['position_counts']) & set(A_site_offsets[offset_type]):
+        position_counts = gene_info['position_counts'][length]
+        start_index = -A_site_offsets[offset_type][length]
+        end_index = gene_info['CDS_length'] - A_site_offsets[offset_type][length] + 3
+        codon_counts += position_counts[start_index:end_index:3] + \
+                        position_counts[start_index - 1:end_index - 1:3] + \
+                        position_counts[start_index + 1:end_index + 1:3]
 
-        return counts_28 + counts_29 + counts_30
+    return codon_counts
 
 def get_total_read_count(gene_info):
+    # TODO: this needs to be updated to new offset handling strategy
     A_site_offset = 15
     start_index = -A_site_offset
     end_index = gene_info['CDS_length'] - A_site_offset + 3
@@ -435,10 +434,14 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
         
     return ratio_lists
 
-def make_codon_counts_file(gene_infos, codon_counts_fn, stringency):
+def make_codon_counts_file(gene_infos, codon_counts_fn, offset_type):
     with open(codon_counts_fn, 'w') as codon_counts_fh:
         for gene_name in sorted(gene_infos):
-            counts = get_codon_counts(gene_infos[gene_name], stringency)
+            # Temporary hack
+            if gene_infos[gene_name]['CDS_length'] % 3:
+                print gene_name
+                continue
+            counts = get_codon_counts(gene_infos[gene_name], offset_type)
             counts_string = '\t'.join(str(count) for count in counts)
             line = '{0}\t{1}\n'.format(gene_name, counts_string)
             codon_counts_fh.write(line)
