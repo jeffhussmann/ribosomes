@@ -92,7 +92,7 @@ def post_filter(input_bam_fn,
             if mapping.qname not in contaminant_qnames:
                 clean_bam_file.write(mapping)
 
-def produce_rRNA_coverage(bam_file_names):
+def produce_rRNA_coverage(bam_file_names, specific_length=None):
     ''' Counts the number of mappings that overlap each position in the
         reference sequences that bam_file_names were mapped to.
     
@@ -141,10 +141,10 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
         axs[rname].set_xlim(0, length)
 
     for experiment_name in coverage_data:
-        total_reads, counts = coverage_data[experiment_name]
+        total_reads, counts, color = coverage_data[experiment_name]
         for rname in counts:
             normalized_counts = np.true_divide(counts[rname], total_reads)
-            axs[rname].plot(normalized_counts, label=experiment_name)
+            axs[rname].plot(normalized_counts, color=color, label=experiment_name)
 
     for oligo, color in izip(oligo_mappings, ribosomes.colors):
         for rname, start, end in oligo_mappings[oligo]:
