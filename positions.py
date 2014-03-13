@@ -4,6 +4,8 @@ import numpy as np
 import pysam
 import gtf
 from collections import Counter
+import matplotlib
+matplotlib.use('Agg', warn=False)
 import matplotlib.pyplot as plt
 
 class PositionCounts(object):
