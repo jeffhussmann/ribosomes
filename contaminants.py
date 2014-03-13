@@ -103,13 +103,18 @@ def produce_rRNA_coverage(bam_file_names):
     bam_files = [pysam.Samfile(fn, 'rb') for fn in bam_file_names]
     all_reads = chain.from_iterable(bam_files)
 
+    if specific_length:
+        eligible_reads = (read for read in all_reads if read.qlen == specific_length)
+    else:
+        eligible_reads = all_reads
+
     rnames = bam_files[0].references
     lengths = bam_files[0].lengths
     counts = {name: np.zeros(length, int) for name, length in zip(rnames, lengths)}
     
     read_names = set()
 
-    for mapping in all_reads:
+    for mapping in eligible_reads:
         read_names.add(mapping.qname)
         array = counts[rnames[mapping.tid]]
         for position in mapping.positions:
