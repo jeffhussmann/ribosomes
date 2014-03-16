@@ -74,3 +74,10 @@ def find_poly_A(char *seq):
         if seq[start - 1] != 'A':
             return start
     return 0
+
+def find_jeff_start(seq):
+    start = seq.find('CAGTA')
+    if start == 11 or start == 12 or start == 13:
+        return start + 5
+    else:
+        return 0
