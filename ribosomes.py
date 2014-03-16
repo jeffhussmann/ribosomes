@@ -476,145 +476,6 @@ def read_bartel_file(bartel_file):
 
     return RPF_dict, mRNA_dict
 
-def plot_metagene_averaged():
-    # Generators that yields arrays of counts
-    def counts_from_rpf_positions_fn(rpf_positions_fn):
-        rpf_positions_dict = Serialize.read_file(rpf_positions_fn, 'rpf_positions')
-        for gene_name in rpf_positions_dict:
-            counts = get_codon_counts(rpf_positions_dict[gene_name],
-                                      stringent=False,
-                                     )
-            yield counts
-
-    def counts_from_premal_fn(premal_fn):
-        counts_dict = read_premal_file(premal_fn)
-        for gene_name in counts_dict:
-            counts = counts_dict[gene_name]
-            yield counts
-        
-    rpf_experiments = [
-        #('Geranshenko1', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_rpf_positions.txt'),
-        #('Geranshenko2', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep2_foot/results/Initial_rep2_foot_rpf_positions.txt'),
-        #('Geranshenko_mrna', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/5min_rep1_mRNA/results/5min_rep1_mRNA_rpf_positions.txt'),
-
-        ('Ingolia1', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_rpf_positions.txt'),
-        #('Ingolia2', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_rpf_positions.txt'),
-        #('Ingolia1_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_rpf_positions.txt'),
-
-        ('Brar1' ,'/home/jah/projects/arlen/experiments/brar_science/s_tA-fp_100211_l3_sequence/results/s_tA-fp_100211_l3_sequence_rpf_positions.txt'),
-        ('Brar2' ,'/home/jah/projects/arlen/experiments/brar_science/s_gb15exp_veg_-fp_100219_l4_sequence/results/s_gb15exp_veg_-fp_100219_l4_sequence_rpf_positions.txt'),
-        ('Brar3' ,'/home/jah/projects/arlen/experiments/brar_science/s_14201exp_veg_-fp_100219_l6_sequence/results/s_14201exp_veg_-fp_100219_l6_sequence_rpf_positions.txt'),
-        ('Brar4' ,'/home/jah/projects/arlen/experiments/brar_science/s_t1-fp_090807_l4/results/s_t1-fp_090807_l4_rpf_positions.txt'),
-
-        #('suppressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_rpf_positions.txt'),
-        #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_rpf_positions.txt'),
-        #('WT',  '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_rpf_positions.txt'),
-    ]
-
-    premal_experiments = [
-        ('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt'),
-    ]
-
-    all_experiments = [(name, counts_from_rpf_positions_fn(fn)) for name, fn in rpf_experiments] + \
-                      [(name, counts_from_premal_fn(fn)) for name, fn in premal_experiments]
-
-    fig, ax = plt.subplots(figsize=(12, 12))
-
-    plot_up_to = 500
-
-    for name, counts_generator in all_experiments:
-        sum_of_normalized = np.zeros(10000)
-        long_enough_genes = np.zeros(10000)
-
-        for counts in counts_generator:
-            if counts.sum() < 64:
-                continue
-
-            num_codons = len(counts)
-            density = counts.sum() / float(num_codons)
-            normalized = counts / float(density)
-            sum_of_normalized[:num_codons] += normalized
-            long_enough_genes[:num_codons] += np.ones(num_codons)
-        
-        mean_densities = sum_of_normalized / long_enough_genes 
-
-        ax.plot(mean_densities[:plot_up_to], '.-', label=name)
-    
-    ax.legend(loc='upper right', framealpha=0.5)
-
-    ax.set_xlabel('Position (codons)')
-    ax.set_ylabel('Normalized mean reads')
-    
-    ax.plot(np.ones(plot_up_to), color='black', alpha=0.5)
-    ax.set_ylim(0, 3)
-
-    xmin, xmax = ax.get_xlim()
-    ymin, ymax = ax.get_ylim()
-    ax.set_aspect((xmax - xmin) / (ymax - ymin))
-
-def plot_metagene_from_codon_counts():
-    # Generators that yields arrays of counts
-    def counts_from_codon_counts_fn(codon_counts_fn, reports_P_site):
-        counts_dict = read_codon_counts_file(codon_counts_fn, reports_P_site)
-        for gene_name in counts_dict:
-            counts = counts_dict[gene_name]
-            yield counts
-        
-    experiments = [
-        #('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
-        ('Weinberg_stringent', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_stringent_codon_counts.txt', False),
-        ('Weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_codon_counts.txt', False),
-        #('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
-        #('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
-        #('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
-        #('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
-        #('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
-        #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_codon_counts.txt', False),
-        #('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
-        #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
-        ('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
-        ('CHX', '/home/jah/projects/arlen/experiments/guydosh/wild-type_CHX/results/wild-type_CHX_codon_counts.txt', False),
-        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
-        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
-    ]
-
-    all_experiments = [(name, counts_from_codon_counts_fn(fn, reports_P_site))
-                       for name, fn, reports_P_site in experiments]
-
-    fig, ax = plt.subplots(figsize=(12, 12))
-
-    plot_up_to = 500
-
-    for name, counts_generator in all_experiments:
-        sum_of_normalized = np.zeros(10000)
-        long_enough_genes = np.zeros(10000)
-
-        for counts in counts_generator:
-            if counts.sum() < 64:
-                continue
-
-            num_codons = len(counts)
-            density = counts.sum() / float(num_codons)
-            normalized = counts / float(density)
-            sum_of_normalized[:num_codons] += normalized
-            long_enough_genes[:num_codons] += np.ones(num_codons)
-        
-        mean_densities = sum_of_normalized / long_enough_genes 
-
-        ax.plot(mean_densities[:plot_up_to], '.-', label=name)
-    
-    ax.legend(loc='upper right', framealpha=0.5)
-
-    ax.set_xlabel('Position (codons)')
-    ax.set_ylabel('Normalized mean reads')
-    
-    ax.plot(np.ones(plot_up_to), color='black', alpha=0.5)
-    ax.set_ylim(0, 3)
-
-    xmin, xmax = ax.get_xlim()
-    ymin, ymax = ax.get_ylim()
-    ax.set_aspect((xmax - xmin) / (ymax - ymin))
-
 def plot_metagene_unaveraged(from_end=False):
     # Generators that yields arrays of counts
     def counts_from_rpf_postiions_fn(rpf_positions_fn):
@@ -734,4 +595,20 @@ if __name__ == '__main__':
                                                                )
 
 #if __name__ == '__main__':
-#    density_length_correlation()
+    #experiments = [
+        #('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
+        ('Weinberg_stringent', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_stringent_codon_counts.txt', False),
+        ('Weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_codon_counts.txt', False),
+        #('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
+        #('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
+        #('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
+        #('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+        #('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
+        #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_codon_counts.txt', False),
+        #('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
+        #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
+        ('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+        ('CHX', '/home/jah/projects/arlen/experiments/guydosh/wild-type_CHX/results/wild-type_CHX_codon_counts.txt', False),
+        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+    ]
