@@ -19,7 +19,7 @@ from Circles import sam
 from Circles.Parallel import map_reduce
 from Circles.Parallel import piece_of_list
 from Circles.Parallel import split_file
-import Circles.Visualize.mismatches
+from Circles import Visualize
 from Circles import mapping_tools
 
 class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
@@ -52,6 +52,9 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.min_length = 10
         
         specific_results_files = [
+            ('quality', 'array_2d', '{name}_quality.txt'),
+            ('complexity', 'array_2d', '{name}_complexity.txt'),
+
             ('bowtie_error', '', '{name}_bowtie_error.txt'),
             ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
             ('rRNA_filtered_reads', 'fastq', '{name}_rRNA_filtered.fastq'), 
@@ -108,6 +111,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             specific_results_files.append(entry)
 
         specific_figure_files = [
+            ('quality', '{name}_quality.png'),
+            ('complexity', '{name}_complexity.png'),
             ('all_lengths', '{name}_all_lengths.pdf'),
             ('clean_lengths', '{name}_clean_lengths.pdf'),
             ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
@@ -132,7 +137,9 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         ]
 
         specific_outputs = [
-            ['too_short_lengths',
+            ['quality',
+             'complexity',
+             'too_short_lengths',
              'trimmed_lengths',
              'tRNA_lengths',
              'rRNA_lengths',
@@ -158,7 +165,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         specific_outputs[1].extend(['mismatches_{0}'.format(length) for length in self.relevant_lengths])
 
         specific_work = [
-            [(self.trim_reads, 'Trim reads'),
+            [(self.collect_data_statistics, 'Collecting data statistics'),
+             (self.trim_reads, 'Trim reads'),
              (self.pre_filter_contaminants, 'Filter contaminants'),
              (self.map_tophat, 'Map with tophat'),
              (self.post_filter_contaminants, 'Further contaminant filtering'),
@@ -175,7 +183,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         ]
 
         specific_cleanup = [
-            [self.compute_yield,
+            [self.plot_data_statistics,
+             self.compute_yield,
              self.plot_lengths,
              self.plot_rRNA_coverage,
              self.plot_oligo_hit_lengths,
@@ -202,7 +211,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         else:
             self.max_read_length = int(self.max_read_length)
         
-        self.trim_function = getattr(trim, 'trim_{}'.format(self.adapter_type))
+        self.trim_function = trim.bound_trim[self.adapter_type]
 
         for key, tail in self.organism_files:
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
@@ -234,6 +243,22 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         
         piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
         return piece_CDSs, max_gene_length
+
+    def collect_data_statistics(self):
+        q_array, c_array = fastq.quality_and_complexity(self.get_reads(), self.max_read_length)
+        
+        self.write_file('quality', q_array)
+        self.write_file('complexity', c_array)
+
+    def plot_data_statistics(self):
+        quality_counts = self.read_file('quality', merged=True)
+        Visualize.fastq.plot_quality_histograms(quality_counts,
+                                                self.figure_file_names['quality'],
+                                               )
+        base_counts = self.read_file('complexity', merged=True)
+        Visualize.fastq.plot_sequence_complexities(base_counts,
+                                                   self.figure_file_names['complexity'],
+                                                  )
 
     def trim_reads(self):
         trimmed_lengths, too_short_lengths, barcode_counts = self.trim_function(self.get_reads(),
@@ -450,7 +475,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         fig, ax = plt.subplots(figsize=(16, 12))
         for length in self.relevant_lengths:
             type_counts = self.read_file('mismatches_{0}'.format(length))
-            Circles.Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
+            Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
         ax.set_xlim(-1, max(self.relevant_lengths))
         ax.legend(loc='upper right', framealpha=0.5)
         fig.savefig(self.figure_file_names['mismatch_positions'])
@@ -473,11 +498,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                             )
             last_data_sets.append(last_data_set)
 
-        Circles.Visualize.mismatches.plot_rates(first_data_sets,
+        Visualize.mismatches.plot_rates(first_data_sets,
                                         save_as=self.figure_file_names['first_mismatch_types'],
                                        )
 
-        Circles.Visualize.mismatches.plot_rates(last_data_sets,
+        Visualize.mismatches.plot_rates(last_data_sets,
                                         save_as=self.figure_file_names['last_mismatch_types'],
                                        )
             
