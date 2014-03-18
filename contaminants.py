@@ -135,8 +135,9 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     
     figs = {}
     axs = {}
+    legends = {}
     for i, (rname, length) in enumerate(zip(rnames, lengths)):
-        figs[rname], axs[rname] = plt.subplots(figsize=(18, 12))
+        figs[rname], axs[rname] = plt.subplots(figsize=(0.003 * length, 12))
         axs[rname].set_title('rRNA identity - ' + rname)
         axs[rname].set_xlim(0, length)
 
@@ -145,22 +146,39 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
         for rname in counts:
             normalized_counts = np.true_divide(counts[rname], total_reads)
             axs[rname].plot(normalized_counts, color=color, label=experiment_name)
+            legends[rname] = axs[rname].legend(loc='upper right', framealpha=0.5)
+            axs[rname].figure.canvas.draw()
 
-    for oligo, color in izip(oligo_mappings, ribosomes.colors):
-        for rname, start, end in oligo_mappings[oligo]:
+    bboxes = {rname: [legends[rname].get_window_extent()] for rname in rnames}
+    
+    for oligo_name, color in izip(oligo_mappings, ribosomes.colors):
+        for rname, start, end in oligo_mappings[oligo_name]:
             axs[rname].axvspan(start, end, color=color, alpha=0.12, linewidth=0)
-            _, y_max = axs[rname].get_ylim()
-            axs[rname].text(float(start + end) / 2,
-                            y_max,
-                            oligo, 
-                            horizontalalignment='center',
-                            verticalalignment='top',
-                           )
+
+            # Annotate the coloring of oligos with their names, avoiding
+            # overlapping any other annotations or the legend.
+            def attempt_text(y):
+                text = axs[rname].annotate(oligo_name,
+                                           xy=(float(start + end) / 2, y),
+                                           xycoords=('data', 'axes fraction'),
+                                           ha='center',
+                                           va='top',
+                                          )
+                axs[rname].figure.canvas.draw()
+                return text, text.get_window_extent()
+            
+            y = 0.995
+            text, this_bbox = attempt_text(y)
+            while any(this_bbox.fully_overlaps(other_bbox) for other_bbox in bboxes[rname]):
+                text.remove()
+                y -= 0.01
+                text, this_bbox = attempt_text(y)
+            bboxes[rname].append(this_bbox)
+
     for rname in rnames:
-        axs[rname].legend(loc='upper right', framealpha=0.5)
         axs[rname].set_xlabel('Position in rRNA')
         axs[rname].set_ylabel('Fraction of all reads mapping to position')
-        figs[rname].savefig(fig_fn_template.format(rname))
+        figs[rname].savefig(fig_fn_template.format(rname), bbox_inches='tight')
         plt.close(figs[rname])
 
 def load_oligo_mappings(oligos_sam_fn):
