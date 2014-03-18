@@ -34,6 +34,7 @@ def pre_filter(contaminant_index,
                               error_file_name=error_fn,
                              )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
+    os.remove(sam_fn)
 
 def post_filter(input_bam_fn,
                 gtf_fn,

@@ -575,10 +575,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('from_starts', from_starts)
         self.write_file('from_ends', from_ends)
         
-        # Motivated by temporary disk-space concerns.
-        # This is in an arbitrary post-stage-0 function. 
-        #os.remove(self.file_names['rRNA_sam'])
-
     def get_error_profile(self):
         #piece_simple_CDSs, _ = self.get_simple_CDSs()
         piece_simple_CDSs, _ = self.get_CDSs()
