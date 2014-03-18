@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
 import random
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import pysam
@@ -10,7 +11,8 @@ from Circles import mapping_tools
 from Circles import fasta
 from Circles import sam
 import gtf
-import ribosomes
+
+colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
 
 def pre_filter(contaminant_index,
                trimmed_reads_fn,
@@ -93,24 +95,22 @@ def post_filter(input_bam_fn,
             if mapping.qname not in contaminant_qnames:
                 clean_bam_file.write(mapping)
 
-def produce_rRNA_coverage(bam_file_names, specific_length=None):
+def produce_rRNA_coverage(bam_file_name, specific_length=None):
     ''' Counts the number of mappings that overlap each position in the
         reference sequences that bam_file_names were mapped to.
     
-        total_reads: number of distinct QNAME's present in bam_file_names
         counts: dict (keyed by RNAME) of arrays representing counts for each
                 position in RNAME
     '''
-    bam_files = [pysam.Samfile(fn, 'rb') for fn in bam_file_names]
-    all_reads = chain.from_iterable(bam_files)
+    bam_file = pysam.Samfile(fn, 'rb')
 
     if specific_length:
-        eligible_reads = (read for read in all_reads if read.qlen == specific_length)
+        eligible_reads = (read for read in bam_file if read.qlen == specific_length)
     else:
-        eligible_reads = all_reads
+        eligible_reads = bam_file
 
-    rnames = bam_files[0].references
-    lengths = bam_files[0].lengths
+    rnames = bam_file.references
+    lengths = bam_file.lengths
     counts = {name: np.zeros(length, int) for name, length in zip(rnames, lengths)}
     
     read_names = set()
@@ -121,9 +121,46 @@ def produce_rRNA_coverage(bam_file_names, specific_length=None):
         for position in mapping.positions:
             array[position] += 1
 
-    total_reads = len(read_names)
+    return counts
 
-    return total_reads, counts
+def identify_dominant_contaminants(counts, total_reads, bam_fn):
+    # Identify connected stretches of positions where the fraction of total
+    # reads mapping is greater than a threshold.
+    threshold = 0.03
+
+    boundaries = {}
+
+    for rname in counts:
+        normalized_counts = np.true_divide(counts[rname], total_reads)
+        above_threshold = normalized_counts >= threshold
+        if not np.any(above_threshold):
+            continue
+        # np.diff(above_threshold) is True wherever above_threshold changes
+        # between True and False. Adapted from a stackoverflow answer.
+        above_threshold_boundaries = np.where(np.diff(above_threshold))[0] + 1
+
+        first_start = np.min(np.where(above_threshold))
+
+        if first_start != above_threshold_boundaries[0] or len(above_threshold_boundaries) % 2 != 0:
+            raise NotImplementedError('Dominant contaminant at the beginning or end.')
+
+        iter_boundaries = iter(above_threshold_boundaries)
+        pairs = list(izip(iter_boundaries, iter_boundaries))
+        boundaries[rname] = pairs
+
+    # Count the number of reads that overlap any of the dominant stretches.
+    overlapping_qnames = set()
+    bam_file = pysam.Samfile(bam_fn)
+    for rname in boundaries:
+        for start, end in boundaries[rname]:
+            reads = bam_file.fetch(rname, start, end)
+            for aligned_read in reads:
+                overlapping_qnames.add(aligned_read.qname)
+
+    dominant_reads = len(overlapping_qnames)
+    other_reads = sum(1 for read in pysam.Samfile(bam_fn) if read.qname not in overlapping_qnames)
+
+    return overlapping_reads, other_reads
 
 def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     ''' Plots the number of mappings that overlap each position in the reference

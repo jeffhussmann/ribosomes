@@ -335,10 +335,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('clean_lengths', clean_lengths)
 
     def get_rRNA_coverage(self):
-        bam_file_names = [self.file_names['rRNA_bam'],
-                          #self.file_names['more_rRNA_bam'],
-                         ]
-        data = contaminants.produce_rRNA_coverage(bam_file_names)
+        data = contaminants.produce_rRNA_coverage(self.file_names['rRNA_bam'])
         self.write_file('rRNA_coverage', data)
 
         data_length_28 = contaminants.produce_rRNA_coverage(bam_file_names, specific_length=28)
@@ -353,14 +350,14 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('oligo_hit_lengths', lengths)
 
     def compute_yield(self):
-        trimmed_lengths = self.read_file('trimmed_lengths')
-        too_short_lengths = self.read_file('too_short_lengths')
-        rRNA_lengths = self.read_file('rRNA_lengths')
-        synthetic_lengths = self.read_file('synthetic_lengths')
-        tRNA_lengths = self.read_file('tRNA_lengths')
-        other_ncRNA_lengths = self.read_file('other_ncRNA_lengths')
-        unmapped_lengths = self.read_file('unmapped_lengths')
-        clean_lengths = self.read_file('clean_lengths')
+        trimmed_lengths = self.read_file('trimmed_lengths', merged=True)
+        too_short_lengths = self.read_file('too_short_lengths', merged=True)
+        rRNA_lengths = self.read_file('rRNA_lengths', merged=True)
+        synthetic_lengths = self.read_file('synthetic_lengths', merged=True)
+        tRNA_lengths = self.read_file('tRNA_lengths', merged=True)
+        other_ncRNA_lengths = self.read_file('other_ncRNA_lengths', merged=True)
+        unmapped_lengths = self.read_file('unmapped_lengths', merged=True)
+        clean_lengths = self.read_file('clean_lengths', merged=True)
 
         total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
         long_enough_reads = trimmed_lengths.sum()
@@ -371,10 +368,16 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
 
+        dominant_reads, other_reads = contaminants.identify_dominant_contaminants(self.read_file('rRNA_coverage', merged=True),
+                                                                                  total_reads,
+                                                                                  self.file_names('rRNA_bam', merged=True),
+                                                                                 )
+
         with open(self.file_names['yield'], 'w') as yield_file:
             yield_file.write('Total reads: {0:,}\n'.format(total_reads))
             for category, count in [('Long enough reads', long_enough_reads),
                                     ('rRNA reads', rRNA_reads),
+                                    ('(rRNA reads from non-dominant stetches)', other_reads),
                                     ('synthetic reads', synthetic_reads),
                                     ('tRNA reads', tRNA_reads),
                                     ('Other ncRNA reads', other_ncRNA_reads),
