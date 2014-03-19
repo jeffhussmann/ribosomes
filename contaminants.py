@@ -102,7 +102,7 @@ def produce_rRNA_coverage(bam_file_name, specific_length=None):
         counts: dict (keyed by RNAME) of arrays representing counts for each
                 position in RNAME
     '''
-    bam_file = pysam.Samfile(fn, 'rb')
+    bam_file = pysam.Samfile(bam_file_name)
 
     if specific_length:
         eligible_reads = (read for read in bam_file if read.qlen == specific_length)
