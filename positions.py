@@ -4,22 +4,24 @@ import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('Agg', warn=False)
 import numpy as np
+import numbers
 import pysam
 from collections import Counter
 import ribosomes
 import gtf
+import Circles.Serialize
 
 class PositionCounts(object):
     ''' Wrapper around an array of counts of positions for an extent and for a
         buffer on either edge that allows for indexing relative to the extent's
         start and end.
     '''
-    def __init__(self, extent_length, left_buffer, right_buffer, counts=None):
+    def __init__(self, extent_length, left_buffer, right_buffer, counts=None, dtype=int):
         self.left_buffer = left_buffer
         self.right_buffer = right_buffer
         self.extent_length = extent_length
         if counts == None:
-            self.counts = np.zeros(left_buffer + right_buffer + extent_length, int)
+            self.counts = np.zeros(left_buffer + right_buffer + extent_length, dtype=dtype)
         else:
             assert len(counts) == left_buffer + right_buffer + extent_length
             self.counts = counts
@@ -86,6 +88,19 @@ class PositionCounts(object):
         self.counts += other.counts
 
         return self
+
+    def __div__(self, other):
+        if isinstance(other, PositionCounts):
+            if self.extent_length != other.extent_length:
+                raise ValueError
+            if self.left_buffer != other.left_buffer:
+                raise ValueError
+            if self.right_buffer != other.right_buffer:
+                raise ValueError
+
+            return PositionCounts(self.extent_length, self.left_buffer, self.right_buffer, counts=np.true_divide(self.counts, other.counts))
+        elif isinstance(other, numbers.Number):
+            return PositionCounts(self.extent_length, self.left_buffer, self.right_buffer, counts=np.true_divide(self.counts, other))
 
     @property
     def relative_to_end(self):
