@@ -93,6 +93,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
 
             ('rRNA_coverage', 'coverage', '{name}_rRNA_coverage.txt'),
             ('rRNA_coverage_length_28', 'coverage', '{name}_rRNA_coverage_length_28.txt'),
+            ('dominant_stretches', 'PH', '{name}_dominant_stretches.txt'),
 
             ('tophat_dir', 'dir', 'tophat'),
             ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
@@ -147,10 +148,12 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              'other_ncRNA_lengths',
              'clean_lengths',
              'unmapped_lengths',
+             'unambiguous_lengths',
              'rRNA_coverage',
              'rRNA_coverage_length_28',
              'oligo_hit_lengths',
              'clean_bam',
+             'rRNA_bam',
             ],
             ['read_positions',
              'codon_counts',
@@ -170,6 +173,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              (self.pre_filter_contaminants, 'Filter contaminants'),
              (self.map_tophat, 'Map with tophat'),
              (self.post_filter_contaminants, 'Further contaminant filtering'),
+             (self.find_unamiguous_lengths, 'Finding unambiguous lengths'),
              (self.get_rRNA_coverage, 'Counting rRNA coverage'),
              (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
@@ -303,7 +307,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                              self.file_names['tophat_dir'],
                             )
         pysam.index(self.file_names['accepted_hits'])
-    
+
     def post_filter_contaminants(self):
         contaminants.post_filter(self.file_names['accepted_hits'],
                                  self.file_names['genes'],
@@ -334,11 +338,24 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         clean_lengths = self.zero_padded_array(clean_length_counts)
         self.write_file('clean_lengths', clean_lengths)
 
+    def find_unamiguous_lengths(self):
+        if self.adapter_type == 'polyA':
+            trim.unambiguously_trimmed(self.file_names['clean_bam'],
+                                       self.file_names['unambiguous_bam'],
+                                       self.file_names['genome'],
+                                      )
+            unambiguous_length_counts = sam.get_length_counts(self.file_names['unambiguous_bam'])
+            unambiguous_lengths = self.zero_padded_array(unambiguous_length_counts)
+        else:
+            # Need to write the file so that there is something to merge.
+            unambiguous_lengths = np.zeros(self.max_read_length + 1, int)
+        self.write_file('unambiguous_lengths', unambiguous_lengths)
+    
     def get_rRNA_coverage(self):
         data = contaminants.produce_rRNA_coverage(self.file_names['rRNA_bam'])
         self.write_file('rRNA_coverage', data)
 
-        data_length_28 = contaminants.produce_rRNA_coverage(bam_file_names, specific_length=28)
+        data_length_28 = contaminants.produce_rRNA_coverage(self.file_names['rRNA_bam'], specific_length=28)
         self.write_file('rRNA_coverage_length_28', data_length_28)
 
     def get_oligo_hit_lengths(self):
@@ -368,10 +385,15 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
 
-        dominant_reads, other_reads = contaminants.identify_dominant_contaminants(self.read_file('rRNA_coverage', merged=True),
-                                                                                  total_reads,
-                                                                                  self.file_names('rRNA_bam', merged=True),
-                                                                                 )
+        dominant_reads, other_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage', merged=True),
+                                                                                           total_reads,
+                                                                                           self.merged_file_names['rRNA_bam'],
+                                                                                          )
+
+        with open(self.merged_file_names['dominant_stretches'], 'w') as dominant_stretches_file:
+            for rname in sorted(boundaries):
+                for start, stop in boundaries[rname]:
+                    dominant_stretches_file.write('{0}:{1}-{2}\n'.format(rname, start, stop))
 
         with open(self.file_names['yield'], 'w') as yield_file:
             yield_file.write('Total reads: {0:,}\n'.format(total_reads))
@@ -403,6 +425,9 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         unmapped_lengths = self.read_file('unmapped_lengths')
         clean_lengths = self.read_file('clean_lengths')
 
+        if self.adapter_type == 'polyA':
+            unambiguous_lengths = self.read_file('unambiguous_lengths')
+
         fig_all, ax_all = plt.subplots(figsize=(12, 8))
     
         ax_all.plot(rRNA_lengths, '.-', label='rRNA', color='red')
@@ -421,9 +446,13 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         
         fig_clean, ax_clean = plt.subplots(figsize=(12, 8))
         
-        ax_clean.plot(clean_lengths, '.-', label='clean', color='green')
+        normalized_clean_lengths = np.true_divide(clean_lengths, clean_lengths.sum())
+        ax_clean.plot(normalized_clean_lengths, '.-', label='clean', color='green')
+        if self.adapter_type == 'polyA':
+            normalized_unambiguous_lengths = np.true_divide(unambiguous_lengths, unambiguous_lengths.sum())
+            ax_clean.plot(normalized_unambiguous_lengths, '.-', label='unambiguous', color='blue')
         ax_clean.axvspan(27.5, 28.5, color='green', alpha=0.2)
-        ax_clean.set_xlim(0, 50)
+        ax_clean.set_xlim(0, self.max_read_length)
         ax_clean.legend()
         ax_clean.set_title('Fragment length distribution by source')
         ax_clean.set_xlabel('Length of original RNA fragment')
@@ -437,14 +466,14 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         too_short_lengths = self.read_file('too_short_lengths')
 
         total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
-        _, counts = self.read_file('rRNA_coverage')
+        counts = self.read_file('rRNA_coverage')
         coverage_data = {self.name: (total_reads, counts, 'blue')}
         contaminants.plot_rRNA_coverage(coverage_data,
                                         self.file_names['oligos_sam'],
                                         self.figure_file_names['rRNA_coverage_template'],
                                        )
         
-        _, counts = self.read_file('rRNA_coverage_length_28')
+        counts = self.read_file('rRNA_coverage_length_28')
         coverage_data = {self.name: (total_reads, counts, 'blue')}
         contaminants.plot_rRNA_coverage(coverage_data,
                                         self.file_names['oligos_sam'],
