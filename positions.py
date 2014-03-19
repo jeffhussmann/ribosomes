@@ -413,31 +413,41 @@ def plot_frames(from_starts, figure_fn):
 
     fig.savefig(figure_fn)
 
-def plot_metagene_averaged(data_sets):
+def plot_metagene_averaged(data_sets, from_end=False):
     fig, ax = plt.subplots(figsize=(12, 12))
 
-    plot_up_to = 500
+    plot_up_to = 40
+    min_counts = 64
+    
+    if from_end:
+        xs = np.arange(0, -plot_up_to, -1)
+    else:
+        xs = np.arange(plot_up_to)
 
     for name, codon_counts_fn in data_sets:
         codon_counts = ribosomes.read_codon_counts_file(codon_counts_fn)
-        max_length = max(len(counts) for counts in codon_counts.itervalues())
+        max_length = max(len(counts) for counts in codon_counts.itervalues() if counts.sum() >= min_counts)
 
         sum_of_normalized = np.zeros(max_length)
         long_enough_genes = np.zeros(max_length)
 
         for gene_name, counts in codon_counts.iteritems():
-            if counts.sum() < 64:
+            if counts.sum() < min_counts:
                 continue
 
             num_codons = len(counts)
             density = counts.sum() / float(num_codons)
             normalized = counts / float(density)
+            
+            if from_end:
+                normalized = normalized[::-1]
+
             sum_of_normalized[:num_codons] += normalized
             long_enough_genes[:num_codons] += np.ones(num_codons)
         
         mean_densities = sum_of_normalized / long_enough_genes 
 
-        ax.plot(mean_densities[:plot_up_to], '.-', label=name)
+        ax.plot(xs, mean_densities[:plot_up_to], '.-', label=name)
     
     ax.legend(loc='upper right', framealpha=0.5)
 
@@ -445,8 +455,87 @@ def plot_metagene_averaged(data_sets):
     ax.set_ylabel('Normalized mean reads')
     
     ax.plot(np.ones(plot_up_to), color='black', alpha=0.5)
-    ax.set_ylim(0, 3)
+    ax.set_ylim(0, 8)
 
     xmin, xmax = ax.get_xlim()
     ymin, ymax = ax.get_ylim()
     ax.set_aspect((xmax - xmin) / (ymax - ymin))
+
+def get_codon_counts_generalized(gene_info, offset_type, common_buffer):
+    codon_counts = PositionCounts(gene_info['CDS_length'] // 3, common_buffer, common_buffer)
+    for length in set(gene_info['position_counts']) & set(ribosomes.A_site_offsets[offset_type]):
+        position_counts = gene_info['position_counts'][length]
+        start_index = -ribosomes.A_site_offsets[offset_type][length] - (common_buffer * 3)
+        end_index = gene_info['CDS_length'] - ribosomes.A_site_offsets[offset_type][length] + (common_buffer * 3)
+        codon_counts[-common_buffer:codon_counts.extent_length + common_buffer] += position_counts[start_index:end_index:3] + \
+                                                              position_counts[start_index - 1:end_index - 1:3] + \
+                                                              position_counts[start_index + 1:end_index + 1:3]
+
+    return codon_counts
+
+def plot_metagene_averaged_generalized(data_sets, from_end=False):
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    plot_up_to = 40
+    min_counts = 64
+    common_buffer = 10
+    
+    xs = np.arange(-common_buffer, plot_up_to + 1)
+
+    for name, read_positions_fn, offset_type in data_sets:
+        gene_infos = Circles.Serialize.read_file(read_positions_fn, 'read_positions')
+        
+        sum_of_normalized = PositionCounts(50000, common_buffer, common_buffer)
+        long_enough_genes = PositionCounts(50000, common_buffer, common_buffer)
+
+        for gene_name in gene_infos:
+            codon_counts = get_codon_counts_generalized(gene_infos[gene_name], offset_type, common_buffer)
+
+            if codon_counts.counts.sum() < min_counts:
+                continue
+
+            num_codons = len(codon_counts.counts)
+            density = codon_counts.counts.sum() / float(num_codons)
+            normalized = codon_counts / float(density)
+            
+            start_slice = slice(-common_buffer, codon_counts.extent_length + common_buffer)
+            sum_of_normalized[start_slice] += normalized[start_slice]
+            long_enough_genes[start_slice] += np.ones(num_codons)
+        
+        mean_densities = sum_of_normalized / long_enough_genes 
+
+        ax.plot(xs, mean_densities[xs], '.-', label=name)
+    
+    ax.legend(loc='upper right', framealpha=0.5)
+
+    ax.set_xlabel('Position (codons)')
+    ax.set_ylabel('Normalized mean reads')
+
+    ax.set_xlim(min(xs), max(xs))
+    
+    ax.plot(xs, [1 for x in xs], color='black', alpha=0.5)
+    ax.set_ylim(0, 8)
+
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    ax.set_aspect((xmax - xmin) / (ymax - ymin))
+
+#if __name__ == '__main__':
+#    data_sets = [
+#        #('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_codon_counts.txt'),
+#        #('belgium_8_6_13', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_codon_counts.txt'),
+#        ('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_codon_counts.txt'),
+#        ('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
+#        ('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_codon_counts.txt'),
+#    ]
+#    plot_metagene_averaged(data_sets, from_end=False)
+
+if __name__ == '__main__':
+    data_sets = [
+        ('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_read_positions.txt', 'yeast'),
+        #('belgium_8_6_13', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_read_counts.txt', 'yeast'),
+        #('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
+        #('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_read_positions.txt', 'ingolia_cell'),
+        #('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_read_positions.txt', 'guo_nature'),
+    ]
+    plot_metagene_averaged_generalized(data_sets, from_end=False)
