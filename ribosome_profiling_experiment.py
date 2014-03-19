@@ -124,6 +124,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('first_mismatch_types', '{name}_first_mismatch_types.png'),
             ('last_mismatch_types', '{name}_last_mismatch_types.png'),
             ('frames', '{name}_frames.pdf'),
+            ('unambiguous_frames', '{name}_unambiguous_frames.pdf'),
         ]
 
         self.organism_files = [
@@ -148,7 +149,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              'other_ncRNA_lengths',
              'clean_lengths',
              'unmapped_lengths',
-             'unambiguous_lengths',
              'rRNA_coverage',
              'rRNA_coverage_length_28',
              'oligo_hit_lengths',
@@ -164,6 +164,14 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              #'recycling_ratios',
             ],
         ]
+
+        if self.adapter_type == 'polyA':
+            specific_outputs[0].extend(['unambiguous_lengths',
+                                        'unambiguous_bam',
+                                       ])
+            specific_outputs[1].extend(['unambiguous_read_positions',
+                                        'unambiguous_from_starts'
+                                       ])
 
         specific_outputs[1].extend(['mismatches_{0}'.format(length) for length in self.relevant_lengths])
 
@@ -503,6 +511,14 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                               self.figure_file_names['frames'],
                              )
 
+        if self.adapter_type == 'polyA':
+            from_starts = self.read_file('unambiguous_from_starts')
+
+            positions.plot_frames(from_starts['from_starts']['position_counts'],
+                                  self.figure_file_names['unambiguous_frames'],
+                                 )
+
+
     def plot_mismatch_positions(self):
         fig, ax = plt.subplots(figsize=(16, 12))
         for length in self.relevant_lengths:
@@ -589,6 +605,13 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('read_positions', genes)
         self.write_file('strand_counts', genes)
 
+        if self.adapter_type == 'polyA':
+            genes = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
+                                                             piece_CDSs,
+                                                             relevant_lengths=self.relevant_lengths,
+                                                            )
+            self.write_file('unambiguous_read_positions', genes)
+
     def get_metagene_positions(self):
         #piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
         piece_CDSs, max_gene_length = self.get_CDSs()
@@ -606,6 +629,21 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
 
         self.write_file('from_starts', from_starts)
         self.write_file('from_ends', from_ends)
+        
+        if self.adapter_type == 'polyA':
+            gene_infos = self.read_file('unambiguous_read_positions')
+            from_starts, from_ends = positions.compute_metagene_positions(gene_infos, max_gene_length)
+
+            from_starts = {'from_starts': {'CDS_length': max_gene_length,
+                                           'position_counts': from_starts,
+                                          }
+                          }
+            from_ends = {'from_ends': {'CDS_length': max_gene_length,
+                                       'position_counts': from_ends,
+                                      }
+                        }
+
+            self.write_file('unambiguous_from_starts', from_starts)
         
     def get_error_profile(self):
         #piece_simple_CDSs, _ = self.get_simple_CDSs()
