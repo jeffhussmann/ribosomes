@@ -123,7 +123,7 @@ def produce_rRNA_coverage(bam_file_name, specific_length=None):
 
     return counts
 
-def identify_dominant_contaminants(counts, total_reads, bam_fn):
+def identify_dominant_stretches(counts, total_reads, bam_fn):
     # Identify connected stretches of positions where the fraction of total
     # reads mapping is greater than a threshold.
     threshold = 0.03
@@ -148,6 +148,9 @@ def identify_dominant_contaminants(counts, total_reads, bam_fn):
         pairs = list(izip(iter_boundaries, iter_boundaries))
         boundaries[rname] = pairs
 
+    # Ensure that the bam_file is indexed.
+    pysam.index(bam_fn)
+
     # Count the number of reads that overlap any of the dominant stretches.
     overlapping_qnames = set()
     bam_file = pysam.Samfile(bam_fn)
@@ -160,7 +163,7 @@ def identify_dominant_contaminants(counts, total_reads, bam_fn):
     dominant_reads = len(overlapping_qnames)
     other_reads = sum(1 for read in pysam.Samfile(bam_fn) if read.qname not in overlapping_qnames)
 
-    return overlapping_reads, other_reads
+    return dominant_reads, other_reads, boundaries
 
 def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     ''' Plots the number of mappings that overlap each position in the reference
@@ -189,7 +192,7 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
 
     bboxes = {rname: [legends[rname].get_window_extent()] for rname in rnames}
     
-    for oligo_name, color in izip(oligo_mappings, ribosomes.colors):
+    for oligo_name, color in izip(oligo_mappings, colors):
         for rname, start, end in oligo_mappings[oligo_name]:
             axs[rname].axvspan(start, end, color=color, alpha=0.12, linewidth=0)
 
@@ -255,7 +258,7 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
         return None
     
     fig, ax = plt.subplots(figsize=(18, 12))
-    for oligo_name, oligo_lengths, color in zip(oligo_names, lengths, ribosomes.colors):
+    for oligo_name, oligo_lengths, color in zip(oligo_names, lengths, colors):
         denominator = np.maximum(oligo_lengths.sum(), 1)
         normalized_lengths = np.true_divide(oligo_lengths, denominator)
         ax.plot(normalized_lengths, 'o-', color=color, label=oligo_name)
