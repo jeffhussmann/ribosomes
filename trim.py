@@ -3,7 +3,7 @@ import pysam
 from functools import partial
 from itertools import chain
 from collections import Counter
-from Circles import mapping_tools
+from Circles import genomes
 from Circles import utilities
 from Circles import fastq
 from Circles.annotation import Annotation_factory
@@ -87,36 +87,25 @@ max_barcode_length = {'weinberg': 8,
 bound_trim = {key: partial(trim, find_start=find_start, find_end=find_end)
               for key, (find_start, find_end) in finders.items()}
 
-def unambiguously_trimmed(filtered_bam_fn, unambiguous_bam_fn, genome_dir):
+def unambiguously_trimmed(bam_fn, unambiguous_bam_fn, genome_dir):
     ''' Reads that have had poly-As trimmed may have had some real RPF A's
-        trimmed as well. Retains only mapped reads for which the next base in
-        the reference is a non-A.
+        trimmed as well. Retains only mapped reads for which the last aligned
+        base and the following base in the reference are both non-A.
     '''
-    def first_non_A(seq):
-        for i, c in enumerate(seq):
-            if c != 'A':
-                return i
-        return len(seq)
-
-    loaded_genome = mapping_tools.load_genome('saccharomyces_cerevisiae',
-                                              explicit_path=genome_dir,
-                                             )
+    genome = genomes.load_entire_genome(genome_dir)
     
-    bamfile = pysam.Samfile(filtered_bam_fn, 'rb')
+    bamfile = pysam.Samfile(bam_fn)
     with pysam.Samfile(unambiguous_bam_fn, 'wb', header=bamfile.header) as unambiguous_bam_fh:
         for read in bamfile:
-            seqname = bamfile.getrname(read.tid)
+            rname = bamfile.getrname(read.tid)
             if not read.is_reverse:
-                start = read.pos + len(read.seq)
-                end = start + 10
-                after = loaded_genome[seqname][start:end]
+                last_position = read.positions[-1]
+                last_base, next_base = genome[rname][last_position:last_position + 2]
             else:
-                start = read.pos - 10
-                end = read.pos
-                after = loaded_genome[seqname][start:end]
-                after = utilities.reverse_complement(after)
+                last_position = read.positions[0]
+                last_base, next_base = utilities.reverse_complement(genome[rname][last_position - 1:last_position + 1])
 
-            if first_non_A(after) == 0:
+            if last_base.upper() != 'A' and next_base.upper() != 'A':
                 unambiguous_bam_fh.write(read)
 
     pysam.index(unambiguous_bam_fn)
