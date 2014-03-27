@@ -40,61 +40,27 @@ def map_tophat(reads_file_name,
     # console, so discard output.
     subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
 
-A_site_offsets = {'ingolia_cell': {29: 15,
-                                   30: 15,
-                                   31: 16,
-                                   32: 16,
-                                   33: 16,
-                                   34: 17,
-                                   35: 17,
-                                  },
-                  'guo_nature':   {27: 15,
-                                   28: 15,
-                                   29: 15,
-                                   30: 15,
-                                   31: 15,
-                                   32: 15,
-                                  },
-                  'yeast':        {28: 15,
-                                   29: 15,
-                                   30: 16,
-                                  },
-                 }
-
-def get_codon_counts(gene_info, offset_type):
-    # gene_info['CDS_length'] is the index of the first nucleotide of the
-    # stop codon. Ingolia's original model never has the stop codon in the
-    # A site, but subsequent data show an accumulation of (typically
-    # length 29 or 30) reads that do advance this far. The +1 has been
-    # added to include this.
-    codon_counts = np.zeros(gene_info['CDS_length'] // 3 + 1, int)
-    for length in set(gene_info['position_counts']) & set(A_site_offsets[offset_type]):
-        position_counts = gene_info['position_counts'][length]
-        start_index = -A_site_offsets[offset_type][length]
-        end_index = gene_info['CDS_length'] - A_site_offsets[offset_type][length] + 3
-        codon_counts += position_counts[start_index:end_index:3] + \
-                        position_counts[start_index - 1:end_index - 1:3] + \
-                        position_counts[start_index + 1:end_index + 1:3]
-
-    return codon_counts
-
-def get_total_read_count(gene_info):
+def get_total_read_count(position_counts):
     # TODO: this needs to be updated to new offset handling strategy
+    CDS_length = position_counts['all'].extent_length
     A_site_offset = 15
     start_index = -A_site_offset
-    end_index = gene_info['CDS_length'] - A_site_offset + 3
-    count = gene_info['position_counts']['all'][start_index:end_index].sum()
+    end_index = CDS_length - A_site_offset + 3
+    count = position_counts['all'][start_index:end_index].sum()
     return count
 
-def compute_read_counts(gene_infos, stringency):
-    for gene_name in gene_infos:
+def compute_read_counts(read_positions, stringency):
+    read_counts = {}
+    for name, position_counts in read_positions.iteritems():
         if stringency == 'everything':
-            read_count = get_total_read_count(gene_infos[gene_name])
+            read_count = get_total_read_count(position_counts)
         else:
-            read_count = get_codon_counts(gene_infos[gene_name], stringency).sum()
+            read_count = get_codon_counts(position_counts, stringency).sum()
         expression = np.array([read_count, 0])
-        gene_infos[gene_name]['expression'] = expression
-    return gene_infos
+        read_counts[name] = {'CDS_length': position_counts['all'].extent_length,
+                             'expression': expression,
+                            }
+    return read_counts
 
 def compute_RPKMs(gene_infos):
     RPKMs = {}
@@ -156,18 +122,6 @@ def determine_ambiguity_of_positions(extent, genome_index):
                 position_ambiguity[length - 28, start] = 2
                 
     return position_ambiguity
-
-def read_codon_counts_file(fn, reports_P_site=False):
-    genes = {}
-    for line in open(fn):
-        name, values = line.strip().split('\t', 1)
-        values = np.fromstring(values, dtype=float, sep='\t')
-        # If the P site is reported, shift over by one to convert to A site.
-        if reports_P_site:
-            values = np.concatenate(([0], values))
-        genes[name] = values
-            
-    return genes
 
 def scatter_positions(rpf_positions_list):
     edge_overlap = 50
@@ -434,18 +388,6 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
         
     return ratio_lists
 
-def make_codon_counts_file(gene_infos, codon_counts_fn, offset_type):
-    with open(codon_counts_fn, 'w') as codon_counts_fh:
-        for gene_name in sorted(gene_infos):
-            # Temporary hack
-            if gene_infos[gene_name]['CDS_length'] % 3:
-                print gene_name
-                continue
-            counts = get_codon_counts(gene_infos[gene_name], offset_type)
-            counts_string = '\t'.join(str(count) for count in counts)
-            line = '{0}\t{1}\n'.format(gene_name, counts_string)
-            codon_counts_fh.write(line)
-
 def make_RPKMs_file(gene_infos, RPKMs_fn):
     RPKMs = compute_RPKMs(gene_infos)
     with open(RPKMs_fn, 'w') as RPKMs_fh:
@@ -595,20 +537,20 @@ if __name__ == '__main__':
                                                                )
 
 #if __name__ == '__main__':
-    #experiments = [
-        #('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
-        ('Weinberg_stringent', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_stringent_codon_counts.txt', False),
-        ('Weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_codon_counts.txt', False),
-        #('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
-        #('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
-        #('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
-        #('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
-        #('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
-        #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_codon_counts.txt', False),
-        #('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
-        #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
-        ('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
-        ('CHX', '/home/jah/projects/arlen/experiments/guydosh/wild-type_CHX/results/wild-type_CHX_codon_counts.txt', False),
-        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
-        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
-    ]
+#    experiments = [
+#        #('Bartel', '/home/jah/projects/arlen/experiments/plotkin/genePosReads.txt', True),
+#        ('Weinberg_stringent', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_stringent_codon_counts.txt', False),
+#        ('Weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_codon_counts.txt', False),
+#        #('Ingolia', '/home/jah/projects/arlen/results/Ingolia_RPF_codon_counts.txt', False),
+#        #('Gerashchenko', '/home/jah/projects/arlen/results/Gerashchenko_RPF_codon_counts.txt', False),
+#        #('Brar', '/home/jah/projects/arlen/results/Brar_RPF_codon_counts.txt', False),
+#        #('Hussmann_WT', '/home/jah/projects/arlen/results/UT_WT_RPF_codon_counts.txt', False),
+#        #('Zinshteyn_1', '/home/jah/projects/arlen/results/Zinshteyn_1_RPF_codon_counts.txt', False),
+#        #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_codon_counts.txt', False),
+#        #('Zinshteyn_1_mRNA', '/home/jah/projects/arlen/results/Zinshteyn_1_mRNA_codon_counts.txt', False),
+#        #('Zinshteyn_2', '/home/jah/projects/arlen/results/Zinshteyn_2_RPF_codon_counts.txt', False),
+#        ('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+#        ('CHX', '/home/jah/projects/arlen/experiments/guydosh/wild-type_CHX/results/wild-type_CHX_codon_counts.txt', False),
+#        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+#        #('no_aditive', '/home/jah/projects/arlen/experiments/guydosh/wild-type_no_additive/results/wild-type_no_additive_codon_counts.txt', False),
+#    ]

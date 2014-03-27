@@ -28,13 +28,22 @@ class PositionCounts(object):
 
     @classmethod
     def from_string(cls, string, left_buffer, right_buffer):
-        counts = np.array(map(int, string.strip().split()))
+        try:
+            counts = np.array(map(int, string.strip().split()))
+            dtype = int
+        except ValueError:
+            counts = np.array(map(float, string.strip().split()))
+            dtype = float
+
         extent_length = len(counts) - left_buffer - right_buffer
-        return cls(extent_length, left_buffer, right_buffer, counts=counts)
+        return cls(extent_length, left_buffer, right_buffer, counts=counts, dtype=dtype)
 
     def __str__(self):
         string = ' '.join(map(str, self.counts)) + '\n'
         return string
+
+    def sum(self):
+        return self.counts.sum()
 
     def adjust_relative_to_start(self, key):
         if isinstance(key, (int, long)):
@@ -122,7 +131,10 @@ class PositionCounts(object):
             '''
             if isinstance(key, (int, long)):
                 adjusted_key = len(self.counts) - self.right_buffer - key
-                if adjusted_key < 0:
+                if adjusted_key == -1:
+                    # Slicing quirk to include the last element
+                    adjusted_key = None
+                elif adjusted_key < -1:
                     raise IndexError
 
             elif isinstance(key, slice):
@@ -163,9 +175,14 @@ class PositionCounts(object):
             adjusted_key = self.adjust_relative_to_end(key)
             self.counts[adjusted_key] = value
 
+# Number of nucleotide positions to include on the left and right side of
+# counts of read positions.
 edge_buffer = 50
 left_buffer = 2 * edge_buffer
 right_buffer = edge_buffer
+
+# Number of codons to include on either side of counts of codon positions.
+codon_buffer = 10
 
 def get_CDS_position_counts(clean_bam_fn, simple_CDSs, relevant_lengths):
     gene_infos = {}
@@ -220,7 +237,6 @@ def get_extent_position_counts(bam_file, extent, relevant_lengths):
             try:
                 position_counts['all'][from_start] += 1
             except IndexError:
-                #print read
                 raise IndexError
             if read.qlen in relevant_lengths:
                 position_counts[read.qlen][from_start] += 1
@@ -293,50 +309,147 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
 
     return gene_infos
 
-def dump_CDS_to_sam(bam_file_name, sam_file_name, CDS):
-    bam_file = pysam.Samfile(bam_file_name)
-    sam_file = pysam.Samfile(sam_file_name, 'wh', template=bam_file)
-        
-    region_start = CDS.start - edge_buffer
-    region_end = CDS.end + edge_buffer
-    overlapping_reads = bam_file.fetch(CDS.seqname, region_start, region_end)
-    mapqs = Counter()
-    for read in overlapping_reads:
-        mapqs[read.mapq] += 1
-        if read.mapq != 50:
-            pass
-        else:
-            read_strand = '-' if read.is_reverse else '+'
+A_site_offsets = {'ingolia_cell': {29: 15,
+                                   30: 15,
+                                   31: 16,
+                                   32: 16,
+                                   33: 16,
+                                   34: 17,
+                                   35: 17,
+                                  },
+                  'guo_nature':   {27: 15,
+                                   28: 15,
+                                   29: 15,
+                                   30: 15,
+                                   31: 15,
+                                   32: 15,
+                                  },
+                  'yeast':        {28: 15,
+                                   29: 15,
+                                   30: 16,
+                                  },
+                 }
 
-            if read_strand != CDS.strand:
-                pass
-            else:
-                sam_file.write(read)
+def compute_codon_counts(position_counts, offset_type):
+    arbitrary_length_counts = position_counts.values()[0]
+    CDS_length = arbitrary_length_counts.extent_length
+    if CDS_length % 3 != 0:
+        raise ValueError('CDS length not divisible by 3')
 
-    print mapqs
+    # Note: CDS_length is the index of the first nucleotide of the stop codon.
+    # Ingolia's original model never has the stop codon in the A site, but
+    # subsequent data show an accumulation of (typically length 29 or 30) reads
+    # that do advance this far.
+    num_codons = CDS_length // 3
+    codon_counts = PositionCounts(num_codons, codon_buffer, codon_buffer)
 
-def compute_metagene_positions(gene_infos, max_gene_length):
-    random_gene = gene_infos.itervalues().next()
-    relevant_lengths = sorted(random_gene['position_counts'].keys())
-    representative_position_counts = random_gene['position_counts'][relevant_lengths[0]]
-    left_buffer = representative_position_counts.left_buffer
-    right_buffer = representative_position_counts.right_buffer
-    
-    from_starts = {length: PositionCounts(max_gene_length, left_buffer, right_buffer)
+    recorded_lengths = set(position_counts.keys())
+    known_A_site_lengths = set(A_site_offsets[offset_type].keys())
+
+    for length in recorded_lengths & known_A_site_lengths:
+        A_site_offset = A_site_offsets[offset_type][length]
+        start_index = -A_site_offset - (codon_buffer * 3)
+        end_index = CDS_length - A_site_offset + (codon_buffer * 3)
+        in_frame = slice(start_index, end_index, 3)
+        one_behind = slice(start_index - 1, end_index - 1, 3)
+        one_ahead = slice(start_index + 1, end_index + 1, 3)
+        codon_counts.counts += position_counts[length][in_frame] + \
+                               position_counts[length][one_behind] + \
+                               position_counts[length][one_ahead]
+
+    return codon_counts
+
+def compute_metagene_positions(position_counts, max_CDS_length):
+    ''' max_CDS_length needs to be passed in because it may reflect the max of
+        more than just the CDS being considered here.
+    '''
+    random_gene = position_counts.itervalues().next()
+    relevant_lengths = random_gene.keys()
+    random_length = relevant_lengths[0]
+    random_position_counts = random_gene[random_length]
+    left_buffer = random_position_counts.left_buffer
+    right_buffer = random_position_counts.right_buffer
+
+    from_starts = {length: PositionCounts(max_CDS_length, left_buffer, right_buffer)
                    for length in relevant_lengths}
-    from_ends = {length: PositionCounts(max_gene_length, left_buffer, right_buffer)
+    from_ends = {length: PositionCounts(max_CDS_length, left_buffer, right_buffer)
                  for length in relevant_lengths}
     
-    for name in gene_infos:
-        CDS_length = gene_infos[name]['CDS_length']
-        position_counts = gene_infos[name]['position_counts']
+    for name, counts in position_counts.iteritems():
+        CDS_length = counts[random_length].extent_length
         start_slice = slice(-left_buffer, CDS_length)
+        # This is harmlessly wrong, should be in some sense -right_buffer + 1
         end_slice = slice(-right_buffer, CDS_length)
         for length in relevant_lengths:
-            from_starts[length][start_slice] += position_counts[length][start_slice]
-            from_ends[length].relative_to_end[end_slice] += position_counts[length].relative_to_end[end_slice]
+            from_starts[length][start_slice] += counts[length][start_slice]
+            from_ends[length].relative_to_end[end_slice] += counts[length].relative_to_end[end_slice]
 
     return from_starts, from_ends
+
+def compute_averaged_codon_densities(codon_counts): 
+    # To reduce noise, genes with less than min_counts total counts are ignored.
+    min_counts = 64
+    max_length = max(counts['codons'].extent_length
+                     for counts in codon_counts.itervalues()
+                     if counts['codons'].sum() >= min_counts
+                    )
+
+    sum_of_normalized_from_start = PositionCounts(max_length, codon_buffer, codon_buffer, dtype=float)
+    sum_of_normalized_from_end = PositionCounts(max_length, codon_buffer, codon_buffer, dtype=float)
+    long_enough_genes_from_start = PositionCounts(max_length, codon_buffer, codon_buffer)
+    long_enough_genes_from_end = PositionCounts(max_length, codon_buffer, codon_buffer)
+
+    uniform = PositionCounts(max_length, codon_buffer, codon_buffer, counts=np.ones(max_length + 2 * codon_buffer))
+
+    for name, counts in codon_counts.iteritems():
+        counts = counts['codons']
+        if counts.sum() < min_counts:
+            continue
+
+        num_codons = counts.extent_length + 2 * codon_buffer
+        density = counts.sum() / float(num_codons)
+        normalized = counts / float(density)
+        
+        start_slice = slice(-codon_buffer, counts.extent_length + codon_buffer)
+        sum_of_normalized_from_start[start_slice] += normalized[start_slice]
+        long_enough_genes_from_start[start_slice] += uniform[start_slice]
+        
+        end_slice = slice(-codon_buffer + 1, counts.extent_length + 1 + codon_buffer)
+        sum_of_normalized_from_end.relative_to_end[end_slice] += normalized.relative_to_end[end_slice]
+        long_enough_genes_from_end.relative_to_end[end_slice] += uniform.relative_to_end[end_slice]
+        
+    mean_densities = {'from_start': {'codons': sum_of_normalized_from_start / long_enough_genes_from_start},
+                      'from_end': {'codons': sum_of_normalized_from_end / long_enough_genes_from_end},
+                     }
+
+    return mean_densities
+
+def make_codon_counts_file(codon_counts, file_name):
+    with open(file_name, 'w') as fh:
+        for name in sorted(codon_counts):
+            buffered_counts = codon_counts[name]['codons']
+            num_codons = buffered_counts.extent_length
+            # + 1 is to include the stop codon
+            counts = buffered_counts[:num_codons + 1]
+            counts_string = '\t'.join(str(count) for count in counts)
+            line = '{0}\t{1}\n'.format(name, counts_string)
+            fh.write(line)
+
+def read_codon_counts_file(fn, reports_P_site=False):
+    genes = {}
+    for line in open(fn):
+        name, values = line.strip().split('\t', 1)
+        values = np.fromstring(values, dtype=float, sep='\t')
+        # Weinberg's file reports counts in P-sites. We are interested in counts
+        # in A-sites, for which no reliable information can be obtained for the
+        # initiation codon or first codon after this.
+        # Shift everything over by 1 here to report A-sites.
+        # Responsibility of analysis to ignore first two values and last value.
+        if reports_P_site:
+            values = np.concatenate(([0], values))
+        genes[name] = values
+            
+    return genes
 
 def plot_metagene_positions(from_starts, from_ends, figure_fn):
     relevant_lengths = sorted(from_starts.keys())
@@ -413,112 +526,40 @@ def plot_frames(from_starts, figure_fn):
 
     fig.savefig(figure_fn)
 
-def plot_metagene_averaged(data_sets, from_end=False):
-    fig, ax = plt.subplots(figsize=(12, 12))
-
-    plot_up_to = 40
-    min_counts = 64
+def plot_averaged_codon_densities(data_sets, figure_fn):
+    plot_up_to = 300
     
-    if from_end:
-        xs = np.arange(0, -plot_up_to, -1)
-    else:
-        xs = np.arange(plot_up_to)
+    fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(12, 8))
 
-    for name, codon_counts_fn in data_sets:
-        codon_counts = ribosomes.read_codon_counts_file(codon_counts_fn)
-        max_length = max(len(counts) for counts in codon_counts.itervalues() if counts.sum() >= min_counts)
+    start_xs = np.arange(-codon_buffer, plot_up_to + 1)
+    end_xs = np.arange(-codon_buffer + 1, plot_up_to + 1)
 
-        sum_of_normalized = np.zeros(max_length)
-        long_enough_genes = np.zeros(max_length)
-
-        for gene_name, counts in codon_counts.iteritems():
-            if counts.sum() < min_counts:
-                continue
-
-            num_codons = len(counts)
-            density = counts.sum() / float(num_codons)
-            normalized = counts / float(density)
-            
-            if from_end:
-                normalized = normalized[::-1]
-
-            sum_of_normalized[:num_codons] += normalized
-            long_enough_genes[:num_codons] += np.ones(num_codons)
-        
-        mean_densities = sum_of_normalized / long_enough_genes 
-
-        ax.plot(xs, mean_densities[:plot_up_to], '.-', label=name)
+    for name, mean_densities in data_sets:
+        start_ax.plot(start_xs, mean_densities['from_start']['codons'][start_xs], '.-', label=name)
+        end_ax.plot(-end_xs, mean_densities['from_end']['codons'].relative_to_end[end_xs], '.-', label=name)
     
-    ax.legend(loc='upper right', framealpha=0.5)
+    start_ax.legend(loc='upper right', framealpha=0.5)
 
-    ax.set_xlabel('Position (codons)')
-    ax.set_ylabel('Normalized mean reads')
+    start_ax.set_xlabel('Number of codons from start codon')
+    start_ax.set_ylabel('Mean normalized read density')
     
-    ax.plot(np.ones(plot_up_to), color='black', alpha=0.5)
-    ax.set_ylim(0, 8)
+    end_ax.set_xlabel('Number of codons from stop codon')
+    end_ax.yaxis.tick_right()
 
-    xmin, xmax = ax.get_xlim()
-    ymin, ymax = ax.get_ylim()
-    ax.set_aspect((xmax - xmin) / (ymax - ymin))
-
-def get_codon_counts_generalized(gene_info, offset_type, common_buffer):
-    codon_counts = PositionCounts(gene_info['CDS_length'] // 3, common_buffer, common_buffer)
-    for length in set(gene_info['position_counts']) & set(ribosomes.A_site_offsets[offset_type]):
-        position_counts = gene_info['position_counts'][length]
-        start_index = -ribosomes.A_site_offsets[offset_type][length] - (common_buffer * 3)
-        end_index = gene_info['CDS_length'] - ribosomes.A_site_offsets[offset_type][length] + (common_buffer * 3)
-        codon_counts[-common_buffer:codon_counts.extent_length + common_buffer] += position_counts[start_index:end_index:3] + \
-                                                              position_counts[start_index - 1:end_index - 1:3] + \
-                                                              position_counts[start_index + 1:end_index + 1:3]
-
-    return codon_counts
-
-def plot_metagene_averaged_generalized(data_sets, from_end=False):
-    fig, ax = plt.subplots(figsize=(12, 12))
-
-    plot_up_to = 40
-    min_counts = 64
-    common_buffer = 10
+    start_ax.set_xlim(min(start_xs), max(start_xs))
+    end_ax.set_xlim(min(-end_xs), max(-end_xs))
     
-    xs = np.arange(-common_buffer, plot_up_to + 1)
-
-    for name, read_positions_fn, offset_type in data_sets:
-        gene_infos = Circles.Serialize.read_file(read_positions_fn, 'read_positions')
-        
-        sum_of_normalized = PositionCounts(50000, common_buffer, common_buffer)
-        long_enough_genes = PositionCounts(50000, common_buffer, common_buffer)
-
-        for gene_name in gene_infos:
-            codon_counts = get_codon_counts_generalized(gene_infos[gene_name], offset_type, common_buffer)
-
-            if codon_counts.counts.sum() < min_counts:
-                continue
-
-            num_codons = len(codon_counts.counts)
-            density = codon_counts.counts.sum() / float(num_codons)
-            normalized = codon_counts / float(density)
-            
-            start_slice = slice(-common_buffer, codon_counts.extent_length + common_buffer)
-            sum_of_normalized[start_slice] += normalized[start_slice]
-            long_enough_genes[start_slice] += np.ones(num_codons)
-        
-        mean_densities = sum_of_normalized / long_enough_genes 
-
-        ax.plot(xs, mean_densities[xs], '.-', label=name)
+    start_ax.plot(start_xs, [1 for x in start_xs], color='black', alpha=0.5)
+    end_ax.plot(-end_xs, [1 for x in end_xs], color='black', alpha=0.5)
     
-    ax.legend(loc='upper right', framealpha=0.5)
-
-    ax.set_xlabel('Position (codons)')
-    ax.set_ylabel('Normalized mean reads')
-
-    ax.set_xlim(min(xs), max(xs))
+    ymax = max(ax.get_ylim()[1] for ax in [start_ax, end_ax])
     
-    ax.plot(xs, [1 for x in xs], color='black', alpha=0.5)
-    ax.set_ylim(0, 8)
+    for ax in [start_ax, end_ax]:
+        ax.set_ylim(0, ymax)
+        xmin, xmax = ax.get_xlim()
+        ax.set_aspect((xmax - xmin) / ymax)
 
-    xmin, xmax = ax.get_xlim()
-    ymin, ymax = ax.get_ylim()
-    ax.set_aspect((xmax - xmin) / (ymax - ymin))
+    fig.savefig(figure_fn, bbox_inches='tight')
 
 #if __name__ == '__main__':
 #    data_sets = [
@@ -532,10 +573,18 @@ def plot_metagene_averaged_generalized(data_sets, from_end=False):
 
 if __name__ == '__main__':
     data_sets = [
-        ('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_read_positions.txt', 'yeast'),
+        #('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_read_positions.txt', 'yeast'),
+        ('weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities.txt'),
+        ('ingolia_science', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities.txt'),
+        ('guydosh_CHX', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_CHX/results/wild-type_CHX_mean_densities.txt'),
+        ('guydosh_3-AT', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_3-AT/results/wild-type_3-AT_mean_densities.txt'),
         #('belgium_8_6_13', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_read_counts.txt', 'yeast'),
         #('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
         #('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_read_positions.txt', 'ingolia_cell'),
         #('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_read_positions.txt', 'guo_nature'),
     ]
-    plot_metagene_averaged_generalized(data_sets, from_end=False)
+
+    data_sets = [(name, Circles.Serialize.read_file(fn, 'read_positions'))
+                 for name, fn in data_sets]
+
+    plot_averaged_codon_densities(data_sets, 'test.pdf')

@@ -82,11 +82,13 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
             ('read_positions', 'read_positions', '{name}_read_positions.txt'),
+            ('unambiguous_read_positions', 'read_positions', '{name}_unambiguous_read_positions.txt'),
             ('from_starts', 'read_positions', '{name}_from_starts.txt'),
+            ('unambiguous_from_starts', 'read_positions', '{name}_unambiguous_from_starts.txt'),
             ('from_ends', 'read_positions', '{name}_from_ends.txt'),
             ('codon_counts', 'codon_counts', '{name}_codon_counts.txt'),
-            #('codon_counts_strict', 'codon_counts', '{name}_codon_counts_strict.txt'),
-            #('codon_counts_relaxed', 'codon_counts', '{name}_codon_counts_relaxed.txt'),
+            ('buffered_codon_counts', 'read_positions', '{name}_buffered_codon_counts.txt'),
+            ('mean_densities', 'read_positions', '{name}_mean_densities.txt'),
             ('RPKMs', 'RPKMs', '{name}_RPKMs.txt'),
             ('read_counts', 'expression', '{name}_read_counts.txt'),
             ('strand_counts', 'expression', '{name}_strand_counts.txt'),
@@ -156,6 +158,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              'rRNA_bam',
             ],
             ['read_positions',
+             'buffered_codon_counts',
              'codon_counts',
              'from_starts',
              'from_ends',
@@ -195,14 +198,15 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         ]
 
         specific_cleanup = [
-            [self.plot_data_statistics,
+            [self.index_bams,
              self.compute_yield,
+             self.plot_data_statistics,
              self.plot_lengths,
              self.plot_rRNA_coverage,
              self.plot_oligo_hit_lengths,
-             self.index_clean_bam,
             ],
             [self.compute_RPKMs,
+             self.compute_mean_densities,
              self.plot_starts_and_ends,
              self.plot_frames,
              self.plot_mismatch_positions,
@@ -421,8 +425,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                                       )
                 yield_file.write(line)
 
-    def index_clean_bam(self):
+    def index_bams(self):
         sam.index_bam(self.merged_file_names['clean_bam'])
+        sam.index_bam(self.merged_file_names['rRNA_bam'])
+        if self.adapter_type == 'polyA':
+            sam.index_bam(self.merged_file_names['unambiguous_bam'])
 
     def plot_lengths(self):
         too_short_lengths = self.read_file('too_short_lengths')
@@ -464,7 +471,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         ax_clean.legend()
         ax_clean.set_title('Fragment length distribution by source')
         ax_clean.set_xlabel('Length of original RNA fragment')
-        ax_clean.set_ylabel('Number of reads')
+        ax_clean.set_ylabel('Fraction of clean reads')
         ax_clean.legend(loc='upper left', framealpha=0.5)
     
         fig_clean.savefig(self.figure_file_names['clean_lengths'])
@@ -499,22 +506,22 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         from_starts = self.read_file('from_starts')
         from_ends = self.read_file('from_ends')
 
-        positions.plot_metagene_positions(from_starts['from_starts']['position_counts'],
-                                          from_ends['from_ends']['position_counts'],
+        positions.plot_metagene_positions(from_starts['from_starts'],
+                                          from_ends['from_ends'],
                                           self.figure_file_names['starts_and_ends'],
                                          )
 
     def plot_frames(self):
         from_starts = self.read_file('from_starts')
 
-        positions.plot_frames(from_starts['from_starts']['position_counts'],
+        positions.plot_frames(from_starts['from_starts'],
                               self.figure_file_names['frames'],
                              )
 
         if self.adapter_type == 'polyA':
             from_starts = self.read_file('unambiguous_from_starts')
 
-            positions.plot_frames(from_starts['from_starts']['position_counts'],
+            positions.plot_frames(from_starts['from_starts'],
                                   self.figure_file_names['unambiguous_frames'],
                                  )
 
@@ -594,59 +601,68 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                                   relevant_lengths=self.relevant_lengths,
                                                  )
         self.write_file('read_positions', genes)
+        self.read_positions = genes
         self.write_file('strand_counts', genes)
     
     def get_read_positions_splicing(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        genes = positions.get_Transcript_position_counts(self.merged_file_names['clean_bam'],
-                                                         piece_CDSs,
-                                                         relevant_lengths=self.relevant_lengths,
-                                                        )
-        self.write_file('read_positions', genes)
-        self.write_file('strand_counts', genes)
+        gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['clean_bam'],
+                                                              piece_CDSs,
+                                                              relevant_lengths=self.relevant_lengths,
+                                                             )
+
+        self.read_positions = {name: info['position_counts']
+                               for name, info in gene_infos.iteritems()}
+
+        self.write_file('read_positions', self.read_positions)
+        self.write_file('strand_counts', gene_infos)
 
         if self.adapter_type == 'polyA':
-            genes = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
-                                                             piece_CDSs,
-                                                             relevant_lengths=self.relevant_lengths,
-                                                            )
-            self.write_file('unambiguous_read_positions', genes)
+            gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
+                                                                  piece_CDSs,
+                                                                  relevant_lengths=self.relevant_lengths,
+                                                                 )
+            self.unambiguous_read_positions = {name: info['position_counts']
+                                               for name, info in gene_infos.iteritems()}
+            self.write_file('unambiguous_read_positions', self.unambiguous_read_positions)
+
+    def load_read_positions(self, unambiguous=False):
+        ''' Read position arrays can be expensive to read from disk. This is a
+            a wrapper to make sure this is only done once.
+        '''
+        if unambiguous:
+            attribute_name = 'unambiguous_read_positions'
+        else:
+            attribute_name = 'read_positions'
+
+        if hasattr(self, attribute_name):
+            pass
+        else:
+            setattr(self, attribute_name, self.read_file(attribute_name))
+
+        return getattr(self, attribute_name)
 
     def get_metagene_positions(self):
-        #piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
         piece_CDSs, max_gene_length = self.get_CDSs()
-        gene_infos = self.read_file('read_positions')
-        from_starts, from_ends = positions.compute_metagene_positions(gene_infos, max_gene_length)
+        read_positions = self.load_read_positions()
+        from_starts, from_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
 
-        from_starts = {'from_starts': {'CDS_length': max_gene_length,
-                                       'position_counts': from_starts,
-                                      }
-                      }
-        from_ends = {'from_ends': {'CDS_length': max_gene_length,
-                                   'position_counts': from_ends,
-                                  }
-                    }
+        from_starts = {'from_starts': from_starts}
+        from_ends = {'from_ends': from_ends}
 
         self.write_file('from_starts', from_starts)
         self.write_file('from_ends', from_ends)
         
         if self.adapter_type == 'polyA':
-            gene_infos = self.read_file('unambiguous_read_positions')
-            from_starts, from_ends = positions.compute_metagene_positions(gene_infos, max_gene_length)
+            read_positions = self.load_read_positions(unambiguous=True)
+            from_starts, from_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
 
-            from_starts = {'from_starts': {'CDS_length': max_gene_length,
-                                           'position_counts': from_starts,
-                                          }
-                          }
-            from_ends = {'from_ends': {'CDS_length': max_gene_length,
-                                       'position_counts': from_ends,
-                                      }
-                        }
+            from_starts = {'from_starts': from_starts}
+            from_ends = {'from_ends': from_ends}
 
             self.write_file('unambiguous_from_starts', from_starts)
         
     def get_error_profile(self):
-        #piece_simple_CDSs, _ = self.get_simple_CDSs()
         piece_simple_CDSs, _ = self.get_CDSs()
         type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
                                               piece_simple_CDSs,
@@ -656,7 +672,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             self.write_file('mismatches_{0}'.format(length), type_counts[length])
 
     def get_recycling_ratios(self):
-        #piece_simple_CDSs, _ = self.get_simple_CDSs()
         piece_simple_CDSs, _ = self.get_CDSs()
         rpf_positions_dict = self.read_file('rpf_positions')
         genome = mapping_tools.load_genome(self.file_names['genome'], explicit_path=True)
@@ -668,16 +683,25 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
 
     def compute_codon_occupancy_counts(self):
         transcripts = {line.strip() for line in open(self.transcripts_file_name)}
-        gene_infos = self.read_file('read_positions')
-        gene_infos = {name: info for name, info in gene_infos.iteritems() if name in transcripts}
+        read_positions = self.load_read_positions()
 
-        ribosomes.make_codon_counts_file(gene_infos,
-                                         self.file_names['codon_counts'],
-                                         self.offset_type,
-                                        )
-        gene_infos = ribosomes.compute_read_counts(gene_infos, stringency='everything')
-        self.write_file('read_counts', gene_infos)
+        codon_counts = {}
+        for name, position_counts in read_positions.iteritems():
+            counts = positions.compute_codon_counts(position_counts, self.offset_type)
+            codon_counts[name] = {'codons': counts}
 
+        self.write_file('buffered_codon_counts', codon_counts)
+
+        positions.make_codon_counts_file(codon_counts, self.file_names['codon_counts'])
+
+        read_counts = ribosomes.compute_read_counts(read_positions, stringency='everything')
+        self.write_file('read_counts', read_counts)
+
+    def compute_mean_densities(self):
+        codon_counts = self.read_file('buffered_codon_counts', merged=True)
+        mean_densities = positions.compute_averaged_codon_densities(codon_counts)
+        self.write_file('mean_densities', mean_densities)
+        
     def compute_RPKMs(self):
         gene_infos = self.read_file('read_counts', merged=True)
         ribosomes.make_RPKMs_file(gene_infos, self.file_names['RPKMs'])

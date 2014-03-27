@@ -6,13 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pysam
 from collections import defaultdict
-from itertools import chain, izip
+from itertools import chain, izip, cycle
 from Circles import mapping_tools
 from Circles import fasta
 from Circles import sam
 import gtf
 
-colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
+colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
 
 def pre_filter(contaminant_index,
                trimmed_reads_fn,
@@ -123,10 +123,10 @@ def produce_rRNA_coverage(bam_file_name, specific_length=None):
 
     return counts
 
+threshold = 0.02
 def identify_dominant_stretches(counts, total_reads, bam_fn):
     # Identify connected stretches of positions where the fraction of total
     # reads mapping is greater than a threshold.
-    threshold = 0.03
 
     boundaries = {}
 
@@ -147,9 +147,6 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
         iter_boundaries = iter(above_threshold_boundaries)
         pairs = list(izip(iter_boundaries, iter_boundaries))
         boundaries[rname] = pairs
-
-    # Ensure that the bam_file is indexed.
-    pysam.index(bam_fn)
 
     # Count the number of reads that overlap any of the dominant stretches.
     overlapping_qnames = set()
@@ -179,7 +176,7 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     legends = {}
     for i, (rname, length) in enumerate(zip(rnames, lengths)):
         figs[rname], axs[rname] = plt.subplots(figsize=(0.003 * length, 12))
-        axs[rname].set_title('rRNA identity - ' + rname)
+        axs[rname].set_title('rRNA identity: {0}'.format(rname))
         axs[rname].set_xlim(0, length)
 
     for experiment_name in coverage_data:
@@ -187,12 +184,13 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
         for rname in counts:
             normalized_counts = np.true_divide(counts[rname], total_reads)
             axs[rname].plot(normalized_counts, color=color, label=experiment_name)
+            axs[rname].axhline(threshold, linestyle='--', color='black', alpha=0.5)
             legends[rname] = axs[rname].legend(loc='upper right', framealpha=0.5)
             axs[rname].figure.canvas.draw()
 
     bboxes = {rname: [legends[rname].get_window_extent()] for rname in rnames}
     
-    for oligo_name, color in izip(oligo_mappings, colors):
+    for oligo_name, color in izip(sorted(oligo_mappings), colors):
         for rname, start, end in oligo_mappings[oligo_name]:
             axs[rname].axvspan(start, end, color=color, alpha=0.12, linewidth=0)
 
