@@ -98,10 +98,17 @@ def unambiguously_trimmed(bam_fn, unambiguous_bam_fn, genome_dir):
     with pysam.Samfile(unambiguous_bam_fn, 'wb', header=bamfile.header) as unambiguous_bam_fh:
         for read in bamfile:
             rname = bamfile.getrname(read.tid)
+
             if not read.is_reverse:
+                if read.positions[-1] == bamfile.lengths[read.tid] - 1:
+                    # There is no next base to get
+                    continue
                 last_position = read.positions[-1]
                 last_base, next_base = genome[rname][last_position:last_position + 2]
             else:
+                if read.positions[0] == 0:
+                    # There is no next base to get
+                    continue
                 last_position = read.positions[0]
                 last_base, next_base = utilities.reverse_complement(genome[rname][last_position - 1:last_position + 1])
 
