@@ -1,5 +1,7 @@
 from collections import namedtuple, defaultdict, Counter
+from Circles import genomes, utilities
 import numpy as np
+import Bio.Seq
 
 gtf_fields = ['seqname',
               'source',
@@ -18,15 +20,15 @@ Feature = namedtuple('Feature', gtf_fields)
 # that it was parsed out of.
 Feature.__hash__ = lambda self: hash(self[:-1])
 
-def parse_attribute(attribute):
+def parse_gtf_attribute(attribute):
     fields = attribute.strip(';').split('; ')
     pairs = [field.split() for field in fields]
     parsed = {name: value.strip('"') for name, value in pairs}
     return parsed
 
-def parse_gtf_line(line):
+def parse_gtf_line(line, attribute_parser=parse_gtf_attribute):
     fields = line.strip().split('\t')
-    fields.append(parse_attribute(fields[-1]))
+    fields.append(attribute_parser(fields[-1]))
     feature = Feature._make(fields)
     start = int(feature.start) - 1
     # Convert from 1-based indexing to 0-based
@@ -66,15 +68,23 @@ def get_all_exons(all_features):
     exons = [feature for feature in all_features if feature.feature == 'exon']
     return exons
 
-def sort_features(features):
-    def key(feature):
-        return feature.seqname, feature.start, feature.feature
+def sort_features(features, by_end=False):
+    if by_end:
+        def key(feature):
+            return feature.seqname, feature.end, feature.start, feature.feature
+    else:
+        def key(feature):
+            return feature.seqname, feature.start, feature.end, feature.feature
 
     return sorted(features, key=key)
 
-def sort_transcripts(transcripts):
-    def key(transcript):
-        return transcript.seqname, transcript.start, transcript.end, transcript.strand
+def sort_transcripts(transcripts, by_end=False):
+    if by_end:
+        def key(transcript):
+            return transcript.seqname, transcript.end, transcript.start, transcript.strand
+    else:
+        def key(transcript):
+            return transcript.seqname, transcript.start, transcript.end, transcript.strand
 
     return sorted(transcripts, key=key)
 
@@ -177,6 +187,44 @@ class Transcript(object):
     def delete_coordinate_maps(self):
         del self.transcript_to_genomic
         del self.genomic_to_transcript
+
+    def __str__(self):
+        return '{0} {1}:{2}-{3}'.format(self.name, self.seqname, self.start, self.end)
+
+def make_coding_sequence_fetcher(gtf_fn, genome_dir):
+    CDSs = get_CDSs(gtf_fn)
+    gtf_dict = {t.name: t for t in CDSs}
+
+    region_fetcher = genomes.build_region_fetcher(genome_dir)
+
+    def coding_sequence_fetcher(name):
+        ''' Returns the coding sequence for name if name is in the GTF file and
+            is a well formed coding sequence, otherwise returns None.
+        '''
+        if name not in gtf_dict:
+            raise ValueError(name)
+        
+        transcript = gtf_dict[name]
+        if transcript.strand == '+':
+            seqs = [region_fetcher(transcript.seqname, CDS.start, CDS.end + 1)
+                    for CDS in transcript.CDSs if CDS]
+            seqs += [region_fetcher(transcript.seqname, stop_codon.start, stop_codon.end + 1)
+                     for stop_codon in transcript.stop_codons]
+            seq = ''.join(seqs)
+        elif transcript.strand == '-':
+            seqs = [utilities.reverse_complement(region_fetcher(transcript.seqname, CDS.start, CDS.end + 1))
+                    for CDS in transcript.CDSs[::-1] if CDS]
+            seqs += [utilities.reverse_complement(region_fetcher(transcript.seqname, stop_codon.start, stop_codon.end + 1))
+                     for stop_codon in transcript.stop_codons[::-1]]
+            seq = ''.join(seqs)
+        try:
+            Bio.Seq.translate(seq, cds=True)
+        except Bio.Seq.CodonTable.TranslationError as error:
+            return None
+
+        return seq.upper()
+
+    return coding_sequence_fetcher
 
 def get_extent_by_name(gtf_fn, name):
     all_features = get_all_features(gtf_fn)
