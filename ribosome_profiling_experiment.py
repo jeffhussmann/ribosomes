@@ -115,7 +115,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
 
         specific_figure_files = [
             ('quality', '{name}_quality.png'),
-            ('complexity', '{name}_complexity.png'),
+            ('clean_composition', '{name}_clean_composition.pdf'),
+            ('clean_composition_perfect', '{name}_clean_composition_perfect.pdf'),
             ('all_lengths', '{name}_all_lengths.pdf'),
             ('clean_lengths', '{name}_clean_lengths.pdf'),
             ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
@@ -141,8 +142,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         ]
 
         specific_outputs = [
-            ['quality',
-             'complexity',
+            ['clean_composition',
+             'clean_composition_perfect',
              'too_short_lengths',
              'trimmed_lengths',
              'tRNA_lengths',
@@ -260,21 +261,23 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
         return piece_CDSs, max_gene_length
 
-    def collect_data_statistics(self):
-        q_array, c_array = fastq.quality_and_complexity(self.get_reads(), self.max_read_length)
+    def compute_base_composition(self):
+        seq_info_pairs = composition.get_seq_info_pairs(self.file_names['clean_bam'])
+        all_array, perfect_array = composition.length_stratified_composition(seq_info_pairs, self.max_read_length)
         
-        self.write_file('quality', q_array)
-        self.write_file('complexity', c_array)
+        self.write_file('clean_composition', all_array)
+        self.write_file('clean_composition_perfect', perfect_array)
 
-    def plot_data_statistics(self):
-        quality_counts = self.read_file('quality', merged=True)
-        Visualize.fastq.plot_quality_histograms(quality_counts,
-                                                self.figure_file_names['quality'],
-                                               )
-        base_counts = self.read_file('complexity', merged=True)
-        Visualize.fastq.plot_sequence_complexities(base_counts,
-                                                   self.figure_file_names['complexity'],
-                                                  )
+    def plot_base_composition(self):
+        all_array = self.read_file('clean_composition', merged=True)
+        composition.length_stratified_plot(all_array,
+                                           self.figure_file_names['clean_composition'],
+                                          )
+        
+        perfect_array = self.read_file('clean_composition_perfect', merged=True)
+        composition.length_stratified_plot(perfect_array,
+                                           self.figure_file_names['clean_composition_perfect'],
+                                          )
 
     def trim_reads(self):
         trimmed_lengths, too_short_lengths, barcode_counts = self.trim_function(self.get_reads(),

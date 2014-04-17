@@ -4,6 +4,7 @@ from distutils.extension import Extension
 from Cython.Distutils import build_ext
 
 ext_modules = [Extension('trim_cython', ['trim_cython.pyx'], include_dirs=[numpy.get_include()]),
+               Extension('composition_cython', ['composition_cython.pyx'], include_dirs=[numpy.get_include()]),
               ]
 
 setup(
