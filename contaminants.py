@@ -53,14 +53,16 @@ def post_filter(input_bam_fn,
         flagged primary.
         If a read has no mappings to any rRNA or tRNA transcripts but any
         mapping to any other noncoding RNA transcript, write all such mappings
-        to other_RNA_bam_fn with exactly one flagged primary.
+        to other_ncRNA_bam_fn with exactly one flagged primary.
         Write all remaining mappings to clean_bam_fn.
+        TODO: This docstring doesn't seem accurate anymore - only one mapping
+        per qname is being written to contaminant files.
     '''
     contaminant_qnames = set()
 
     rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts = gtf.get_noncoding_RNA_transcripts(gtf_fn)
 
-    input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
+    input_bam_file = pysam.Samfile(input_bam_fn)
    
     # Find reads with any mappings that overlap rRNA or tRNA transcripts and write any
     # such mappings to a contaminant bam file.
