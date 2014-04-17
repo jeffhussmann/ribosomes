@@ -6,13 +6,15 @@ import glob
 import os
 import sys
 import pysam
-from itertools import chain
+from itertools import chain, product
 from collections import Counter
 import trim
 import ribosomes
 import positions
 import contaminants
+import composition
 import gtf
+import codons
 from Circles import fastq
 from Circles import utilities
 from Circles import sam
@@ -52,8 +54,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.min_length = 10
         
         specific_results_files = [
-            ('quality', 'array_2d', '{name}_quality.txt'),
-            ('complexity', 'array_2d', '{name}_complexity.txt'),
+            ('clean_composition', 'array_3d', '{name}_clean_composition.npy'),
+            ('clean_composition_perfect', 'array_3d', '{name}_clean_composition_perfect.npy'),
 
             ('bowtie_error', '', '{name}_bowtie_error.txt'),
             ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
@@ -87,7 +89,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('unambiguous_from_starts', 'read_positions', '{name}_unambiguous_from_starts.txt'),
             ('from_ends', 'read_positions', '{name}_from_ends.txt'),
             ('codon_counts', 'codon_counts', '{name}_codon_counts.txt'),
+            ('codon_counts_stringent', 'codon_counts', '{name}_codon_counts_stringent.txt'),
             ('buffered_codon_counts', 'read_positions', '{name}_buffered_codon_counts.txt'),
+            ('metacodon_counts', 'read_positions', '{name}_metacodon_counts.txt'),
+            ('metacodon_counts_stringent', 'read_positions', '{name}_metacodon_counts_stringent.txt'),
+            ('metacodon_counts_nucleotide_resolution', 'read_positions', '{name}_metacodon_counts_nucleotide_resolution.txt'),
             ('mean_densities', 'read_positions', '{name}_mean_densities.txt'),
             ('RPKMs', 'RPKMs', '{name}_RPKMs.txt'),
             ('read_counts', 'expression', '{name}_read_counts.txt'),
@@ -123,11 +129,17 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('rRNA_coverage_length_28_template', '{name}_rRNA_coverage_length_28_{{0}}.pdf'),
             ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
             ('starts_and_ends', '{name}_starts_and_ends.pdf'),
+            ('mean_densities', '{name}_mean_densities.pdf'),
             ('mismatch_positions', '{name}_mismatch_positions.png'),
             ('first_mismatch_types', '{name}_first_mismatch_types.png'),
             ('last_mismatch_types', '{name}_last_mismatch_types.png'),
             ('frames', '{name}_frames.pdf'),
             ('unambiguous_frames', '{name}_unambiguous_frames.pdf'),
+            ('metacodon_counts', '{name}_metacodon_counts.pdf'),
+            ('metacodon_counts_stringent', '{name}_metacodon_counts_stringent.pdf'),
+            ('metacodon_mean_enrichments', '{name}_metacodon_mean_enrichments.pdf'),
+            ('metacodon_counts_nucleotide_resolution', '{name}_metacodon_counts_nucleotide_resolution.pdf'),
+            ('metanucleotide_counts', '{name}_metanucleotide_counts.pdf'),
         ]
 
         self.organism_files = [
@@ -157,15 +169,18 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              'oligo_hit_lengths',
              'clean_bam',
              'rRNA_bam',
+             'tRNA_bam',
             ],
             ['read_positions',
              'buffered_codon_counts',
              'codon_counts',
+             'metacodon_counts',
+             #'metacodon_counts_stringent',
+             'metacodon_counts_nucleotide_resolution',
              'from_starts',
              'from_ends',
              'strand_counts',
              'read_counts'
-             #'recycling_ratios',
             ],
         ]
 
@@ -180,31 +195,30 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         specific_outputs[1].extend(['mismatches_{0}'.format(length) for length in self.relevant_lengths])
 
         specific_work = [
-            [(self.collect_data_statistics, 'Collecting data statistics'),
-             (self.trim_reads, 'Trim reads'),
-             (self.pre_filter_contaminants, 'Filter contaminants'),
-             (self.map_tophat, 'Map with tophat'),
-             (self.post_filter_contaminants, 'Further contaminant filtering'),
-             (self.find_unamiguous_lengths, 'Finding unambiguous lengths'),
-             (self.get_rRNA_coverage, 'Counting rRNA coverage'),
-             (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
+            [#(self.trim_reads, 'Trim reads'),
+             #(self.pre_filter_contaminants, 'Filter contaminants'),
+             #(self.map_tophat, 'Map with tophat'),
+             #(self.post_filter_contaminants, 'Further contaminant filtering'),
+             #(self.compute_base_composition, 'Computing base composition'),
+             (self.find_unambiguous_lengths, 'Finding unambiguous lengths'),
+             #(self.get_rRNA_coverage, 'Counting rRNA coverage'),
+             #(self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
-            [#(self.get_read_positions, 'Counting mapping positions'),
-             (self.get_read_positions_splicing, 'Counting mapping positions, splicing'),
+            [(self.get_read_positions_splicing, 'Counting mapping positions, splicing'),
              (self.get_metagene_positions, 'Aggregating metagene positions'),
              (self.compute_codon_occupancy_counts, 'Computing codon occupancies'),
+             (self.compute_metacodon_counts, 'Computing metacodon counts'),
              (self.get_error_profile, 'Getting error profile'),
-             #(self.get_recycling_ratios, 'Getting recycling ratios'),
             ],
         ]
 
         specific_cleanup = [
             [self.index_bams,
              self.compute_yield,
-             self.plot_data_statistics,
+             self.plot_base_composition,
              self.plot_lengths,
              self.plot_rRNA_coverage,
-             self.plot_oligo_hit_lengths,
+             #self.plot_oligo_hit_lengths,
             ],
             [self.compute_RPKMs,
              self.compute_mean_densities,
@@ -212,6 +226,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              self.plot_frames,
              self.plot_mismatch_positions,
              self.plot_mismatch_types,
+             self.plot_metacodon_counts,
             ],
         ]
 
@@ -315,7 +330,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('synthetic_lengths', synthetic_lengths)
 
     def map_tophat(self):
-        ribosomes.map_tophat(self.file_names['filtered_reads'],
+        ribosomes.map_tophat([self.file_names['filtered_reads']],
                              self.file_names['bowtie2_index_prefix'],
                              self.file_names['genes'],
                              self.file_names['transcriptome_index'],
@@ -353,7 +368,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         clean_lengths = self.zero_padded_array(clean_length_counts)
         self.write_file('clean_lengths', clean_lengths)
 
-    def find_unamiguous_lengths(self):
+    def find_unambiguous_lengths(self):
         if self.adapter_type == 'polyA':
             trim.unambiguously_trimmed(self.file_names['clean_bam'],
                                        self.file_names['unambiguous_bam'],
@@ -431,6 +446,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
     def index_bams(self):
         sam.index_bam(self.merged_file_names['clean_bam'])
         sam.index_bam(self.merged_file_names['rRNA_bam'])
+        sam.index_bam(self.merged_file_names['tRNA_bam'])
         if self.adapter_type == 'polyA':
             sam.index_bam(self.merged_file_names['unambiguous_bam'])
 
@@ -514,6 +530,10 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                           self.figure_file_names['starts_and_ends'],
                                          )
 
+        positions.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'))],
+                                                self.figure_file_names['mean_densities'],
+                                               )
+
     def plot_frames(self):
         from_starts = self.read_file('from_starts')
 
@@ -528,6 +548,28 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                   self.figure_file_names['unambiguous_frames'],
                                  )
 
+    def plot_metacodon_counts(self):
+        metacodon_counts = self.read_file('metacodon_counts', merged=True)
+        positions.plot_metacodon_counts(metacodon_counts, self.figure_file_names['metacodon_counts'])
+        #positions.plot_metacodon_counts(metacodon_counts, self.figure_file_names['metacodon_mean_enrichments'], enrichment=True)
+        
+        #metacodon_counts_stringent = self.read_file('metacodon_counts_stringent', merged=True)
+        #positions.plot_metacodon_counts(metacodon_counts_stringent, self.figure_file_names['metacodon_counts_stringent'])
+        #
+        #metacodon_counts_nucleotide_resolution = self.read_file('metacodon_counts_nucleotide_resolution', merged=True)
+        #positions.plot_metacodon_counts(metacodon_counts_nucleotide_resolution,
+        #                                self.figure_file_names['metacodon_counts_nucleotide_resolution'],
+        #                                keys_to_plot=[28, 29, 30, 31, 32],
+        #                               )
+        #all_codon_ids = metacodon_counts_nucleotide_resolution.keys()
+        #positions.plot_metacodon_counts(metacodon_counts_nucleotide_resolution,
+        #                                self.figure_file_names['metanucleotide_counts'],
+        #                                #codon_ids=['T', 'C', 'A', 'G'] + list(''.join(pair) for pair in product('TCAG', repeat=2)),
+        #                                codon_ids=[c for c in all_codon_ids if c.endswith('C') and len(c) < 3],
+        #                                #codon_ids=[c for c in codons.non_stop_codons if c.endswith('CG') or c.endswith('CA')],
+        #                                #codon_ids=[c for c in codons.non_stop_codons if c.startswith('AC')],
+        #                                keys_to_plot=[28, 29, 30, 31, 32],
+        #                               )
 
     def plot_mismatch_positions(self):
         fig, ax = plt.subplots(figsize=(16, 12))
@@ -689,16 +731,43 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         read_positions = self.load_read_positions()
 
         codon_counts = {}
+        codon_counts_stringent = {}
         for name, position_counts in read_positions.iteritems():
             counts = positions.compute_codon_counts(position_counts, self.offset_type)
-            codon_counts[name] = {'codons': counts}
+            counts_stringent = positions.compute_codon_counts(position_counts, self.offset_type + '_stringent')
+            codon_counts[name] = {'relaxed': counts,
+                                  'stringent': counts_stringent,
+                                 }
 
         self.write_file('buffered_codon_counts', codon_counts)
 
-        positions.make_codon_counts_file(codon_counts, self.file_names['codon_counts'])
+        positions.make_codon_counts_file(codon_counts, self.file_names['codon_counts'], stringency='relaxed')
+        positions.make_codon_counts_file(codon_counts, self.file_names['codon_counts_stringent'], stringency='stringent')
 
         read_counts = ribosomes.compute_read_counts(read_positions, stringency='everything')
         self.write_file('read_counts', read_counts)
+
+    def compute_metacodon_counts(self):
+        codon_counts = positions.read_codon_counts_file(self.file_names['codon_counts'])
+        metacodon_counts = positions.compute_metacodon_counts(codon_counts,
+                                                              self.file_names['genes'],
+                                                              self.file_names['genome'],
+                                                             )
+        self.write_file('metacodon_counts', metacodon_counts)
+
+        codon_counts_stringent = positions.read_codon_counts_file(self.file_names['codon_counts_stringent'])
+        metacodon_counts_stringent = positions.compute_metacodon_counts(codon_counts_stringent,
+                                                                        self.file_names['genes'],
+                                                                        self.file_names['genome'],
+                                                                       )
+        self.write_file('metacodon_counts_stringent', metacodon_counts_stringent)
+        
+        read_positions = self.load_read_positions()
+        metacodon_counts_nucleotide_resolution = positions.compute_metacodon_counts_nucleotide_resolution(read_positions,
+                                                                                                          self.file_names['genes'],
+                                                                                                          self.file_names['genome'],
+                                                                                                         )
+        self.write_file('metacodon_counts_nucleotide_resolution', metacodon_counts_nucleotide_resolution)
 
     def compute_mean_densities(self):
         codon_counts = self.read_file('buffered_codon_counts', merged=True)

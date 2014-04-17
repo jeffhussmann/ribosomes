@@ -5,9 +5,10 @@ import matplotlib.pyplot as plt
 matplotlib.use('Agg', warn=False)
 import numpy as np
 import numbers
+import itertools
 import pysam
 from collections import Counter
-import ribosomes
+import codons
 import gtf
 import Circles.Serialize
 
@@ -328,6 +329,8 @@ A_site_offsets = {'ingolia_cell': {29: 15,
                                    29: 15,
                                    30: 16,
                                   },
+                  'yeast_stringent': {28: 15,
+                                     },
                  }
 
 def compute_codon_counts(position_counts, offset_type):
@@ -386,12 +389,86 @@ def compute_metagene_positions(position_counts, max_CDS_length):
 
     return from_starts, from_ends
 
+def compute_metacodon_counts(codon_counts, gtf_fn, genome_dir):
+    window = 30
+
+    metacodon_counts = {codon_id: {'actual': PositionCounts(window, window, 0),
+                                   'uniform': PositionCounts(window, window, 0, dtype=float),
+                                   'sum_of_enrichments': PositionCounts(window, window, 0, dtype=float),
+                                   'num_eligible': PositionCounts(window, window, 0),
+                                  }
+                        for codon_id in codons.non_stop_codons}
+
+    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir)
+
+    for name, read_counts in codon_counts.iteritems():
+        coding_sequence = coding_sequence_fetcher(name)
+        if coding_sequence == None:
+            continue
+
+        total_counts = codon_counts[name].sum()
+        num_codons = len(codon_counts[name])
+        density = float(total_counts) / num_codons
+        uniform_counts = np.full(2 * window, density)
+        num_eligible = np.ones(2 * window)
+
+        for p, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
+            if p >= window and p <= num_codons - window:
+                actual_counts = read_counts[p - window:p + window]
+                metacodon_counts[codon_id]['actual'][-window:window] += actual_counts
+                metacodon_counts[codon_id]['uniform'][-window:window] += uniform_counts
+                
+                if density > 0:
+                    enrichments = actual_counts / density
+                    metacodon_counts[codon_id]['sum_of_enrichments'][-window:window] += enrichments
+                    metacodon_counts[codon_id]['num_eligible'][-window:window] += num_eligible
+
+    return metacodon_counts
+
+def compute_metacodon_counts_nucleotide_resolution(read_positions, gtf_fn, genome_dir):
+    minus_window = 40
+    plus_window = 40
+
+    random_gene = read_positions.iterkeys().next()
+    length_keys = read_positions[random_gene].keys()
+
+    dinucleotides =  list(''.join(pair) for pair in itertools.product('TCAG', repeat=2))
+    keys = codons.non_stop_codons + ['T', 'C', 'A', 'G'] + dinucleotides
+
+    metacodon_counts = {key: {length: PositionCounts(plus_window, minus_window, 0)
+                              for length in length_keys
+                             }
+                        for key in keys}
+
+    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir)
+
+    for name, read_counts in read_positions.iteritems():
+        coding_sequence = coding_sequence_fetcher(name)
+        if coding_sequence == None:
+            continue
+
+        for c, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
+            p = 3 * c
+            if p >= minus_window and p <= len(coding_sequence) - plus_window:
+                for length in length_keys:
+                    actual_counts = read_positions[name][length][p - minus_window:p + plus_window]
+                    
+                    metacodon_counts[codon_id][length][-minus_window:plus_window] += actual_counts
+
+                    metacodon_counts[codon_id[0]][length][-minus_window:plus_window] += actual_counts
+                    
+                    #dinucleotide = codon_id[:2]
+                    dinucleotide = coding_sequence[p - 1:p + 1]
+                    metacodon_counts[dinucleotide][length][-minus_window:plus_window] += actual_counts
+
+    return metacodon_counts
+
 def compute_averaged_codon_densities(codon_counts): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
     min_counts = 64
-    max_length = max(counts['codons'].extent_length
+    max_length = max(counts['relaxed'].extent_length
                      for counts in codon_counts.itervalues()
-                     if counts['codons'].sum() >= min_counts
+                     if counts['relaxed'].sum() >= min_counts
                     )
 
     sum_of_normalized_from_start = PositionCounts(max_length, codon_buffer, codon_buffer, dtype=float)
@@ -402,7 +479,7 @@ def compute_averaged_codon_densities(codon_counts):
     uniform = PositionCounts(max_length, codon_buffer, codon_buffer, counts=np.ones(max_length + 2 * codon_buffer))
 
     for name, counts in codon_counts.iteritems():
-        counts = counts['codons']
+        counts = counts['relaxed']
         if counts.sum() < min_counts:
             continue
 
@@ -424,10 +501,10 @@ def compute_averaged_codon_densities(codon_counts):
 
     return mean_densities
 
-def make_codon_counts_file(codon_counts, file_name):
+def make_codon_counts_file(codon_counts, file_name, stringency='relaxed'):
     with open(file_name, 'w') as fh:
         for name in sorted(codon_counts):
-            buffered_counts = codon_counts[name]['codons']
+            buffered_counts = codon_counts[name][stringency]
             num_codons = buffered_counts.extent_length
             # + 1 is to include the stop codon
             counts = buffered_counts[:num_codons + 1]
@@ -561,6 +638,101 @@ def plot_averaged_codon_densities(data_sets, figure_fn):
 
     fig.savefig(figure_fn, bbox_inches='tight')
 
+def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=False, keys_to_plot=['actual']):
+    random_counts = metacodon_counts['TTT'].itervalues().next()
+    xs = np.arange(-random_counts.left_buffer, random_counts.extent_length)
+
+    bases = 'TCAG'
+
+    def make_plot(ax, codon_id):
+        ax.set_title(codon_id)
+
+        if codon_id not in metacodon_counts:
+            return
+
+        if enrichment:
+            average_enrichment = metacodon_counts[codon_id]['sum_of_enrichments'] / metacodon_counts[codon_id]['num_eligible']
+            ones = np.ones(len(average_enrichment.counts))
+            ax.plot(xs, average_enrichment.counts, 'o-')
+            ax.plot(xs, ones, color='black', alpha=0.5)
+        else:
+            for key in keys_to_plot:
+                counts = metacodon_counts[codon_id][key].counts
+                line, = ax.plot(xs, counts, '.-', label=key)
+                if isinstance(key, int):
+                    # -key + 1 is the position a read starts at if position 0
+                    # is the last base in it
+                    ax.axvline(-key + 1, color=line.get_color(), alpha=0.2)
+            #ax.plot(xs, metacodon_counts[codon_id]['uniform'].counts, '.-')
+            ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
+            if codon_ids != 'all':
+                ax.legend(loc='upper right', framealpha=0.5)
+
+        ax.set_ylim(ymin=0)
+        ax.set_xlim(min(xs), max(xs))
+        ax.axvline(0, ls='--', color='black', alpha=0.5)
+    
+    if codon_ids == 'all':
+        fig, axs = plt.subplots(16, 4, figsize=(16, 64))
+
+        for first in range(4):
+            for second in range(4):
+                for third in range(4):
+                    i = first * 4 + third
+                    j = second
+                    codon_id = ''.join(bases[first] + bases[second] + bases[third])
+                    make_plot(axs[i, j], codon_id)
+    else:
+        fig, axs = plt.subplots(len(codon_ids), 1, figsize=(8, 8 * len(codon_ids)))
+        for codon_id, ax in zip(codon_ids, axs):
+            make_plot(ax, codon_id)
+
+    fig.savefig(fig_fn, bbox_inches='tight')
+
+def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, length=28, edge="5'"):
+    random_codon_id = metacodon_counts.iterkeys().next()
+    random_counts = metacodon_counts[random_codon_id].itervalues().next()
+    keys = metacodon_counts[random_codon_id].keys()
+    xs = np.arange(-20, 20)
+
+    bases = 'TCAG'
+
+    def make_plot(ax, codon_id):
+        ax.set_title(codon_id)
+
+        if codon_id not in metacodon_counts:
+            return
+
+        counts = metacodon_counts[codon_id][length]
+        if edge == "3'":
+            positions = xs - length + 1
+        else:
+            positions = xs
+        line, = ax.plot(xs, counts[positions], '.-')
+        ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
+
+        ax.set_ylim(ymin=0)
+        ax.set_xlim(min(xs), max(xs))
+        ax.axvline(0, ls='--', color='black', alpha=0.5)
+    
+    if codon_ids == 'all':
+        fig, axs = plt.subplots(16, 4, figsize=(16, 64))
+
+        for first in range(4):
+            for second in range(4):
+                for third in range(4):
+                    i = first * 4 + third
+                    j = second
+                    codon_id = ''.join(bases[first] + bases[second] + bases[third])
+                    make_plot(axs[i, j], codon_id)
+    else:
+        fig, axs = plt.subplots(len(codon_ids), 1, figsize=(8, 8 * len(codon_ids)))
+        for codon_id, ax in zip(codon_ids, axs):
+            make_plot(ax, codon_id)
+
+    fig.suptitle('Read counts around every occurence, {0}'.format(edge))
+    fig.savefig(fig_fn, bbox_inches='tight')
+
 #if __name__ == '__main__':
 #    data_sets = [
 #        #('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_codon_counts.txt'),
@@ -575,13 +747,22 @@ if __name__ == '__main__':
     data_sets = [
         #('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_read_positions.txt', 'yeast'),
         ('weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities.txt'),
+        #('weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_mean_densities.txt'),
+        ('dunn', '/home/jah/projects/arlen/experiments/dunn_elife/results/dunn_elife_mean_densities.txt'),
         ('ingolia_science', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities.txt'),
         ('guydosh_CHX', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_CHX/results/wild-type_CHX_mean_densities.txt'),
-        ('guydosh_3-AT', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_3-AT/results/wild-type_3-AT_mean_densities.txt'),
+        #('guydosh_3-AT', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_3-AT/results/wild-type_3-AT_mean_densities.txt'),
+        ('zinshteyn_WT_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_1/results/WT_Ribosome_Footprint_1_mean_densities.txt'),
+        #('zinshteyn_WT_2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_2/results/WT_Ribosome_Footprint_2_mean_densities.txt'),
+        #('zinshteyn_delta_elp3', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_elp3_Ribosome_Footprint/results/delta_elp3_Ribosome_Footprint_mean_densities.txt'),
+        #('zinshteyn_delta_ncs2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs2_Ribosome_Footprint/results/delta_ncs2_Ribosome_Footprint_mean_densities.txt'),
+        #('zinshteyn_delta_ncs6_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs6_Ribosome_Footprint_1/results/delta_ncs6_Ribosome_Footprint_1_mean_densities.txt'),
+        #('zinshteyn_delta_ncs6_2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs6_Ribosome_Footprint_2/results/delta_ncs6_Ribosome_Footprint_2_mean_densities.txt'),
         #('belgium_8_6_13', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_read_counts.txt', 'yeast'),
         #('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
         #('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_read_positions.txt', 'ingolia_cell'),
         #('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_read_positions.txt', 'guo_nature'),
+        ('mcmanus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_mean_densities.txt'),
     ]
 
     data_sets = [(name, Circles.Serialize.read_file(fn, 'read_positions'))
