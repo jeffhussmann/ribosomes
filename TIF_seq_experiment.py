@@ -321,11 +321,14 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
     def plot_positions(self):
         fig, ax = plt.subplots()
 
+        max_length = 0
         for orientation in sorted(orientations):
             key = '{0}_positions'.format(orientation)
             array = self.read_file(key)
+            max_length = max(max_length, len(array))
             ax.plot(array, '.-', label=orientation)
 
+        ax.set_xlim(right=max_length - 1)
         ax.legend(loc='upper right', framealpha=0.5)
         fig.savefig(self.figure_file_names['positions'])
 
