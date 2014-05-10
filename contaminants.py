@@ -133,18 +133,23 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
     boundaries = {}
 
     for rname in counts:
-        normalized_counts = np.true_divide(counts[rname], total_reads)
+        # Zero added to the beginning and end so that if a dominant stretch
+        # starts at beginning or end, there will be a transition for np.diff
+        # to find.
+        augmented_counts = np.concatenate(([0], counts[rname], [0]))
+        #augemented_counts = np.concatenate(([counts[rname]]))
+        normalized_counts = np.true_divide(augmented_counts, total_reads)
         above_threshold = normalized_counts >= threshold
         if not np.any(above_threshold):
             continue
         # np.diff(above_threshold) is True wherever above_threshold changes
         # between True and False. Adapted from a stackoverflow answer.
-        above_threshold_boundaries = np.where(np.diff(above_threshold))[0] + 1
+        # + 1 is so this will be the first thing over the threshold or first
+        # thing under it, - 1 is to under the shift of adding a zero at the
+        # front.
+        above_threshold_boundaries = np.where(np.diff(above_threshold))[0] + 1 - 1
 
         first_start = np.min(np.where(above_threshold))
-
-        if first_start != above_threshold_boundaries[0] or len(above_threshold_boundaries) % 2 != 0:
-            raise NotImplementedError('Dominant contaminant at the beginning or end.')
 
         iter_boundaries = iter(above_threshold_boundaries)
         pairs = list(izip(iter_boundaries, iter_boundaries))
