@@ -7,7 +7,7 @@ from Circles import mapping_tools
 #fastq_fn = '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/data/SRR065774.fastq'
 #index_prefix = '/home/jah/projects/arlen/data/organisms/mus_musculus/mm10/genome/genome'
 #fastq_fn = '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/data/wt_cDNA.140219.HiSeq2500.FCB.lane1.R1.fastq'
-fastq_fn = '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_short_footprints/data/SRR1042876.fastq'
+fastq_fn = '/home/jah/projects/arlen/experiments/dunn_elife/YCF182_110222_HiSeq.fq'
 index_prefix = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/genome/genome'
 
 root, ext = os.path.splitext(fastq_fn)

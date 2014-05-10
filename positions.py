@@ -11,6 +11,19 @@ from collections import Counter
 import codons
 import gtf
 import Circles.Serialize
+import brewer2mpl
+
+def smoothed(array, window_size):
+    smoothed_array = np.zeros_like(array)
+    for i in range(2):
+        smoothed_array[i] = array[i]
+    for i in range(2, window_size):
+        smoothed_array[i] = array[2:i + 1].sum() / float(i + 1 - 2)
+    for i in range(window_size, len(array) - window_size):
+        smoothed_array[i] = array[i - window_size / 2:i + window_size / 2 + 1].sum() / float(window_size)
+    for i in range(len(array) - window_size, len(array)):
+        smoothed_array[i] = array[-window_size:].sum() / float(window_size)
+    return smoothed_array
 
 class PositionCounts(object):
     ''' Wrapper around an array of counts of positions for an extent and for a
@@ -463,7 +476,7 @@ def compute_metacodon_counts_nucleotide_resolution(read_positions, gtf_fn, genom
 
     return metacodon_counts
 
-def compute_averaged_codon_densities(codon_counts): 
+def compute_averaged_codon_densities(codon_counts, names_to_skip=set()): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
     min_counts = 64
     max_length = max(counts['relaxed'].extent_length
@@ -479,6 +492,10 @@ def compute_averaged_codon_densities(codon_counts):
     uniform = PositionCounts(max_length, codon_buffer, codon_buffer, counts=np.ones(max_length + 2 * codon_buffer))
 
     for name, counts in codon_counts.iteritems():
+        if name in names_to_skip:
+            print 'skipping', name
+            continue
+
         counts = counts['relaxed']
         if counts.sum() < min_counts:
             continue
@@ -603,39 +620,56 @@ def plot_frames(from_starts, figure_fn):
 
     fig.savefig(figure_fn)
 
-def plot_averaged_codon_densities(data_sets, figure_fn):
-    plot_up_to = 300
+def plot_averaged_codon_densities(data_sets, figure_fn, show_end=True, past_edge=codon_buffer, smooth=False):
+    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
+    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
+
+    plot_up_to = 200
     
-    fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(12, 8))
+    if show_end:
+        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(12, 8))
+    else:
+        fig, start_ax = plt.subplots(figsize=(12, 8))
 
-    start_xs = np.arange(-codon_buffer, plot_up_to + 1)
-    end_xs = np.arange(-codon_buffer + 1, plot_up_to + 1)
+    start_xs = np.arange(-past_edge, plot_up_to + 20 + 1)
+    end_xs = np.arange(-past_edge + 1, plot_up_to + 20 + 1)
 
-    for name, mean_densities in data_sets:
-        start_ax.plot(start_xs, mean_densities['from_start']['codons'][start_xs], '.-', label=name)
-        end_ax.plot(-end_xs, mean_densities['from_end']['codons'].relative_to_end[end_xs], '.-', label=name)
+    for (name, mean_densities), color in zip(data_sets, colors):
+        start_densities = mean_densities['from_start']['codons'][start_xs]
+        if smooth:
+            start_densities = smoothed(start_densities, 5)
+
+        start_ax.plot(start_xs, start_densities, '.-', label=name, color=color)
+        if show_end:
+            end_ax.plot(-end_xs, mean_densities['from_end']['codons'].relative_to_end[end_xs], '.-', label=name, color=color)
     
     start_ax.legend(loc='upper right', framealpha=0.5)
 
     start_ax.set_xlabel('Number of codons from start codon')
     start_ax.set_ylabel('Mean normalized read density')
-    
-    end_ax.set_xlabel('Number of codons from stop codon')
-    end_ax.yaxis.tick_right()
-
     start_ax.set_xlim(min(start_xs), max(start_xs))
-    end_ax.set_xlim(min(-end_xs), max(-end_xs))
-    
     start_ax.plot(start_xs, [1 for x in start_xs], color='black', alpha=0.5)
-    end_ax.plot(-end_xs, [1 for x in end_xs], color='black', alpha=0.5)
+   
+    if show_end:
+        end_ax.set_xlabel('Number of codons from stop codon')
+        end_ax.yaxis.tick_right()
+        end_ax.set_xlim(min(-end_xs), max(-end_xs))
+        end_ax.plot(-end_xs, [1 for x in end_xs], color='black', alpha=0.5)
     
-    ymax = max(ax.get_ylim()[1] for ax in [start_ax, end_ax])
-    
-    for ax in [start_ax, end_ax]:
-        ax.set_ylim(0, ymax)
-        xmin, xmax = ax.get_xlim()
-        ax.set_aspect((xmax - xmin) / ymax)
+    axs = [start_ax]
+    if show_end:
+        axs.append(end_ax)
 
+    ymax = max(ax.get_ylim()[1] for ax in axs)
+    
+    for ax in axs:
+        ax.set_ylim(0, 6)
+        ax.set_xlim(xmax=plot_up_to)
+        xmin, xmax = ax.get_xlim()
+        ax.set_aspect((xmax - xmin) / 6)
+        #ax.set_aspect(1)
+
+    fig.set_size_inches(12, 12)
     fig.savefig(figure_fn, bbox_inches='tight')
 
 def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=False, keys_to_plot=['actual']):
@@ -746,13 +780,19 @@ def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, len
 if __name__ == '__main__':
     data_sets = [
         #('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_read_positions.txt', 'yeast'),
-        ('weinberg', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities.txt'),
         #('weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_mean_densities.txt'),
-        ('dunn', '/home/jah/projects/arlen/experiments/dunn_elife/results/dunn_elife_mean_densities.txt'),
-        ('ingolia_science', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities.txt'),
-        ('guydosh_CHX', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_CHX/results/wild-type_CHX_mean_densities.txt'),
+        ('Weinberg (flash freezing)', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities.txt'),
+        ('Ingolia (CHX)', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities.txt'),
+        ('McManus (CHX)', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_mean_densities.txt'),
+        ('Guydosh (flash freezing then CHX)', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_CHX/results/wild-type_CHX_mean_densities.txt'),
+        ('Gerashchenko (CHX)', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_mean_densities.txt'),
+        ('Zinshteyn (CHX)', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_1/results/WT_Ribosome_Footprint_1_mean_densities.txt'),
+        ('Dunn (CHX)', '/home/jah/projects/arlen/experiments/dunn_elife/dunn_elife/results/dunn_elife_mean_densities.txt'),
+        #('weinberg_no_misannotated', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities_no_misannotated.txt'),
+        #('weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_mean_densities.txt'),
+        #('ingolia_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_mean_densities.txt'),
+        #('ingolia_science_no_misannotated', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities_no_misannotated.txt'),
         #('guydosh_3-AT', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_3-AT/results/wild-type_3-AT_mean_densities.txt'),
-        ('zinshteyn_WT_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_1/results/WT_Ribosome_Footprint_1_mean_densities.txt'),
         #('zinshteyn_WT_2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_2/results/WT_Ribosome_Footprint_2_mean_densities.txt'),
         #('zinshteyn_delta_elp3', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_elp3_Ribosome_Footprint/results/delta_elp3_Ribosome_Footprint_mean_densities.txt'),
         #('zinshteyn_delta_ncs2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs2_Ribosome_Footprint/results/delta_ncs2_Ribosome_Footprint_mean_densities.txt'),
@@ -762,10 +802,10 @@ if __name__ == '__main__':
         #('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
         #('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_read_positions.txt', 'ingolia_cell'),
         #('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_read_positions.txt', 'guo_nature'),
-        ('mcmanus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_mean_densities.txt'),
+        #('artieri', '/home/jah/projects/arlen/experiments/artieri/Mixed_parental_ribosome_protected_fragments_replicate_1/results/artieri_RPF_replicate_1_mean_densities.txt'),
     ]
 
     data_sets = [(name, Circles.Serialize.read_file(fn, 'read_positions'))
                  for name, fn in data_sets]
 
-    plot_averaged_codon_densities(data_sets, 'test.pdf')
+    plot_averaged_codon_densities(data_sets, 'RPF_5_prime_ramps.png', show_end=False, past_edge=0, smooth=True)

@@ -220,6 +220,7 @@ def make_coding_sequence_fetcher(gtf_fn, genome_dir):
         try:
             Bio.Seq.translate(seq, cds=True)
         except Bio.Seq.CodonTable.TranslationError as error:
+            print name
             return None
 
         return seq.upper()
