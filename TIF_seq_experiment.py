@@ -9,7 +9,9 @@ from Circles.utilities import reverse_complement, counts_to_array
 import trim
 import os
 import pysam
-from itertools import izip
+import glob
+from itertools import izip, chain
+from collections import defaultdict
 
 mp1  = 'AGCGCTT'
 mp5  = 'CACTGTT'
@@ -92,7 +94,8 @@ def find_structure(seq, adapters):
             possibilities.append(possibility)
 
     if len(possibilities) > 1:
-        raise ValueError(seq, possibilities)
+        #raise ValueError(seq, possibilities)
+        return None
     elif len(possibilities) == 0:
         return None
     else:
@@ -177,8 +180,7 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
     def __init__(self, **kwargs):
         map_reduce.MapReduceExperiment.__init__(self, **kwargs)
 
-        self.R1_file_name = kwargs['R1_file_name']
-        self.R2_file_name = kwargs['R2_file_name']
+        self.data_dir = kwargs['data_dir']
 
         self.bowtie2_index = kwargs['bowtie2_index']
 
@@ -241,26 +243,38 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
         self.make_file_names()
     
     def get_read_pairs(self):
-        R1_lines = split_file.compromise_piece(self.R1_file_name,
-                                               self.num_pieces,
-                                               self.which_piece,
-                                               10,
-                                              )
-        R2_lines = split_file.compromise_piece(self.R2_file_name,
-                                               self.num_pieces,
-                                               self.which_piece,
-                                               10,
-                                              )
-        read_pairs = fastq.read_pairs(R1_lines,
-                                      R2_lines,
-                                      standardize_names=False,
-                                      ensure_sanger_encoding=True,
-                                     )
-        return read_pairs
+        data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
+        fn_pairs = defaultdict(lambda: {1: None, 2: None})
+        for data_fn in data_fns:
+            head, tail = os.path.split(data_fn)
+            root, ext = os.path.splitext(tail)
+            # Expect root to end in either 1 or 2
+            prefix, which_member = root[:-1], int(root[-1])
+            fn_pairs[prefix][which_member] = data_fn 
+
+        read_pairs_list = []
+
+        for prefix in sorted(fn_pairs):
+            R1_fn = fn_pairs[prefix][1]
+            R2_fn = fn_pairs[prefix][2]
+
+            if R1_fn == None or R2_fn == None:
+                raise ValueError('unpaired file names in data_dir')
+
+            R1_lines = split_file.piece(R1_fn, self.num_pieces, self.which_piece, 'fastq')
+            R2_lines = split_file.piece(R2_fn, self.num_pieces, self.which_piece, 'fastq')
+            read_pairs = fastq.read_pairs(R1_lines, R2_lines, ensure_sanger_encoding=True)
+            read_pairs_list.append(read_pairs)
+        
+        all_read_pairs = chain.from_iterable(read_pairs_list)
+
+        return all_read_pairs
 
     def extract_boundary_sequences(self):
         read_pairs = self.get_read_pairs()
         trimmed_read_pairs = trim_read_pairs(read_pairs)
+
+        total_reads = 0
     
         counters = {'positions': {orientation: Counter() for orientation in orientations},
                     'control_ids': Counter(),
@@ -271,6 +285,7 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
              open(self.file_names['three_prime_boundaries'], 'w') as threes_fh:
 
             for R1, R2 in trimmed_read_pairs:
+                total_reads += 1
                 boundary_sequences = find_boundary_sequences(R1, R2, counters)
                 if boundary_sequences:
                     orientation, structure, five_record, three_record = boundary_sequences
@@ -285,6 +300,11 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
                 self.write_file(key, array)
 
         self.write_file('control_ids', counters['control_ids'])
+
+        self.log.extend(
+            [('Total read pairs', total_reads),
+            ],
+        )
 
     def map(self):
         mapping_tools.map_bowtie2_paired(self.file_names['five_prime_boundaries'],
