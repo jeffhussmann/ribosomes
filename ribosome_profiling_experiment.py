@@ -34,6 +34,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
         self.transcripts_file_name = kwargs.get('transcripts_file_name', None)
+        self.possibly_misannotated_file_name = kwargs.get('possibly_misannotated_file_name', None)
         
         # A bowtie2 index of synthetic sequences (markers, adapters) that need
         # to be filtered out can be provided. 
@@ -95,6 +96,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('metacodon_counts_stringent', 'read_positions', '{name}_metacodon_counts_stringent.txt'),
             ('metacodon_counts_nucleotide_resolution', 'read_positions', '{name}_metacodon_counts_nucleotide_resolution.txt'),
             ('mean_densities', 'read_positions', '{name}_mean_densities.txt'),
+            ('mean_densities_no_misannotated', 'read_positions', '{name}_mean_densities_no_misannotated.txt'),
             ('RPKMs', 'RPKMs', '{name}_RPKMs.txt'),
             ('read_counts', 'expression', '{name}_read_counts.txt'),
             ('strand_counts', 'expression', '{name}_strand_counts.txt'),
@@ -175,8 +177,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              'buffered_codon_counts',
              'codon_counts',
              'metacodon_counts',
-             #'metacodon_counts_stringent',
-             'metacodon_counts_nucleotide_resolution',
+             ##'metacodon_counts_stringent',
+             #'metacodon_counts_nucleotide_resolution',
              'from_starts',
              'from_ends',
              'strand_counts',
@@ -195,14 +197,14 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         specific_outputs[1].extend(['mismatches_{0}'.format(length) for length in self.relevant_lengths])
 
         specific_work = [
-            [#(self.trim_reads, 'Trim reads'),
-             #(self.pre_filter_contaminants, 'Filter contaminants'),
-             #(self.map_tophat, 'Map with tophat'),
-             #(self.post_filter_contaminants, 'Further contaminant filtering'),
-             #(self.compute_base_composition, 'Computing base composition'),
+            [(self.trim_reads, 'Trim reads'),
+             (self.pre_filter_contaminants, 'Filter contaminants'),
+             (self.map_tophat, 'Map with tophat'),
+             (self.post_filter_contaminants, 'Further contaminant filtering'),
+             (self.compute_base_composition, 'Computing base composition'),
              (self.find_unambiguous_lengths, 'Finding unambiguous lengths'),
-             #(self.get_rRNA_coverage, 'Counting rRNA coverage'),
-             #(self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
+             (self.get_rRNA_coverage, 'Counting rRNA coverage'),
+             (self.get_oligo_hit_lengths, 'Counting oligo hit length distributions'),
             ],
             [(self.get_read_positions_splicing, 'Counting mapping positions, splicing'),
              (self.get_metagene_positions, 'Aggregating metagene positions'),
@@ -218,7 +220,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
              self.plot_base_composition,
              self.plot_lengths,
              self.plot_rRNA_coverage,
-             #self.plot_oligo_hit_lengths,
+             self.plot_oligo_hit_lengths,
             ],
             [self.compute_RPKMs,
              self.compute_mean_densities,
@@ -755,24 +757,29 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                                              )
         self.write_file('metacodon_counts', metacodon_counts)
 
-        codon_counts_stringent = positions.read_codon_counts_file(self.file_names['codon_counts_stringent'])
-        metacodon_counts_stringent = positions.compute_metacodon_counts(codon_counts_stringent,
-                                                                        self.file_names['genes'],
-                                                                        self.file_names['genome'],
-                                                                       )
-        self.write_file('metacodon_counts_stringent', metacodon_counts_stringent)
-        
-        read_positions = self.load_read_positions()
-        metacodon_counts_nucleotide_resolution = positions.compute_metacodon_counts_nucleotide_resolution(read_positions,
-                                                                                                          self.file_names['genes'],
-                                                                                                          self.file_names['genome'],
-                                                                                                         )
-        self.write_file('metacodon_counts_nucleotide_resolution', metacodon_counts_nucleotide_resolution)
+        #codon_counts_stringent = positions.read_codon_counts_file(self.file_names['codon_counts_stringent'])
+        #metacodon_counts_stringent = positions.compute_metacodon_counts(codon_counts_stringent,
+        #                                                                self.file_names['genes'],
+        #                                                                self.file_names['genome'],
+        #                                                               )
+        #self.write_file('metacodon_counts_stringent', metacodon_counts_stringent)
+        #
+        #read_positions = self.load_read_positions()
+        #metacodon_counts_nucleotide_resolution = positions.compute_metacodon_counts_nucleotide_resolution(read_positions,
+        #                                                                                                  self.file_names['genes'],
+        #                                                                                                  self.file_names['genome'],
+        #                                                                                                 )
+        #self.write_file('metacodon_counts_nucleotide_resolution', metacodon_counts_nucleotide_resolution)
 
     def compute_mean_densities(self):
         codon_counts = self.read_file('buffered_codon_counts', merged=True)
         mean_densities = positions.compute_averaged_codon_densities(codon_counts)
         self.write_file('mean_densities', mean_densities)
+
+        if self.possibly_misannotated_file_name != None:
+            possibly_misannotated_names = {line.strip() for line in open(self.possibly_misannotated_file_name)}
+            mean_densities = positions.compute_averaged_codon_densities(codon_counts, possibly_misannotated_names)
+            self.write_file('mean_densities_no_misannotated', mean_densities)
         
     def compute_RPKMs(self):
         gene_infos = self.read_file('read_counts', merged=True)

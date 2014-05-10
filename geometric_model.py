@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import Serialize
+from Circles import Serialize
 import positions
+import brewer2mpl
 from scipy.optimize import leastsq
 
 def smoothed(array, window_size):
@@ -21,64 +22,127 @@ def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
         for gene_name in gene_infos:
             #if gene_name == 'YLR256W':
             #    continue
+            if gene_name in {'YLR249W', 'YPL106C', 'YGL008C'}:
+                continue
             if from_end:
-                counts = gene_infos[gene_name]['position_counts']['all'].relative_to_end
+                counts = gene_infos[gene_name]['all'].relative_to_end
             else:
-                counts = gene_infos[gene_name]['position_counts']['all']
+                counts = gene_infos[gene_name]['all']
             yield counts
 
     mRNA_experiments = [
-        ('Weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions.txt'),
-        #('Ingolia_mRNA_1', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions.txt'),
+        #('test', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/test_read_positions.txt'),
+        ('Weinberg (rRNA depletion)', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions.txt'),
+        ('Ingolia (polyA enrichment)', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions.txt'),
+        ('McManus (polyA enrichment)', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_RNA-seq_Rep_1/results/S._cerevisiae_RNA-seq_Rep_1_read_positions.txt'),
+        ('Guydosh (polyA enrichment)', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_mRNA-Seq/results/wild-type_mRNA-Seq_read_positions.txt'),
+        ('Gerashchenko (polyA enrichment)', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_mRNA/results/Initial_rep1_mRNA_read_positions.txt'),
+
+        #('Zinshteyn_mRNA_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_positions.txt'),
         #('Nagalakshmi_RH_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_ori/results/RH_ori_read_positions.txt'),
         #('Nagalakshmi_RH_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_bio/results/RH_bio_read_positions.txt'),
         #('Nagalakshmi_dT_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_ori/results/dT_ori_read_positions.txt'),
         #('Nagalakshmi_dT_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_bio/results/dT_bio_read_positions.txt'),
     ]
 
+    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
+    colors = bmap.mpl_colors
+
     experiments = [(name, counts_from_read_positions_fn(fn, from_end)) for name, fn in mRNA_experiments]
 
-    plot_to = min_length
+
+
+    plot_to = 3000
     fig_cumulative, ax_cumulative = plt.subplots()
 
     xs = np.arange(-49, plot_to)
     if from_end:
         xs = -xs
 
-    for name, counts_generator in experiments:
+    for (name, counts_generator), color in zip(experiments, colors):
         print name
 
-        expected_counts = positions.PositionCounts(100000, 100, 100)
-        actual_counts = positions.PositionCounts(100000, 100, 100)
+        expected_counts = positions.PositionCounts(100000, 100, 100, dtype=float)
+        actual_counts = positions.PositionCounts(100000, 100, 100, dtype=float)
 
         for counts in counts_generator:
             if not min_length <= counts.extent_length <= max_length:
                 continue
-            #num_positions = len(counts)
-            #if num_positions < min_length:
-            #    continue
-            #r_g = counts.sum()
-            #uniform_counts = np.ones(num_positions) * r_g / num_positions
-
+            num_positions = counts.extent_length
             edge_slice = slice(-49, counts.extent_length)
-            actual_counts[edge_slice] += counts[edge_slice]
-            #expected_counts[:num_positions] += uniform_counts
+            r_g = counts[edge_slice].sum()
+            uniform_counts = np.ones(num_positions) * r_g / num_positions
 
-        #print actual_counts.sum()
-        #print expected_counts.sum()
-        ax_cumulative.plot(xs, actual_counts[-49:plot_to], '.', label=name + '_actual') 
-        #ax_cumulative.plot(xs, smoothed(actual_counts[:plot_to], 11), '-', label=name + '_actual_smoothed') 
-        #ax_cumulative.plot(xs, expected_counts[:plot_to], '--', label=name + '_expected') 
+            actual_counts[edge_slice] += counts[edge_slice]
+            expected_counts[:num_positions] += uniform_counts
+
+        print actual_counts.sum()
+        print expected_counts.sum()
+        #ax_cumulative.plot(xs, actual_counts[-49:plot_to], '.', label=name + '_actual') 
+        ax_cumulative.plot(xs, smoothed(actual_counts[-49:plot_to], 21) / expected_counts[0], '-', label=name, color=color) 
+        ax_cumulative.plot(xs, expected_counts[-49:plot_to] / expected_counts[0], '--', color=color) 
+
 
     #ax_cumulative.plot(xs, np.zeros(plot_to), 'k--')
-    ax_cumulative.legend()
+    ax_cumulative.legend(loc='upper left', framealpha=0.5)
     if from_end:
-        xlabel = 'Position relative to end'
+        xlabel = 'Position relative to end of CDS'
     else:
-        xlabel = 'Position relative to start'
+        xlabel = 'Position relative to start of CDS'
     ax_cumulative.set_xlabel(xlabel)
-    ax_cumulative.set_ylabel('Mapped read counts')
-    ax_cumulative.set_title('Read counts in the final {0} bases of CDSs at least {0} long'.format(min_length))
+    ax_cumulative.set_xlim(min(xs), max(xs))
+    ax_cumulative.set_ylabel('Mapped read counts, normalized across data sets')
+    #ax_cumulative.set_title('Read counts in the final {0} bases of CDSs at least {0} long'.format(min_length))
+
+    fig_cumulative.set_size_inches(12, 8)
+    plt.savefig('mRNA_bias_comparison.png')
+    plt.savefig('mRNA_bias_comparison.pdf')
+
+def end_bias(from_end, min_length, max_length):
+    # Generators that yields arrays of counts
+    def counts_from_read_positions_fn(read_positions_fn, from_end):
+        gene_infos = Serialize.read_file(read_positions_fn, 'read_positions')
+        for gene_name in gene_infos:
+            #if gene_name == 'YLR256W':
+            #    continue
+            if from_end:
+                counts = gene_infos[gene_name]['all'].relative_to_end
+            else:
+                counts = gene_infos[gene_name]['all']
+            yield gene_name, counts
+
+    experiment = ('Weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions.txt')
+    #experiment = ('test', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/test_read_positions.txt')
+
+    plot_to = max_length
+
+    xs = np.arange(-49, plot_to)
+    if from_end:
+        xs = -xs
+
+    name, fn = experiment
+    
+    excess_list = []
+    bigs = []
+
+    for gene_name, counts in counts_from_read_positions_fn(fn, from_end):
+        if counts.extent_length < min_length:
+            continue
+            
+        num_positions = counts.extent_length
+        edge_slice = slice(0, counts.extent_length)
+        
+        r_g = counts[:counts.extent_length].sum()
+        uniform_counts = np.ones(num_positions) * r_g / num_positions
+
+        excess = (counts[:200] - uniform_counts[:200]).sum()
+        excess_list.append(excess)
+
+        if excess > 500:
+            print gene_name, excess
+            bigs.append(counts[:counts.extent_length])
+
+    return excess_list, bigs
 
 def make_L_distribution(l_g, p):
     l = np.arange(l_g + 1)

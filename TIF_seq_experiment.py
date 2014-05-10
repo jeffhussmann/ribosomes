@@ -219,9 +219,9 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
         ]
 
         specific_work = [
-            [(self.extract_boundary_sequences, 'Extracting boundary sequences'),
-             (self.map, 'Mapping'),
-             (self.filter_mappings, 'Filtering mappings'),
+            [#(self.extract_boundary_sequences, 'Extracting boundary sequences'),
+             #(self.map, 'Mapping'),
+             #(self.filter_mappings, 'Filtering mappings'),
             ],
         ]
 
@@ -302,12 +302,14 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
             read_pairs = izip(*[sam_file]*2)
             for R1, R2 in read_pairs:
                 if R1.qname != R2.qname:
+                    # Ensure that the iteration through pairs is in sync.
                     raise ValueError
-                if R1.is_unmapped or R2.is_unmapped:
-                    continue
-                if R1.tid != R2.tid:
-                    continue
-                if abs(R1.tlen) > 10000:
+                if R1.is_unmapped or \
+                   R2.is_unmapped or \
+                   R1.mapq < 40 or \
+                   R2.mapq < 40 or \
+                   R1.tid != R2.tid or \
+                   abs(R1.tlen) > 10000:
                     continue
 
                 bam_file.write(R1)

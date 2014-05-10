@@ -1,6 +1,7 @@
 from collections import Counter, defaultdict
 from Circles import utilities
 import gtf
+import gff
 import pyliftover
 from glob import glob
 import os.path
@@ -8,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm
 import scipy.stats
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 def maybe_int(string):
     try:
@@ -17,7 +19,7 @@ def maybe_int(string):
     return value
     
 def read_weinberg_file():
-    fn = 'Cerevisiae_refFlat.txt'
+    fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/Cerevisiae_refFlat.txt'
 
     fh = open(fn)
     for i in range(3):
@@ -76,11 +78,11 @@ def sanity_check_nagalakshmi_file():
 
     return discrepancies_after
 
-def sanity_check_lifted_nagalakshmi_file(description):
+def sanity_check_lifted_nagalakshmi_file(fn):
     gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gtf'
     CDSs = gtf.get_CDSs(gtf_fn)
     gtf_dict = {t.name: t for t in CDSs}
-    genes = read_nagalakshmi_file('nagalakshmi_annotations_lifted_{0}.txt'.format(description))
+    genes = read_nagalakshmi_file(fn)
     discrepancies_after = defaultdict(list)
     for name in genes:
         if name not in gtf_dict:
@@ -128,7 +130,7 @@ def sanity_check_weinberg_file():
 
     return discrepancies_after
 
-def liftover_new(chain_fn, description):
+def do_liftover(chain_fn, description):
     original_fn = 'nagalakshmi_annotations.txt'
     lifted_fn = 'nagalakshmi_annotations_lifted_{0}.txt'.format(description)
     
@@ -219,7 +221,7 @@ def lift_all():
         print tail[:3]
         if '57' not in tail[:3]:
             continue
-        liftover_new(chain_fn, tail[:3])
+        do_liftover(chain_fn, tail[:3])
         discs = sanity_check_lifted_nagalakshmi_file(tail[:3])
         for key in chrs:
             num_disagreeing[key].append(len(discs[key]))
@@ -230,23 +232,102 @@ def lift_all():
     array = np.asarray([num_disagreeing[key] for key in chrs])
     return array
 
-if __name__ == '__main__':
+def scatter_with_hists_colors(x_list, y_list, x_label, y_label, title):
+    sampled_points = np.vstack([x_list[:10000], y_list[:10000]])
+    points = np.vstack([x_list, y_list])
+    kernel = scipy.stats.gaussian_kde(sampled_points)
+    colors = kernel(points)
+
+    fig, ax_scatter = plt.subplots()
+    ax_scatter.scatter(x_list, y_list, c=colors, cmap=matplotlib.cm.jet, s=4, linewidths=(0.1,))
+    #ax_scatter.set_aspect(1.)
+
+    divider = make_axes_locatable(ax_scatter)
+    ax_hist_x = divider.append_axes('top', 1.2, pad=0.1, sharex=ax_scatter)
+    ax_hist_y = divider.append_axes('right', 1.2, pad=0.1, sharey=ax_scatter)
+
+    plt.setp(ax_hist_x.get_xticklabels() + ax_hist_x.get_yticklabels(),
+             visible=False)
+    plt.setp(ax_hist_x.get_xticklines() + ax_hist_x.get_yticklines(),
+             visible=False)
+    plt.setp(ax_hist_y.get_xticklabels() + ax_hist_y.get_yticklabels(),
+             visible=False)
+    plt.setp(ax_hist_y.get_xticklines() + ax_hist_y.get_yticklines(),
+             visible=False)
+    
+    ax_scatter.set_xlabel(x_label)
+    ax_scatter.set_ylabel(y_label)
+
+    ax_hist_x.hist(x_list, histtype='step', bins=100)
+    ax_hist_y.hist(y_list, histtype='step', bins=100, orientation='horizontal')
+    
+    #ax_scatter.set_xlim(left=-20)
+    #ax_scatter.set_ylim(bottom=-20)
+
+    fig.suptitle(title)
+
+def check_for_overlap():
     weinberg_genes = read_weinberg_file()
-    nagalakshmi_genes = read_nagalakshmi_file('nagalakshmi_annotations_lifted_V57.txt')
+
+    gff_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/saccharomyces_cerevisiae.gff'
+    starts_in_region_finder = gff.make_starts_in_region_finder(gff_fn)
+
+    print '- strand'
+
+    for name, gene in weinberg_genes.iteritems():
+        if gene['Strand'] != '-':
+            continue
+
+        region_start = (gene['Chromosome'], gene['CdsEnd'])
+        region_end = (gene['Chromosome'], gene['TxEnd'])
+
+        starts_in_region = starts_in_region_finder(region_start, region_end)
+        if starts_in_region != []:
+            print name
+            print '{0}:{1}-{2}'.format(gene['Chromosome'], gene['CdsEnd'], gene['TxEnd'])
+            for feature in starts_in_region:
+                print feature.attribute['Name'], feature.start
+            raw_input()
+
+    print '+ strand'
+    
+    #sorted_transcripts = gtf.sort_transcripts(all_transcripts, by_end=True)
+    #name_to_sorted_index = {t.name: i for i, t in enumerate(sorted_transcripts)}
+
+    #for name, gene in weinberg_genes.iteritems():
+    #    if name not in name_to_sorted_index:
+    #        continue
+    #    i = name_to_sorted_index[name]
+    #    if (sorted_transcripts[i - 1].end <= gene['CdsStart'] and
+    #        gene['TxStart'] <= sorted_transcripts[i - 1].end and
+    #        gene['Strand'] == '+' and sorted_transcripts[i - 1].strand == '+') or \
+    #        name == 'YNL054W':
+
+    #        print name
+    #        print gene['TxStart']
+    #        print sorted_transcripts[i]
+    #        print sorted_transcripts[i - 1]
+
+if __name__ == '__main__':
+    nagalakshmi_lifted_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/nagalakshmi_annotations_lifted_V57.txt'
+    weinberg_genes = read_weinberg_file()
+    nagalakshmi_genes = read_nagalakshmi_file(nagalakshmi_lifted_fn)
 
     # Check that the liftover worked.
     bad_genes = defaultdict(list)
-    UTRs = {}
+    UTRs_dict = {}
     weinberg_fives = []
     weinberg_threes = []
     nagalakshmi_fives = []
     nagalakshmi_threes = []
+    
+    discrepancies = sanity_check_lifted_nagalakshmi_file(nagalakshmi_lifted_fn) 
+    changed_names = set(reduce(lambda x, y: x + y, discrepancies.values(), []))
 
+    valid_genes = set(weinberg_genes) & set(nagalakshmi_genes) - changed_names
     for name in set(weinberg_genes) & set(nagalakshmi_genes):
-        UTR_dict = {}
         weinberg_gene = weinberg_genes[name]
         nagalakshmi_gene = nagalakshmi_genes[name]
-
 
         if weinberg_genes[name]['Strand'] == '+':
             disagree = (weinberg_gene['CdsStart'] != nagalakshmi_gene['SGD_Start'] or
@@ -273,27 +354,35 @@ if __name__ == '__main__':
         if isinstance(nagalakshmi_three, str):
             nagalakshmi_three = 0
 
-        UTRs[name] = {5: {'weinberg': weinberg_five,
-                          'nagalakshmi': nagalakshmi_five,
-                         },
-                      3: {'weinberg': weinberg_five,
-                          'nagalakshmi': nagalakshmi_five,
-                         },
-                     }
-    
+        UTRs_dict[name] = {5: {'weinberg': weinberg_five,
+                               'nagalakshmi': nagalakshmi_five,
+                              },
+                           3: {'weinberg': weinberg_three,
+                               'nagalakshmi': nagalakshmi_three,
+                              },
+                          }
+
         weinberg_fives.append(weinberg_five)
         weinberg_threes.append(weinberg_three)
         nagalakshmi_fives.append(nagalakshmi_five)
         nagalakshmi_threes.append(nagalakshmi_three)
 
-    for xs, ys in [(weinberg_fives, nagalakshmi_fives), (weinberg_threes, nagalakshmi_threes)]:
-        fig, ax = plt.subplots()
-        points = np.vstack([xs, ys])
-        kernel = scipy.stats.gaussian_kde(points)
-        colors = kernel(points)
-        ax.scatter(xs, ys, c=colors, cmap=matplotlib.cm.jet, s=2, linewidths=(0,))
-        ax.set_xlim(xmin=-20)
-        ax.set_ylim(ymin=-20)
+    #for title, xs, ys in [('5\' UTR lengths', weinberg_fives, nagalakshmi_fives),
+    #                      ('3\' UTR lengths', weinberg_threes, nagalakshmi_threes),
+    #                     ]:
+    #    scatter_with_hists_colors(xs, ys, 'Weinberg/Arribere annotation', 'Nagalakshi annotation', title)
+
+    #for name, UTR in UTRs_dict.items():
+    #    if UTR[5]['nagalakshmi'] > 0 and UTR[5]['weinberg'] - UTR[5]['nagalakshmi'] > 200:
+    #        print name, 'changed' if name in changed_names else ''
+    #        print weinberg_genes[name]['Chromosome'], weinberg_genes[name]['TxStart']
+    #        print UTR[5]
+
+    sorted_UTRs = sorted(UTRs_dict.items(), key=lambda (name, UTR): UTR[5]['weinberg'], reverse=True)
+    for name, UTR in sorted_UTRs[:20]:
+        print name
+        print '{0}:{1}-{2}'.format(weinberg_genes[name]['Chromosome'], weinberg_genes[name]['CdsEnd'], weinberg_genes[name]['TxEnd'])
+        print UTR[5]
 
 #fives = Counter()
 #threes = Counter()
