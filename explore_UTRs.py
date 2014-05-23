@@ -240,7 +240,7 @@ def scatter_with_hists_colors(x_list, y_list, x_label, y_label, title):
 
     fig, ax_scatter = plt.subplots()
     ax_scatter.scatter(x_list, y_list, c=colors, cmap=matplotlib.cm.jet, s=4, linewidths=(0.1,))
-    #ax_scatter.set_aspect(1.)
+    ax_scatter.set_aspect(1.)
 
     divider = make_axes_locatable(ax_scatter)
     ax_hist_x = divider.append_axes('top', 1.2, pad=0.1, sharex=ax_scatter)

@@ -4,15 +4,41 @@ from Circles import Serialize
 import positions
 import brewer2mpl
 from scipy.optimize import leastsq
+from itertools import cycle
+
+mRNA_experiments = [
+    ##('test', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/test_read_positions.txt'),
+    #('Weinberg (RiboZero)', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions_all.txt'),
+    #('Weinberg (dynabeads)', '/home/jah/projects/arlen/experiments/weinberg/Dynabeads/results/Dynabeads_read_positions_all.txt'),
+    ('Ingolia', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions_all.txt'),
+    #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_RNA-seq_Rep_1/results/S._cerevisiae_RNA-seq_Rep_1_read_positions_all.txt'),
+    #('Guydosh', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_mRNA-Seq/results/wild-type_mRNA-Seq_read_positions_all.txt'),
+    #('Gerashchenko', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_mRNA/results/Initial_rep1_mRNA_read_positions_all.txt'),
+    #('Arlen', '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_mRNA/results/WT_cDNA_mRNA_read_positions_all.txt'),
+    #('Zinshteyn', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_positions_all.txt'),
+    #('Weinberg (dynabeads)', '/home/jah/projects/arlen/experiments/weinberg/Dynabeads/results/Dynabeads_read_positions_all.txt'),
+    
+    ('Weinberg (RiboZero)', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions_all.txt'),
+    ('Weinberg (Unselected)', '/home/jah/projects/arlen/experiments/weinberg/Unselected/results/Unselected_read_positions_all.txt'),
+
+
+    #('Zinshteyn_mRNA_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_positions_all.txt'),
+    #('Weinberg (unselected)', '/home/jah/projects/arlen/experiments/weinberg/Unselected/results/Unselected_read_positions_all.txt'),
+    
+    #('Nagalakshmi_RH_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_ori/results/RH_ori_read_positions.txt'),
+    #('Nagalakshmi_RH_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_bio/results/RH_bio_read_positions.txt'),
+    #('Nagalakshmi_dT_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_ori/results/dT_ori_read_positions.txt'),
+    #('Nagalakshmi_dT_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_bio/results/dT_bio_read_positions.txt'),
+]
 
 def smoothed(array, window_size):
     smoothed_array = np.zeros_like(array)
     for i in range(window_size):
-        smoothed_array[i] = array[:window_size].sum() / float(window_size)
+        smoothed_array[i] = array[:i + 1].sum() / float(i + 1)
     for i in range(window_size, len(array) - window_size):
-        smoothed_array[i] = array[i - window_size / 2:i + window_size / 2 + 1].sum() / float(window_size)
+        smoothed_array[i] = array[i - window_size:i + window_size + 1].sum() / float(2 * window_size + 1)
     for i in range(len(array) - window_size, len(array)):
-        smoothed_array[i] = array[-window_size:].sum() / float(window_size)
+        smoothed_array[i] = array[i:].sum() / float(len(array) - i)
     return smoothed_array
 
 def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
@@ -30,29 +56,12 @@ def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
                 counts = gene_infos[gene_name]['all']
             yield counts
 
-    mRNA_experiments = [
-        #('test', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/test_read_positions.txt'),
-        ('Weinberg (rRNA depletion)', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions.txt'),
-        ('Ingolia (polyA enrichment)', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions.txt'),
-        ('McManus (polyA enrichment)', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_RNA-seq_Rep_1/results/S._cerevisiae_RNA-seq_Rep_1_read_positions.txt'),
-        ('Guydosh (polyA enrichment)', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_mRNA-Seq/results/wild-type_mRNA-Seq_read_positions.txt'),
-        ('Gerashchenko (polyA enrichment)', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_mRNA/results/Initial_rep1_mRNA_read_positions.txt'),
-
-        #('Zinshteyn_mRNA_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_positions.txt'),
-        #('Nagalakshmi_RH_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_ori/results/RH_ori_read_positions.txt'),
-        #('Nagalakshmi_RH_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_bio/results/RH_bio_read_positions.txt'),
-        #('Nagalakshmi_dT_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_ori/results/dT_ori_read_positions.txt'),
-        #('Nagalakshmi_dT_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_bio/results/dT_bio_read_positions.txt'),
-    ]
-
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
-    colors = bmap.mpl_colors
+    colors = cycle(bmap.mpl_colors[:5] + bmap.mpl_colors[6:])
 
     experiments = [(name, counts_from_read_positions_fn(fn, from_end)) for name, fn in mRNA_experiments]
 
-
-
-    plot_to = 3000
+    plot_to = 2000
     fig_cumulative, ax_cumulative = plt.subplots()
 
     xs = np.arange(-49, plot_to)
@@ -78,10 +87,10 @@ def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
 
         print actual_counts.sum()
         print expected_counts.sum()
-        #ax_cumulative.plot(xs, actual_counts[-49:plot_to], '.', label=name + '_actual') 
-        ax_cumulative.plot(xs, smoothed(actual_counts[-49:plot_to], 21) / expected_counts[0], '-', label=name, color=color) 
         ax_cumulative.plot(xs, expected_counts[-49:plot_to] / expected_counts[0], '--', color=color) 
-
+        #ax_cumulative.plot(xs, actual_counts[-49:plot_to] / expected_counts[0], 'o', color=color, markersize=1, markeredgewidth=0, label='{0}, actual'.format(name)) 
+        ax_cumulative.plot(xs, smoothed(actual_counts[-49:plot_to], 15) / expected_counts[0], '-', label='{0}'.format(name), color=color) 
+        ax_cumulative.set_ylim(0.8, 1.5)
 
     #ax_cumulative.plot(xs, np.zeros(plot_to), 'k--')
     ax_cumulative.legend(loc='upper left', framealpha=0.5)
@@ -94,8 +103,8 @@ def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
     ax_cumulative.set_ylabel('Mapped read counts, normalized across data sets')
     #ax_cumulative.set_title('Read counts in the final {0} bases of CDSs at least {0} long'.format(min_length))
 
-    fig_cumulative.set_size_inches(12, 8)
-    plt.savefig('mRNA_bias_comparison.png')
+    fig_cumulative.set_size_inches(18, 12)
+    plt.savefig('mRNA_bias_comparison_4.png')
     plt.savefig('mRNA_bias_comparison.pdf')
 
 def end_bias(from_end, min_length, max_length):
@@ -273,19 +282,19 @@ def total_counts_given_p():
     ax_cumulative.set_ylabel('Mapped read counts')
     #ax_cumulative.set_title('Read counts in the final {0} bases of CDSs at least {0} long'.format(min_length))
 
-if __name__ == '__main__':
-    read_positions_fn = '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions.txt'
-    genes = Serialize.read_file(read_positions_fn, 'read_positions')
-    tail_counts = {}
-    for n in [100]:
-        tail_counts[n] = [sum(counts[-n:]) for counts in counts_from_genes(genes)
-                          if sum(counts) > 100 and len(counts) > 100 and sum(counts[-n:]) > 0]
-    read_density = [sum(counts) / float(len(counts)) for counts in counts_from_genes(genes)
-                    if sum(counts) > 100 and len(counts) > 100 and sum(counts[-n:]) > 0]
-
-    ratios = [t / r_d for t, r_d in zip(tail_counts[100], read_density)]
-    lengths = [len(counts) for counts in counts_from_genes(genes)
-               if sum(counts) > 100 and len(counts) > 100 and sum(counts[-n:]) > 0]
-
-    log_lengths = np.log10(lengths)
-    log_ratios = np.log10(ratios)
+#if __name__ == '__main__':
+#    read_positions_fn = '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions.txt'
+#    genes = Serialize.read_file(read_positions_fn, 'read_positions')
+#    tail_counts = {}
+#    for n in [100]:
+#        tail_counts[n] = [sum(counts[-n:]) for counts in counts_from_genes(genes)
+#                          if sum(counts) > 100 and len(counts) > 100 and sum(counts[-n:]) > 0]
+#    read_density = [sum(counts) / float(len(counts)) for counts in counts_from_genes(genes)
+#                    if sum(counts) > 100 and len(counts) > 100 and sum(counts[-n:]) > 0]
+#
+#    ratios = [t / r_d for t, r_d in zip(tail_counts[100], read_density)]
+#    lengths = [len(counts) for counts in counts_from_genes(genes)
+#               if sum(counts) > 100 and len(counts) > 100 and sum(counts[-n:]) > 0]
+#
+#    log_lengths = np.log10(lengths)
+#    log_ratios = np.log10(ratios)
