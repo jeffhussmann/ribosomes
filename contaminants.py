@@ -127,24 +127,29 @@ def produce_rRNA_coverage(bam_file_name, specific_length=None):
 
 threshold = 0.02
 def identify_dominant_stretches(counts, total_reads, bam_fn):
-    # Identify connected stretches of positions where the fraction of total
-    # reads mapping is greater than a threshold.
-
+    ''' Identify connected stretches of positions where the fraction of total
+        reads mapping is greater than a threshold.
+    '''
     boundaries = {}
 
     for rname in counts:
-        normalized_counts = np.true_divide(counts[rname], total_reads)
+        # Zero added to the beginning and end so that if a dominant stretch
+        # starts at beginning or end, there will be a transition for np.diff
+        # to find.
+        augmented_counts = np.concatenate(([0], counts[rname], [0]))
+        #augemented_counts = np.concatenate(([counts[rname]]))
+        normalized_counts = np.true_divide(augmented_counts, total_reads)
         above_threshold = normalized_counts >= threshold
         if not np.any(above_threshold):
             continue
         # np.diff(above_threshold) is True wherever above_threshold changes
         # between True and False. Adapted from a stackoverflow answer.
-        above_threshold_boundaries = np.where(np.diff(above_threshold))[0] + 1
+        # + 1 is so this will be the first thing over the threshold or first
+        # thing under it, - 1 is to under the shift of adding a zero at the
+        # front.
+        above_threshold_boundaries = np.where(np.diff(above_threshold))[0] + 1 - 1
 
         first_start = np.min(np.where(above_threshold))
-
-        if first_start != above_threshold_boundaries[0] or len(above_threshold_boundaries) % 2 != 0:
-            raise NotImplementedError('Dominant contaminant at the beginning or end.')
 
         iter_boundaries = iter(above_threshold_boundaries)
         pairs = list(izip(iter_boundaries, iter_boundaries))
@@ -152,6 +157,7 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
 
     # Count the number of reads that overlap any of the dominant stretches.
     overlapping_qnames = set()
+    all_qnames = set()
     bam_file = pysam.Samfile(bam_fn)
     for rname in boundaries:
         for start, end in boundaries[rname]:
@@ -160,9 +166,8 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
                 overlapping_qnames.add(aligned_read.qname)
 
     dominant_reads = len(overlapping_qnames)
-    other_reads = sum(1 for read in pysam.Samfile(bam_fn) if read.qname not in overlapping_qnames)
 
-    return dominant_reads, other_reads, boundaries
+    return dominant_reads, boundaries
 
 def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     ''' Plots the number of mappings that overlap each position in the reference

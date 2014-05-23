@@ -8,6 +8,7 @@ import numbers
 import itertools
 import pysam
 from collections import Counter
+from itertools import cycle
 import codons
 import gtf
 import Circles.Serialize

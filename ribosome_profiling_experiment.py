@@ -417,10 +417,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
 
-        dominant_reads, other_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage', merged=True),
-                                                                                           total_reads,
-                                                                                           self.merged_file_names['rRNA_bam'],
-                                                                                          )
+        dominant_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage', merged=True),
+                                                                              total_reads,
+                                                                              self.merged_file_names['rRNA_bam'],
+                                                                             )
+        other_reads = rRNA_reads - dominant_reads
 
         with open(self.merged_file_names['dominant_stretches'], 'w') as dominant_stretches_file:
             for rname in sorted(boundaries):
