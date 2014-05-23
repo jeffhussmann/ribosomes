@@ -127,9 +127,9 @@ def produce_rRNA_coverage(bam_file_name, specific_length=None):
 
 threshold = 0.02
 def identify_dominant_stretches(counts, total_reads, bam_fn):
-    # Identify connected stretches of positions where the fraction of total
-    # reads mapping is greater than a threshold.
-
+    ''' Identify connected stretches of positions where the fraction of total
+        reads mapping is greater than a threshold.
+    '''
     boundaries = {}
 
     for rname in counts:
@@ -157,6 +157,7 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
 
     # Count the number of reads that overlap any of the dominant stretches.
     overlapping_qnames = set()
+    all_qnames = set()
     bam_file = pysam.Samfile(bam_fn)
     for rname in boundaries:
         for start, end in boundaries[rname]:
@@ -165,9 +166,8 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
                 overlapping_qnames.add(aligned_read.qname)
 
     dominant_reads = len(overlapping_qnames)
-    other_reads = sum(1 for read in pysam.Samfile(bam_fn) if read.qname not in overlapping_qnames)
 
-    return dominant_reads, other_reads, boundaries
+    return dominant_reads, boundaries
 
 def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     ''' Plots the number of mappings that overlap each position in the reference
