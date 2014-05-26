@@ -1,17 +1,17 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
 import matplotlib.pyplot as plt
-from Circles import fastq, fasta, utilities, adapters, mapping_tools, sam
-from Circles.Parallel import map_reduce, split_file
-from collections import Counter
-from Circles.adapters import find_adapter_positions, simple_hamming_distance
-from Circles.utilities import reverse_complement, counts_to_array
 import trim
 import os
 import pysam
 import glob
+from collections import Counter, defaultdict
 from itertools import izip, chain
-from collections import defaultdict
+from Sequencing import fastq, fasta, utilities, mapping_tools, sam
+from Sequencing.Parallel import map_reduce, split_file
+from Sequencing.utilities import reverse_complement, counts_to_array
+from Circles import adapters
+from Circles.adapters import find_adapter_positions, simple_hamming_distance
 
 mp1  = 'AGCGCTT'
 mp5  = 'CACTGTT'
@@ -110,7 +110,8 @@ def find_boundary_sequences(R1, R2, counters):
     #TODO: use instances of R1/R2 overlap to extend UTR sequences
     # For now, only valid if possible in only one.
 
-    valids = [key for key, possibility in possibilities.items() if possibility]
+    valids = [key for key, possibility in sorted(possibilities.items()) if possibility]
+    counters['valids'][tuple(valids)] += 1
 
     if len(valids) == 1:
         orientation = valids.pop()
@@ -196,6 +197,7 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
             ('R2_forward_polyA_lengths', 'array_1d', '{name}_R2_forward_polyA_lengths.txt'),
             ('R2_reverse_polyA_lengths', 'array_1d', '{name}_R2_reverse_polyA_lengths.txt'),
             ('control_ids', 'counts', '{name}_control_ids.txt'),
+            ('valids', 'counts', '{name}_valids.txt'),
             ('mapped_sam', 'sam_unsorted', '{name}_mapped.sam'),
             ('mapped_bam', 'bam', '{name}_mapped.bam'),
             ('mapped_bam_sorted', 'bam', '{name}_mapped_sorted.bam'),
@@ -216,14 +218,15 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
              'R2_forward_polyA_lengths',
              'R2_reverse_polyA_lengths',
              'control_ids',
+             'valids',
              'mapped_bam_sorted',
             ],
         ]
 
         specific_work = [
-            [#(self.extract_boundary_sequences, 'Extracting boundary sequences'),
-             #(self.map, 'Mapping'),
-             #(self.filter_mappings, 'Filtering mappings'),
+            [(self.extract_boundary_sequences, 'Extracting boundary sequences'),
+             (self.map, 'Mapping'),
+             (self.filter_mappings, 'Filtering mappings'),
             ],
         ]
 
@@ -279,6 +282,7 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
         counters = {'positions': {orientation: Counter() for orientation in orientations},
                     'control_ids': Counter(),
                     'polyA_lengths': {orientation: Counter() for orientation in orientations},
+                    'valids': Counter(),
                    }
 
         with open(self.file_names['five_prime_boundaries'], 'w') as fives_fh, \
@@ -300,6 +304,7 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
                 self.write_file(key, array)
 
         self.write_file('control_ids', counters['control_ids'])
+        self.write_file('valids', counters['valids'])
 
         self.log.extend(
             [('Total read pairs', total_reads),
