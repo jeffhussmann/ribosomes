@@ -1,6 +1,6 @@
 from Circles.adapters import find_adapter_positions, simple_hamming_distance
 from Sequencing import utilities, fastq
-import find_polyA
+import find_polyA_cython
 
 common_right_reverse = 'GGTATTGCTCAGAGTGATA'
 after_right = {'A': 'GCGGCCGCCT',
@@ -53,7 +53,7 @@ def find_boundary_sequences(R1, R2, counters):
                 if left_id_seq == sequence:
                     left_id = key
 
-    polyA_start, poly_A_length = find_polyA.find_polyA(forward_read.seq, 15)
+    polyA_start, poly_A_length = find_polyA_cython.find_polyA(forward_read.seq, 15)
     three_slice = slice(None, polyA_start)
     three_seq = forward_read.seq[three_slice]
     three_qual = forward_read.qual[three_slice]
