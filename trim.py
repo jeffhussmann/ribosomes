@@ -10,10 +10,14 @@ from trim_cython import *
 payload_annotation_fields = [
     ('original_name', 's'),
     ('barcode', 's'),
+    ('trimmed', 's'),
 ]
 PayloadAnnotation = Annotation_factory(payload_annotation_fields)
 
-def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end):
+trimmed_twice_annotation_fields = payload_annotation_fields + [('retrimmed', 's')]
+TrimmedTwiceAnnotation = Annotation_factory(trimmed_twice_annotation_fields)
+
+def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end, second_time=False):
     ''' Wrapper that handles the logistics of trimming reads given functions
         find_start and find_end that take a sequence and
         returns a positions that trimming should occur at.
@@ -33,10 +37,17 @@ def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end):
             else:
                 trimmed_lengths[length] += 1
                 barcode = read.seq[:start]
+                trimmed = read.seq[end:]
                 barcode_counts[barcode] += 1
-                annotation = PayloadAnnotation(original_name=read.name,
-                                               barcode=barcode,
-                                              )
+                if second_time:
+                    payload_annotation = PayloadAnnotation.from_identifier(read.name)
+                    annotation = TrimmedTwiceAnnotation(retrimmed=trimmed,
+                                                        **payload_annotation)
+                else:
+                    annotation = PayloadAnnotation(original_name=read.name,
+                                                   barcode=barcode,
+                                                   trimmed=trimmed,
+                                                  )
                 trimmed_record = fastq.make_record(annotation.identifier,
                                                    read.seq[start:end],
                                                    read.qual[start:end],
