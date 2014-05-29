@@ -153,19 +153,19 @@ class Transcript(object):
         exon_positions = np.concatenate(exon_position_lists)
 
         self.transcript_length = len(exon_positions)
+        
         # Add some upstream and downstream bases to support yeast's lack of
         # annotated UTRs.
         # This could cause problems in other organisms if one isoform is a
         # truncation of another.
-        buffer_length = 50
-        upstream_transcript = np.arange(-buffer_length, 0)
-        downstream_transcript = np.arange(self.transcript_length, self.transcript_length + buffer_length)
+        upstream_transcript = np.arange(-positions.left_buffer, 0)
+        downstream_transcript = np.arange(self.transcript_length, self.transcript_length + positions.right_buffer)
         if self.strand == '+':
-            upstream_positions = np.arange(self.start - buffer_length, self.start)
-            downstream_positions = np.arange(self.end + 1, self.end + 1 + buffer_length)
+            upstream_positions = np.arange(self.start - positions.left_buffer, self.start)
+            downstream_positions = np.arange(self.end + 1, self.end + 1 + positions.right_buffer)
         elif self.strand == '-':
-            upstream_positions = np.arange(self.end + buffer_length, self.end, -1)
-            downstream_positions = np.arange(self.start - 1, self.start - 1 - buffer_length, -1)
+            upstream_positions = np.arange(self.end + positions.left_buffer, self.end, -1)
+            downstream_positions = np.arange(self.start - 1, self.start - 1 - positions.right_buffer, -1)
 
         self.transcript_to_genomic = dict(enumerate(exon_positions))
         self.transcript_to_genomic.update(zip(upstream_transcript, upstream_positions)) 
