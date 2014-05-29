@@ -15,14 +15,10 @@ import contaminants
 import composition
 import gtf
 import codons
-from Circles import fastq
-from Circles import utilities
-from Circles import sam
-from Circles.Parallel import map_reduce
-from Circles.Parallel import piece_of_list
-from Circles.Parallel import split_file
+import visualize
+from Sequencing import mapping_tools, fastq, sam, utilities
+from Sequencing.Parallel import map_reduce, piece_of_list, split_file
 from Circles import Visualize
-from Circles import mapping_tools
 
 class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
     num_stages = 2

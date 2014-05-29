@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict
-from Circles import utilities
+from Sequencing import utilities
 import gtf
 import gff
 import pyliftover

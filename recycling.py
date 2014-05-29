@@ -1,7 +1,7 @@
 import Bio.Seq
 import Bio.Data.CodonTable
 import gtf
-from Circles import utilities
+from Sequencing import utilities
 from collections import defaultdict
 from itertools import izip
 

@@ -1,7 +1,7 @@
 from composition_cython import *
 import matplotlib.pyplot as plt
 import pysam
-from Circles import utilities
+from Sequencing import utilities
 
 def get_seq_info_pairs(clean_bam_fn):
     clean_bam_file = pysam.Samfile(clean_bam_fn)

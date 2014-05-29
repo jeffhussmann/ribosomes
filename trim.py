@@ -3,9 +3,7 @@ import pysam
 from functools import partial
 from itertools import chain
 from collections import Counter
-from Circles import genomes
-from Circles import utilities
-from Circles import fastq
+from Sequencing import genomes, utilities, fastq
 from Circles.annotation import Annotation_factory
 from trim_cython import *
 

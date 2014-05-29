@@ -1,18 +1,14 @@
-import os.path
 import numpy as np
-import scipy.stats
 import matplotlib.pyplot as plt
 import subprocess
 import pysam
 from itertools import izip
 from collections import defaultdict
-from Circles import mapping_tools
 import gtf
 import recycling
-from Circles import sam
-from Circles import fastq
-from Circles import Serialize
-from Circles.utilities import base_order, base_to_index, base_to_complement_index
+import trim
+from Sequencing import sam, fastq, mapping_tools, Serialize
+from Sequencing.utilities import base_order, base_to_index, base_to_complement_index
 
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
     

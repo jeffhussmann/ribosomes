@@ -1,7 +1,8 @@
 from collections import namedtuple, defaultdict, Counter
-from Circles import genomes, utilities
+from Sequencing import genomes, utilities
 import numpy as np
 import Bio.Seq
+import positions
 
 gtf_fields = ['seqname',
               'source',

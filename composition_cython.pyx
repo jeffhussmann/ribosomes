@@ -1,5 +1,5 @@
 import numpy as np
-from Circles import fastq
+from Sequencing import fastq
 cimport numpy as np
 cimport cython
 

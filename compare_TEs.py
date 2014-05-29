@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import gtf
 import explore_UTRs
-from Circles import Serialize
+from Sequencing import Serialize
 import scipy.stats
 
 RPKM_fns = {'ingolia': {'mRNA': '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_RPKMs.txt',

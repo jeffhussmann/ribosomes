@@ -1,28 +1,13 @@
 ''' Utilities for counting reads mapped to each position in a gene. '''
 
-import matplotlib
-import matplotlib.pyplot as plt
-matplotlib.use('Agg', warn=False)
 import numpy as np
 import numbers
-import itertools
 import pysam
 from collections import Counter
-from itertools import cycle
+from itertools import cycle, product
 import codons
 import gtf
-import Circles.Serialize
-import brewer2mpl
-
-def smoothed(array, window_size):
-    smoothed_array = np.zeros_like(array)
-    for i in range(window_size):
-        smoothed_array[i] = array[:i + 1].sum() / float(i + 1)
-    for i in range(window_size, len(array) - window_size):
-        smoothed_array[i] = array[i - window_size:i + window_size + 1].sum() / float(2 * window_size + 1)
-    for i in range(len(array) - window_size, len(array)):
-        smoothed_array[i] = array[i:].sum() / float(len(array) - i)
-    return smoothed_array
+import Sequencing.Serialize
 
 class PositionCounts(object):
     ''' Wrapper around an array of counts of positions for an extent and for a

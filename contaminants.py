@@ -7,9 +7,7 @@ import matplotlib.pyplot as plt
 import pysam
 from collections import defaultdict
 from itertools import chain, izip, cycle
-from Circles import mapping_tools
-from Circles import fasta
-from Circles import sam
+from Sequencing import mapping_tools, fasta, sam
 import gtf
 
 colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
