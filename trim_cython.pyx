@@ -71,7 +71,7 @@ def find_poly_A(char *seq):
     cdef int start
 
     for start in range(seq_length, 0, -1):
-        if seq[start - 1] != 'A':
+        if seq[start - 1] != 'A' and seq[start - 1] != 'N':
             return start
     return 0
 
