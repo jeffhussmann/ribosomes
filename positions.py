@@ -176,75 +176,11 @@ class PositionCounts(object):
 # Number of nucleotide positions to include on the left and right side of
 # counts of read positions.
 edge_buffer = 50
-left_buffer = 2 * edge_buffer
-right_buffer = edge_buffer
+left_buffer = 4 * edge_buffer
+right_buffer = 4 * edge_buffer
 
 # Number of codons to include on either side of counts of codon positions.
 codon_buffer = 10
-
-def get_CDS_position_counts(clean_bam_fn, simple_CDSs, relevant_lengths):
-    gene_infos = {}
-    bam_file = pysam.Samfile(clean_bam_fn)
-    for CDS in simple_CDSs:
-        gene_name = CDS.attribute['transcript_id']
-        extent = (CDS.seqname, CDS.strand, CDS.start, CDS.end)
-        CDS_length = abs(CDS.end - CDS.start) + 1  
-        gene_infos[gene_name] = {'CDS_length': CDS_length}
-
-        try:
-            extent_info = get_extent_position_counts(bam_file, extent, relevant_lengths)
-            gene_infos[gene_name].update(extent_info)
-        except IndexError:
-            # For now, this means there were spliced reads in the extent
-            print gene_name
-            del gene_infos[gene_name]
-
-    return gene_infos
-
-def get_extent_position_counts(bam_file, extent, relevant_lengths):
-    ''' Returns counts of reads whose 5' edge falls at each position in extent,
-        stratified by length for each length in relevant_lengths, as well as
-        cumulative counts for all lengths.
-    '''
-    seqname, extent_strand, start, end = extent
-    extent_length = abs(end - start) + 1
-    position_counts = {l: PositionCounts(extent_length, left_buffer, right_buffer)
-                       for l in relevant_lengths + ['all']}
-    expression = np.zeros(2, int)
-    nonunique = 0
-    
-    region_start = start - edge_buffer
-    region_end = end + edge_buffer
-    overlapping_reads = bam_file.fetch(seqname, region_start, region_end)
-    for read in overlapping_reads:
-        if read.mapq != 50:
-            nonunique += 1
-        else:
-            read_strand = '-' if read.is_reverse else '+'
-
-            if read_strand != extent_strand:
-                expression[1] += 1
-                continue
-            else:
-                expression[0] += 1
-                if extent_strand == '+':
-                    from_start = read.pos - start
-                elif extent_strand == '-':
-                    from_start = end - (read.aend - 1)
-
-            try:
-                position_counts['all'][from_start] += 1
-            except IndexError:
-                raise IndexError
-            if read.qlen in relevant_lengths:
-                position_counts[read.qlen][from_start] += 1
-
-    extent_info = {'position_counts': position_counts,
-                   'expression': expression,
-                   'nonunique': nonunique,
-                  }
-
-    return extent_info
 
 def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
     gene_infos = {}
@@ -388,7 +324,10 @@ def compute_metagene_positions(position_counts, max_CDS_length):
             from_starts[length][start_slice] += counts[length][start_slice]
             from_ends[length].relative_to_end[end_slice] += counts[length].relative_to_end[end_slice]
 
-    return from_starts, from_ends
+    from_starts_and_ends = {'from_starts': from_starts,
+                            'from_ends': from_ends,
+                           }
+    return from_starts_and_ends
 
 def compute_metacodon_counts(codon_counts, gtf_fn, genome_dir):
     window = 30
@@ -506,314 +445,36 @@ def compute_averaged_codon_densities(codon_counts, names_to_skip=set()):
 
     return mean_densities
 
-def make_codon_counts_file(codon_counts, file_name, stringency='relaxed'):
-    with open(file_name, 'w') as fh:
-        for name in sorted(codon_counts):
-            buffered_counts = codon_counts[name][stringency]
-            num_codons = buffered_counts.extent_length
-            # + 1 is to include the stop codon
-            counts = buffered_counts[:num_codons + 1]
-            counts_string = '\t'.join(str(count) for count in counts)
-            line = '{0}\t{1}\n'.format(name, counts_string)
-            fh.write(line)
+def get_total_read_count(position_counts, exclude_from_start, exclude_from_end):
+    # TODO: this needs to be updated to new offset handling strategy
+    CDS_length = position_counts['all'].extent_length
+    A_site_offset = 15
+    start_index = -A_site_offset + exclude_from_start
+    end_index = CDS_length - A_site_offset + 3 - exclude_from_end
+    count = position_counts['all'][start_index:end_index].sum()
+    return count
 
-def read_codon_counts_file(fn, reports_P_site=False):
-    genes = {}
-    for line in open(fn):
-        name, values = line.strip().split('\t', 1)
-        values = np.fromstring(values, dtype=float, sep='\t')
-        # Weinberg's file reports counts in P-sites. We are interested in counts
-        # in A-sites, for which no reliable information can be obtained for the
-        # initiation codon or first codon after this.
-        # Shift everything over by 1 here to report A-sites.
-        # Responsibility of analysis to ignore first two values and last value.
-        if reports_P_site:
-            values = np.concatenate(([0], values))
-        genes[name] = values
-            
-    return genes
-
-def plot_metagene_positions(from_starts, from_ends, figure_fn):
-    relevant_lengths = sorted(from_starts.keys())
-    fig, (start_ax, end_ax) = plt.subplots(2, 1, figsize=(12, 16))
-
-    start_xs = np.arange(-21, 19)
-    end_xs = np.arange(-6, 34)
-    for length in relevant_lengths:
-        start_ax.plot(start_xs, from_starts[length][start_xs], '.-', label=length)
-        end_ax.plot(-end_xs, from_ends[length].relative_to_end[end_xs], '.-', label=length)
-
-    start_ax.set_xlim(min(start_xs), max(start_xs))
-    mod_3 = [x for x in start_xs if x % 3 == 0]
-    start_ax.set_xticks(mod_3)
-    for x in mod_3:
-        start_ax.axvline(x, color='black', alpha=0.1)
-    start_ax.set_xlabel('Position of read relative to start of CDS')
-    start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
-    
-    end_ax.set_xlim(min(-end_xs), max(-end_xs))
-    mod_3 = [x for x in -end_xs if x % 3 == 0]
-    end_ax.set_xticks(mod_3)
-    for x in mod_3:
-        end_ax.axvline(x, color='black', alpha=0.1)
-    end_ax.set_xlabel('Position of read relative to stop codon')
-    end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
-
-    start_ax.legend(loc='upper right', framealpha=0.5)
-    end_ax.legend(loc='upper right', framealpha=0.5)
-    
-    fig.savefig(figure_fn)
-
-def plot_frames(from_starts, figure_fn):
-    ''' Plots bar graphs of the distribution of reading frame that the 5' end of
-        reads fell, stratified by read length.
-    '''
-    def bar_plot(values, name, tick_labels, ax):
-        N = len(values)
-
-        starts = np.arange(N)
-        gap = 1 # in multiples of bar width
-
-        width = 1. / (1 + gap)
-
-        ax.bar(starts, values, width, label=name)
-
-        ax.set_xlim(xmin=-width / 2, xmax=N - width / 2)
-
-        ax.set_xticks(starts + (width * 1 / 2))
-        ax.set_xticklabels(tick_labels)
-        ax.xaxis.set_ticks_position('none')
-        ax.set_ylim(0, 1)
-
-        leg = ax.legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
-
-    relevant_lengths = sorted(from_starts.keys())
-    extent_length = from_starts[relevant_lengths[0]].extent_length
-    fig, axs = plt.subplots(len(relevant_lengths), 1, figsize=(6, 3 * len(relevant_lengths)))
-
-    for length, ax in zip(relevant_lengths, axs):
-        frames = np.zeros(3, int)
-        for p in range(-15, extent_length):
-            frames[p % 3] += from_starts[length][p]
-
-        frames = np.true_divide(frames, frames.sum())
-
-        tick_labels = ['0', '1', '2']
-
-        bar_plot(frames, str(length), tick_labels, ax)
+def compute_read_counts(read_positions, exclude_from_start, exclude_from_end):
+    read_counts = {}
+    for name, position_counts in read_positions.iteritems():
+        read_count = get_total_read_count(position_counts, exclude_from_start, exclude_from_end)
         
-    axs[-1].set_xlabel('Frame')
-    axs[len(axs) // 2].set_ylabel('Fraction of uniquely mapped reads of specified length')
+        expression = np.array([read_count, 0])
+        read_counts[name] = {'CDS_length': position_counts['all'].extent_length,
+                             'expression': expression,
+                            }
+    return read_counts
 
-    fig.savefig(figure_fn)
+def compute_RPKMs(gene_infos, exclude_from_start, exclude_from_end):
+    RPKMs = {}
+    total_mapped_reads = 0
+    for gene_name in gene_infos:
+        read_count = gene_infos[gene_name]['expression'][0]
+        length = gene_infos[gene_name]['CDS_length'] - exclude_from_start - exclude_from_end
+        RPKMs[gene_name] = float(read_count) / length
+        total_mapped_reads += read_count
 
-def plot_averaged_codon_densities(data_sets, figure_fn, show_end=True, past_edge=codon_buffer, smooth=False):
-    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
-    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
-    colors = colors + colors
+    for gene_name in RPKMs:
+        RPKMs[gene_name] = 1.e9 * RPKMs[gene_name] / total_mapped_reads
 
-    plot_up_to = 500
-    
-    if show_end:
-        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(12, 8))
-    else:
-        fig, start_ax = plt.subplots(figsize=(12, 8))
-
-    start_xs = np.arange(-past_edge, plot_up_to + 20 + 1)
-    end_xs = np.arange(-past_edge + 1, plot_up_to + 20 + 1)
-
-    for name, mean_densities, color_index in data_sets:
-        densities = mean_densities['from_start']['codons'][0:]
-        if smooth:
-            densities = smoothed(densities, 5)
-        start_densities = densities[start_xs]
-
-        steady_state = mean_densities['from_start']['codons'][400:500].sum() / 100
-        #steady_state = 1.
-
-        marker = '' if smooth else '.'
-        linewidth = 2 if smooth else 1
-
-        start_ax.plot(start_xs, start_densities / steady_state, '.-', label=name, color=colors[color_index], marker=marker, linewidth=linewidth)
-        if show_end:
-            end_ax.plot(-end_xs, mean_densities['from_end']['codons'].relative_to_end[end_xs], '.-', label=name, color=colors[color_index])
-    
-    start_ax.legend(loc='upper right', framealpha=0.5)
-
-    start_ax.set_xlabel('Number of codons from start codon')
-    start_ax.set_ylabel('Mean normalized read density')
-    start_ax.set_xlim(min(start_xs), max(start_xs))
-    start_ax.plot(start_xs, [1 for x in start_xs], color='black', alpha=0.5)
-   
-    if show_end:
-        end_ax.set_xlabel('Number of codons from stop codon')
-        end_ax.yaxis.tick_right()
-        end_ax.set_xlim(min(-end_xs), max(-end_xs))
-        end_ax.plot(-end_xs, [1 for x in end_xs], color='black', alpha=0.5)
-    
-    axs = [start_ax]
-    if show_end:
-        axs.append(end_ax)
-
-    ymax = max(ax.get_ylim()[1] for ax in axs)
-    
-    for ax in axs:
-        #ax.set_ylim(0, ymax + 0.1)
-        ax.set_ylim(0, 6)
-        ax.set_xlim(xmax=plot_up_to)
-        xmin, xmax = ax.get_xlim()
-        ymin, ymax = ax.get_ylim()
-        ax.set_aspect((xmax - xmin) / (ymax - ymin))
-        #ax.set_aspect(1)
-
-    fig.set_size_inches(12, 12)
-    fig.savefig(figure_fn, bbox_inches='tight')
-
-def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=False, keys_to_plot=['actual']):
-    random_counts = metacodon_counts['TTT'].itervalues().next()
-    xs = np.arange(-random_counts.left_buffer, random_counts.extent_length)
-
-    bases = 'TCAG'
-
-    def make_plot(ax, codon_id):
-        ax.set_title(codon_id)
-
-        if codon_id not in metacodon_counts:
-            return
-
-        if enrichment:
-            average_enrichment = metacodon_counts[codon_id]['sum_of_enrichments'] / metacodon_counts[codon_id]['num_eligible']
-            ones = np.ones(len(average_enrichment.counts))
-            ax.plot(xs, average_enrichment.counts, 'o-')
-            ax.plot(xs, ones, color='black', alpha=0.5)
-        else:
-            for key in keys_to_plot:
-                counts = metacodon_counts[codon_id][key].counts
-                line, = ax.plot(xs, counts, '.-', label=key)
-                if isinstance(key, int):
-                    # -key + 1 is the position a read starts at if position 0
-                    # is the last base in it
-                    ax.axvline(-key + 1, color=line.get_color(), alpha=0.2)
-            #ax.plot(xs, metacodon_counts[codon_id]['uniform'].counts, '.-')
-            ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
-            if codon_ids != 'all':
-                ax.legend(loc='upper right', framealpha=0.5)
-
-        ax.set_ylim(ymin=0)
-        ax.set_xlim(min(xs), max(xs))
-        ax.axvline(0, ls='--', color='black', alpha=0.5)
-    
-    if codon_ids == 'all':
-        fig, axs = plt.subplots(16, 4, figsize=(16, 64))
-
-        for first in range(4):
-            for second in range(4):
-                for third in range(4):
-                    i = first * 4 + third
-                    j = second
-                    codon_id = ''.join(bases[first] + bases[second] + bases[third])
-                    make_plot(axs[i, j], codon_id)
-    else:
-        fig, axs = plt.subplots(len(codon_ids), 1, figsize=(8, 8 * len(codon_ids)))
-        for codon_id, ax in zip(codon_ids, axs):
-            make_plot(ax, codon_id)
-
-    fig.savefig(fig_fn, bbox_inches='tight')
-
-def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, length=28, edge="5'"):
-    random_codon_id = metacodon_counts.iterkeys().next()
-    random_counts = metacodon_counts[random_codon_id].itervalues().next()
-    keys = metacodon_counts[random_codon_id].keys()
-    xs = np.arange(-20, 20)
-
-    bases = 'TCAG'
-
-    def make_plot(ax, codon_id):
-        ax.set_title(codon_id)
-
-        if codon_id not in metacodon_counts:
-            return
-
-        counts = metacodon_counts[codon_id][length]
-        if edge == "3'":
-            positions = xs - length + 1
-        else:
-            positions = xs
-        line, = ax.plot(xs, counts[positions], '.-')
-        ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
-
-        ax.set_ylim(ymin=0)
-        ax.set_xlim(min(xs), max(xs))
-        ax.axvline(0, ls='--', color='black', alpha=0.5)
-    
-    if codon_ids == 'all':
-        fig, axs = plt.subplots(16, 4, figsize=(16, 64))
-
-        for first in range(4):
-            for second in range(4):
-                for third in range(4):
-                    i = first * 4 + third
-                    j = second
-                    codon_id = ''.join(bases[first] + bases[second] + bases[third])
-                    make_plot(axs[i, j], codon_id)
-    else:
-        fig, axs = plt.subplots(len(codon_ids), 1, figsize=(8, 8 * len(codon_ids)))
-        for codon_id, ax in zip(codon_ids, axs):
-            make_plot(ax, codon_id)
-
-    fig.suptitle('Read counts around every occurence, {0}'.format(edge))
-    fig.savefig(fig_fn, bbox_inches='tight')
-
-#if __name__ == '__main__':
-#    data_sets = [
-#        #('belgium_3_5_14', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_codon_counts.txt'),
-#        #('belgium_8_6_13', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_codon_counts.txt'),
-#        ('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_codon_counts.txt'),
-#        ('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
-#        ('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_codon_counts.txt'),
-#    ]
-#    plot_metagene_averaged(data_sets, from_end=False)
-
-if __name__ == '__main__':
-    data_sets = [
-        ('Ingolia 1 (CHX)', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities.txt', 3),
-        ('Ingolia 2 (CHX)', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_mean_densities.txt', 0),
-        ('McManus (CHX)', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_mean_densities.txt', 4),
-        ('Gerashchenko (CHX)', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_mean_densities.txt', 5),
-        ('Zinshteyn (CHX)', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_1/results/WT_Ribosome_Footprint_1_mean_densities.txt', 6),
-        ('Dunn (CHX)', '/home/jah/projects/arlen/experiments/dunn_elife/dunn_elife/results/dunn_elife_mean_densities.txt', 1),
-        ('Weinberg (flash freezing)', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities.txt', -1),
-        ('Arlen 1 (CHX)', '/home/jah/projects/arlen/experiments/belgium_3_5_14/wt/results/wt_mean_densities.txt', 3),
-        ('Arlen 2 (CHX)', '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_mean_densities.txt', 2),
-        ##('weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_mean_densities.txt'),
-        
-        #('Artieri (CHX)', '/home/jah/projects/arlen/experiments/artieri/Mixed_parental_ribosome_protected_fragments_replicate_1/results/artieri_RPF_replicate_1_mean_densities.txt', 2),
-        #('Guydosh (flash freezing then CHX)', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_CHX/results/wild-type_CHX_mean_densities.txt'),
-        
-        #('Ingolia mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_mean_densities.txt', 0),
-        
-        #('R98S', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_mean_densities.txt', 2),
-        #('Supressed', '/home/jah/projects/arlen/experiments/belgium_8_6_13/Suppressed_R98S_cDNA_sample/results/Suppressed_R98S_cDNA_sample_mean_densities.txt', 3),
-        #('weinberg_no_misannotated', '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_mean_densities_no_misannotated.txt'),
-        #('weinberg_mRNA', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_mean_densities.txt'),
-        #('ingolia_mRNA', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_mean_densities.txt'),
-        #('ingolia_science_no_misannotated', '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_mean_densities_no_misannotated.txt'),
-        #('guydosh_3-AT', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_3-AT/results/wild-type_3-AT_mean_densities.txt'),
-        #('zinshteyn_WT_2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_2/results/WT_Ribosome_Footprint_2_mean_densities.txt'),
-        #('zinshteyn_delta_elp3', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_elp3_Ribosome_Footprint/results/delta_elp3_Ribosome_Footprint_mean_densities.txt'),
-        #('zinshteyn_delta_ncs2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs2_Ribosome_Footprint/results/delta_ncs2_Ribosome_Footprint_mean_densities.txt'),
-        #('zinshteyn_delta_ncs6_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs6_Ribosome_Footprint_1/results/delta_ncs6_Ribosome_Footprint_1_mean_densities.txt'),
-        #('zinshteyn_delta_ncs6_2', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/delta_ncs6_Ribosome_Footprint_2/results/delta_ncs6_Ribosome_Footprint_2_mean_densities.txt'),
-        #('belgium_8_6_13', '/home/jah/projects/arlen/experiments/belgium_8_6_13/R98S_cDNA_sample/results/R98S_cDNA_sample_read_counts.txt', 'yeast'),
-        #('ingolia_cell_nothing', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_none_ribo_mesc_nochx_Illumina_GAII/results/ingolia_cell_codon_counts.txt'),
-        #('ingolia_cell_emetine', '/home/jah/projects/arlen/experiments/ingolia_cell/ES_cell_feeder-free__w__LIF_60_s_emetine_ribo_mesc_emet_Illumina_GAII/results/emetine_read_positions.txt', 'ingolia_cell'),
-        #('guo_nature', '/home/jah/projects/arlen/experiments/guo_nature/Footprint_wild-type_runs1-2/results/guo_nature_read_positions.txt', 'guo_nature'),
-        #('artieri', '/home/jah/projects/arlen/experiments/artieri/Mixed_parental_ribosome_protected_fragments_replicate_1/results/artieri_RPF_replicate_1_mean_densities.txt'),
-        #('artieri', '/home/jah/projects/arlen/experiments/artieri/Mixed_parental_ribosome_protected_fragments_replicate_1/results/artieri_RPF_replicate_1_mean_densities.txt'),
-    ]
-
-    data_sets = [(name, Circles.Serialize.read_file(fn, 'read_positions'), color_index)
-                 for name, fn, color_index in data_sets]
-
-    plot_averaged_codon_densities(data_sets, 'RPF_5_prime_ramps_4.png', show_end=False, past_edge=0, smooth=True)
+    return RPKMs
