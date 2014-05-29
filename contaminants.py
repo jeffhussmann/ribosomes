@@ -43,20 +43,21 @@ def post_filter(input_bam_fn,
                 clean_bam_fn,
                 more_rRNA_bam_fn,
                 tRNA_bam_fn,
+                tRNA_bam_sorted_fn,
                 other_ncRNA_bam_fn,
+                other_ncRNA_bam_sorted_fn,
                ):
-    ''' Removes any remaining mappings to tRNA or rRNA transcripts.
-        If a read has any mappings to an rRNA transcript, write all such
-        mappings to more_rRNA_bam_fn with exactly one flagged primary.
-        If a read has no mappings to any rRNA transcript but any mapping to a
-        tRNA transcript, write all such mappings to tRNA_bam_fn with exactly one
-        flagged primary.
-        If a read has no mappings to any rRNA or tRNA transcripts but any
-        mapping to any other noncoding RNA transcript, write all such mappings
-        to other_ncRNA_bam_fn with exactly one flagged primary.
-        Write all remaining mappings to clean_bam_fn.
-        TODO: This docstring doesn't seem accurate anymore - only one mapping
-        per qname is being written to contaminant files.
+    ''' Removes any remaining mappings to rRNA transcripts and any mappings
+        to tRNA or other noncoding RNA transcripts.
+        If a read has any mapping to an rRNA transcript, write all such mappings
+        to more_rRNA_bam_fn with exactly one flagged primary.
+        If a read has any mapping to a tRNA transcript, write all such mappings
+        to tRNA_bam_fn, with exactly one flagged primary only if there were no
+        rRNA mappings.
+        If a read has any mapping to any other noncoding RNA transcript, write
+        all such mappings to other_ncRNA_bam_fn, with exactly one flagged
+        only if there were no rRNA or tRNA mappings.
+        Write all reads with no mappings to any noncoding RNA to clean_bam_fn.
     '''
     contaminant_qnames = set()
 
@@ -81,13 +82,24 @@ def post_filter(input_bam_fn,
                     # Confirm that there is at least one base from the read
                     # mapped to a position in the transcript (i.e. it isn't just
                     # a spliced read whose junction contains the transcript).
-                    if any(p in transcript.genomic_to_transcript for p in mapping.positions):
+                    if any(p in transcript.genomic_to_transcript and
+                           0 <= transcript.genomic_to_transcript[p] < transcript.transcript_length
+                           for p in mapping.positions):
                         if mapping.qname not in contaminant_qnames:
+                            # This is the first time seeing this qname, so flag
+                            # it as primary.
                             mapping.is_secondary = False
-                            bam_file.write(mapping)
                             contaminant_qnames.add(mapping.qname)
+                        else:
+                            # This qname has already been seen, so flag it as
+                            # secondary.
+                            mapping.is_secondary = True
+                        bam_file.write(mapping)
 
     input_bam_file.close()
+
+    sam.sort_bam(tRNA_bam_fn, tRNA_bam_sorted_fn)
+    sam.sort_bam(other_ncRNA_bam_fn, other_ncRNA_bam_sorted_fn)
          
     # Create a new clean bam file consisting of all mappings of each
     # read that wasn't flagged as a contaminant.
