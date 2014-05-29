@@ -276,7 +276,11 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
         transcript_position_counts = {l: PositionCounts(transcript.transcript_length, left_buffer, right_buffer)
                                       for l in relevant_lengths + ['all']}
         
-        overlapping_reads = bam_file.fetch(transcript.seqname, transcript.start, transcript.end)
+        # fetch raises a ValueError if given a negative start, but it doesn't 
+        # care if the end is valid.
+        left_edge = max(0, transcript.start - left_buffer)
+        right_edge = transcript.end + right_buffer
+        overlapping_reads = bam_file.fetch(transcript.seqname, left_edge, right_edge)
         for read in overlapping_reads:
             if any(position not in transcript.genomic_to_transcript for position in read.positions):
                 # Alternative splicing
