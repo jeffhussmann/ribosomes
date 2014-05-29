@@ -221,7 +221,6 @@ def make_coding_sequence_fetcher(gtf_fn, genome_dir):
         try:
             Bio.Seq.translate(seq, cds=True)
         except Bio.Seq.CodonTable.TranslationError as error:
-            print name
             return None
 
         return seq.upper()
@@ -244,84 +243,46 @@ def get_extent_by_name(gtf_fn, name):
     strand = start_codon.strand
     return seqname, strand, start, end
 
-def get_nonoverlapping(features, edge_buffer=0):
-    ''' Returns all elements of features that do not overlap any other element of
-        features.
-    '''
+def get_nonoverlapping_transcripts(transcripts, edge_buffer=0, require_same_strand=False):
     def overlaps(first, second):
         first_left = first.start - edge_buffer
         first_right = first.end + edge_buffer
         second_left = second.start - edge_buffer
         second_right = second.end + edge_buffer
+        
         return first.seqname == second.seqname and \
                second_left <= first_right and \
-               second_right >= first_left
+               second_right >= first_left and \
+               (not require_same_strand or first.strand == second.strand)
 
     overlapping = set()
     nonoverlapping = set()
 
-    overlap_connections = [[] for f in features]
+    overlap_connections = [[] for t in transcripts]
 
-    # Sort by starting position, so that if sorted_features[i] does not overlap
-    # sorted_features[j] for i < j, then sorted_features[i] can't overlap
-    # sorted_features[k] for k > j.
-    sorted_features = sort_features(features) 
-    for i in xrange(len(sorted_features)):
-        first_feature = sorted_features[i]
-        for j in xrange(i + 1, len(sorted_features)):
-            second_feature = sorted_features[j]
+    # Sort by starting position, so that if sorted_transcripts[i] does not overlap
+    # sorted_transcripts[j] for i < j, then sorted_transcripts[i] can't overlap
+    # sorted_transcripts[k] for k > j.
+    sorted_transcripts = sort_transcripts(transcripts) 
+    for i in xrange(len(sorted_transcripts)):
+        first_feature = sorted_transcripts[i]
+        for j in xrange(i + 1, len(sorted_transcripts)):
+            second_feature = sorted_transcripts[j]
             if overlaps(first_feature, second_feature):
                 overlap_connections[i].append(second_feature)
                 overlap_connections[j].append(first_feature)
             else:
                 break
 
-    nonoverlapping = [g for i, g in enumerate(sorted_features) if not overlap_connections[i]]
+    nonoverlapping = [g for i, g in enumerate(sorted_transcripts) if not overlap_connections[i]]
 
     return nonoverlapping, overlap_connections
-
-def exclude_dubious_ORFs(CDSs, dubious_ORFs_fn):
-    dubious_ORF_names = {line.strip() for line in open(dubious_ORFs_fn)}
-    non_dubious_ORFs = [CDS for CDS in CDSs if CDS.attribute['gene_id'] not in dubious_ORF_names]
-    return non_dubious_ORFs
-
-def get_single_exon_transcripts(transcripts):
-    ''' Returns a list of all elements in transcripts that have a single exon.
-    '''
-    single_exon_transcripts = [transcript for transcript in transcripts if len(transcript.exons) == 1]
-    return single_exon_transcripts
 
 def get_translated_transcripts(transcripts):
     ''' Returns a list of all elements in transcripts that are translated.
     '''
     translated_transcripts = [transcript for transcript in transcripts if any(transcript.CDSs)]
     return translated_transcripts
-
-def get_simple_CDSs(gtf_fn, exclude_from=None):
-    ''' Returns all single exon CDSs that do not overlap any other CDS.
-        Any gene IDs listed in any file name in exclude_from are not eligible
-        but also do not disqualify a CDS by overlapping it - think dubious ORFs
-        or uncharacterized genes.
-    '''
-    all_features = get_all_features(gtf_fn)
-    exons = get_all_exons(all_features)
-
-    relevant_exons = exons
-    if exclude_from:
-        for name_list_fn in exclude_from:
-            relevant_exons = exclude_dubious_ORFs(relevant_exons, name_list_fn)
-
-    nonoverlapping, _ = get_nonoverlapping(relevant_exons, edge_buffer=20)
-    nonoverlapping = set(nonoverlapping)
-
-    transcripts = get_transcripts(all_features)
-    translated_transcripts = get_translated_transcripts(transcripts)
-    single_exon_transcripts = get_single_exon_transcripts(translated_transcripts)
-    simple_CDSs = [transcript.CDSs[0] for transcript in single_exon_transcripts
-                   if transcript.exons[0] in nonoverlapping]
-    simple_CDSs = sort_features(list(simple_CDSs))
-
-    return simple_CDSs
 
 def get_CDSs(gtf_fn):
     all_features = get_all_features(gtf_fn)
@@ -335,3 +296,19 @@ def feature_list_to_dict(features):
     for feature in features:
         feature_dict[feature.attribute['gene_id']].append(feature)
     return feature_dict
+
+def make_yeast_list():
+    weinberg_fn = '/home/jah/projects/arlen/experiments/weinberg/most_weinberg_transcripts.txt'
+    yeast_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcript_list.txt'
+    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gtf'
+    
+    all_features = get_all_features(gtf_fn)
+    transcripts = get_transcripts(all_features)
+    translated = get_translated_transcripts(transcripts)
+    nonoverlapping, _ = get_nonoverlapping_transcripts(transcripts, require_same_strand=True)
+    weinberg_names = {line.strip() for line in open(weinberg_fn)}
+    final_set = ({t.name for t in translated} & {n.name for n in nonoverlapping}) | weinberg_names
+
+    with open(yeast_fn, 'w') as yeast_fh:
+        for name in sorted(final_set):
+            yeast_fh.write('{0}\n'.format(name))
