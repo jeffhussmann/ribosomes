@@ -638,16 +638,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         return reads
 
     def get_read_positions(self):
-        piece_simple_CDSs, max_gene_length = self.get_simple_CDSs()
-        genes = positions.get_CDS_position_counts(self.merged_file_names['clean_bam'],
-                                                  piece_simple_CDSs,
-                                                  relevant_lengths=self.relevant_lengths,
-                                                 )
-        self.write_file('read_positions', genes)
-        self.read_positions = genes
-        self.write_file('strand_counts', genes)
-    
-    def get_read_positions_splicing(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
         gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['clean_bam'],
                                                               piece_CDSs,
