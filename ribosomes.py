@@ -73,13 +73,15 @@ def get_ratios(first, second):
     ratios = {key: np.divide(float(first[key]), second[key]) for key in first}
     return ratios
 
-def error_profile(bam_file_name, simple_CDSs, relevant_lengths):
-    type_shape = (50,
+def error_profile(bam_file_name, simple_CDSs, relevant_lengths, max_read_length):
+    type_shape = (len(relevant_lengths),
+                  max_read_length,
                   fastq.MAX_EXPECTED_QUAL + 1,
-                  len(base_order),
-                  len(base_order),
+                  6,
+                  6,
                  )
-    type_counts = {length: np.zeros(type_shape, int) for length in relevant_lengths}
+    type_counts = np.zeros(type_shape, int)
+    length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
 
     bamfile = pysam.Samfile(bam_file_name, 'rb')
     for CDS in simple_CDSs:
@@ -111,8 +113,13 @@ def error_profile(bam_file_name, simple_CDSs, relevant_lengths):
                     for ref_char, read_char, qual, ref_pos, read_pos in alignment:
                         ref_index = index_lookup[ref_char]
                         read_index = index_lookup[read_char]
-                        coords = (read_pos, qual, ref_index, read_index)
-                        type_counts[read.qlen][coords] += 1
+                        coords = (length_to_index[read.qlen],
+                                  read_pos,
+                                  qual,
+                                  ref_index,
+                                  read_index,
+                                 )
+                        type_counts[coords] += 1
 
     return type_counts
 

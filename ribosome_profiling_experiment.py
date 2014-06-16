@@ -80,6 +80,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
             ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
+            ('mismatches', 'mismatches', '{name}_mismatches.npy'),
+
             ('read_positions', 'read_positions', '{name}_read_positions.txt'),
             ('unambiguous_read_positions', 'read_positions', '{name}_unambiguous_read_positions.txt'),
             ('from_starts', 'read_positions', '{name}_from_starts.txt'),
@@ -109,13 +111,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
 
             ('yield', '', '{name}_yield.txt'),
         ]
-
-        for length in self.relevant_lengths:
-            entry = ('mismatches_{0}'.format(length),
-                     'mismatches',
-                     '{{name}}_mismatches_{0}.txt'.format(length),
-                    )
-            specific_results_files.append(entry)
 
         specific_figure_files = [
             ('quality', '{name}_quality.png'),
@@ -189,8 +184,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             specific_outputs[1].extend(['unambiguous_read_positions',
                                         'unambiguous_from_starts'
                                        ])
-
-        specific_outputs[1].extend(['mismatches_{0}'.format(length) for length in self.relevant_lengths])
 
         specific_work = [
             [(self.trim_reads, 'Trim reads'),
@@ -572,9 +565,14 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
 
     def plot_mismatch_positions(self):
         fig, ax = plt.subplots(figsize=(16, 12))
+        length_to_index = {length: i for i, length in enumerate(self.relevant_lengths)}
+        type_counts = self.read_file('mismatches')
         for length in self.relevant_lengths:
-            type_counts = self.read_file('mismatches_{0}'.format(length))
-            Visualize.mismatches.plot_read_positions(type_counts[:length], str(length), ax=ax, min_q=30)
+            Visualize.mismatches.plot_read_positions(type_counts[length_to_index[length]][:length],
+                                                     str(length),
+                                                     ax=ax,
+                                                     min_q=30,
+                                                    )
         ax.set_xlim(-1, max(self.relevant_lengths))
         ax.legend(loc='upper right', framealpha=0.5)
         fig.savefig(self.figure_file_names['mismatch_positions'])
@@ -582,10 +580,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
     def plot_mismatch_types(self):
         first_data_sets = []
         last_data_sets = []
+        type_counts = self.read_file('mismatches')
+        length_to_index = {length: i for i, length in enumerate(self.relevant_lengths)}
         for length in self.relevant_lengths:
-            type_counts = self.read_file('mismatches_{0}'.format(length))
-            first_counts = type_counts[0]
-            last_counts = type_counts[length - 1]
+            first_counts = type_counts[length_to_index[length]][0]
+            last_counts = type_counts[length_to_index[length]][length - 1]
             first_data_set = (str(length),
                               first_counts,
                               (30, fastq.MAX_EXPECTED_QUAL),
@@ -689,31 +688,27 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
         read_positions = self.load_read_positions()
-        from_starts, from_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
+        from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
+        remapped_read_positions = self.load_read_positions(modifier='remapped')
+        from_starts_and_ends_remapped = positions.compute_metagene_positions(remapped_read_positions, max_gene_length)
 
-        from_starts = {'from_starts': from_starts}
-        from_ends = {'from_ends': from_ends}
-
-        self.write_file('from_starts', from_starts)
-        self.write_file('from_ends', from_ends)
+        self.write_file('from_starts_and_ends', from_starts_and_ends)
+        self.write_file('from_starts_and_ends_remapped', from_starts_and_ends_remapped)
         
         if self.adapter_type == 'polyA':
-            read_positions = self.load_read_positions(unambiguous=True)
-            from_starts, from_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
+            read_positions = self.load_read_positions(modifier='unambiguous')
+            from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
 
-            from_starts = {'from_starts': from_starts}
-            from_ends = {'from_ends': from_ends}
-
-            self.write_file('unambiguous_from_starts', from_starts)
+            self.write_file('unambiguous_from_starts', from_starts_and_ends)
         
     def get_error_profile(self):
-        piece_simple_CDSs, _ = self.get_CDSs()
+        piece_CDSs, _ = self.get_CDSs()
         type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
-                                              piece_simple_CDSs,
+                                              piece_CDSs,
                                               self.relevant_lengths,
+                                              self.max_read_length,
                                              )
-        for length in type_counts:
-            self.write_file('mismatches_{0}'.format(length), type_counts[length])
+        self.write_file('mismatches', type_counts)
 
     def get_recycling_ratios(self):
         piece_simple_CDSs, _ = self.get_CDSs()
