@@ -40,6 +40,7 @@ def post_filter(input_bam_fn,
                 gtf_fn,
                 clean_bam_fn,
                 more_rRNA_bam_fn,
+                more_rRNA_bam_sorted_fn,
                 tRNA_bam_fn,
                 tRNA_bam_sorted_fn,
                 other_ncRNA_bam_fn,
@@ -96,6 +97,7 @@ def post_filter(input_bam_fn,
 
     input_bam_file.close()
 
+    sam.sort_bam(more_rRNA_bam_fn, more_rRNA_bam_sorted_fn)
     sam.sort_bam(tRNA_bam_fn, tRNA_bam_sorted_fn)
     sam.sort_bam(other_ncRNA_bam_fn, other_ncRNA_bam_sorted_fn)
          
