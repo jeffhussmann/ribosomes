@@ -182,7 +182,7 @@ class Transcript(object):
                 genomic_stop_codon = max(sc.end for sc in self.stop_codons)
             self.transcript_start_codon = self.genomic_to_transcript[genomic_start_codon]
             self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
-            # By convention, CDS_lengths includes no bases of the stop codon.
+            # By convention, CDS_length includes no bases of the stop codon.
             self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
 
     def delete_coordinate_maps(self):
