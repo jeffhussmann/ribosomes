@@ -32,7 +32,7 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False)
         end_xs = np.arange(-140, 190)
     else:
         start_xs = np.arange(-21, 19)
-        end_xs = np.arange(-34, 6)
+        end_xs = np.arange(-33, 7)
 
     for length in relevant_lengths:
         start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
@@ -72,6 +72,61 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False)
     end_ax.set_ylim(0, ymax)
     
     fig.savefig(figure_fn)
+
+def plot_metagene_positions_heatmap(from_starts, from_ends, figure_fn, zoomed_out=False):
+    relevant_lengths = sorted(from_starts.keys())
+    fig, (start_ax, end_ax) = plt.subplots(2, 1)
+
+    if zoomed_out:
+        start_xs = np.arange(-100, 140)
+        end_xs = np.arange(-140, 190)
+    else:
+        start_xs = np.arange(-21, 19)
+        end_xs = np.arange(-33, 7)
+
+    xs = np.arange(-21, 19)
+    lengths = sorted([k for k in from_starts if isinstance(k, int)], reverse=True)
+    from_starts_array = [from_starts[l]['start_codon', start_xs] for l in lengths]
+    from_ends_array = [from_ends[l]['stop_codon', end_xs] for l in lengths]
+
+    kwargs = {'interpolation': 'nearest',
+              'cmap': matplotlib.cm.Blues,
+             }
+
+    start_ax.imshow(from_starts_array, **kwargs)
+    end_ax.imshow(from_ends_array, **kwargs)
+
+    index_to_x = {i: x for i, x in enumerate(start_xs)}
+    if zoomed_out:
+        modulus = 30
+    else:
+        modulus = 3
+    xticks = [i for i in range(len(start_xs)) if index_to_x[i] % modulus == 0]
+    xticklabels = [str(index_to_x[i]) for i in xticks]
+
+    start_ax.set_xticks(xticks)
+    start_ax.set_xticklabels(xticklabels)
+
+    start_ax.set_xlabel('Position of read relative to start of CDS')
+    
+    index_to_x = {i: x for i, x in enumerate(end_xs)}
+    xticks = [i for i in range(len(end_xs)) if index_to_x[i] % modulus == 0]
+    xticklabels = [str(index_to_x[i]) for i in xticks]
+
+    end_ax.set_xticks(xticks)
+    end_ax.set_xticklabels(xticklabels)
+
+    end_ax.set_xlabel('Position of read relative to stop codon')
+    
+    y_ticks = np.arange(len(lengths))
+    y_tick_labels = [str(l) for l in lengths]
+    start_ax.set_yticks(y_ticks)
+    start_ax.set_yticklabels(y_tick_labels)
+    end_ax.set_yticks(y_ticks)
+    end_ax.set_yticklabels(y_tick_labels)
+    
+    fig.set_size_inches((len(start_xs) / 3., len(lengths) * 2 / 3.))
+    fig.savefig(figure_fn, bbox_inches='tight')
 
 def plot_frames(from_starts, figure_fn):
     ''' Plots bar graphs of the distribution of reading frame that the 5' end of
@@ -391,3 +446,9 @@ def plot_RPKMs():
             ax.plot([1e-2, 1e5], [1e-2, 1e5], '-', color='red', alpha=0.2)
             ax.set_xlabel(first)
             ax.set_ylabel(second)
+
+if __name__ == '__main__':
+    from Sequencing import Serialize
+    ps = Serialize.read_file('/home/jah/projects/arlen/experiments/test/weinberg/results/test_from_starts_and_ends.hdf5', 'read_positions')
+
+    plot_metagene_positions_heatmap(ps['from_starts'], ps['from_ends'], 'test.pdf', zoomed_out=False)
