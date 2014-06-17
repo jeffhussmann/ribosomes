@@ -9,11 +9,17 @@ organism_dir /home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF
 transcripts_file_name /home/jah/projects/arlen/experiments/weinberg/most_weinberg_transcripts.txt
 relative_results_dir projects/arlen/experiments/{family}/{name}/results
 adapter_type {adapter_type}
-relevant_lengths 27,31
+relevant_lengths {min_relevant_length},{max_relevant_length}
 offset_type yeast
 '''
 
-def make_descriptions(family, adapter_type, max_read_length=None, num_pieces=16):
+def make_descriptions(family,
+                      adapter_type,
+                      max_read_length=None,
+                      min_relevant_length=27,
+                      max_relevant_length=31,
+                      num_pieces=16,
+                     ):
     prefix = '/home/jah/projects/arlen/experiments/{0}/'.format(family)
     bash_fn = '/home/jah/projects/arlen/code/all_{0}.sh'.format(family)
     bash_fh = open(bash_fn, 'w')
@@ -30,6 +36,8 @@ def make_descriptions(family, adapter_type, max_read_length=None, num_pieces=16)
             contents = template.format(family=family,
                                        name=name,
                                        adapter_type=adapter_type,
+                                       min_relevant_length=min_relevant_length,
+                                       max_relevant_length=max_relevant_length,
                                       )
             description_fh.write(contents)
             if max_read_length != None:
