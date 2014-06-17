@@ -783,10 +783,10 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             buffered_codon_counts[name] = {'relaxed': buffered_counts,
                                            'stringent': buffered_counts_stringent,
                                           }
-            num_codons = buffered_counts.extent_length
+            num_codons = buffered_counts.CDS_length
             # + 1 is to include the stop codon
-            codon_counts[name] = buffered_counts[:num_codons + 1]
-            codon_counts_stringent[name] = buffered_counts_stringent[:num_codons + 1]
+            codon_counts[name] = buffered_counts['start_codon', :num_codons + 1]
+            codon_counts_stringent[name] = buffered_counts_stringent['start_codon', :num_codons + 1]
 
         self.write_file('buffered_codon_counts', buffered_codon_counts)
         self.write_file('codon_counts', codon_counts)

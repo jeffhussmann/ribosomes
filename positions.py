@@ -9,7 +9,7 @@ import codons
 import gtf
 import Sequencing.Serialize
 
-class PositionCounts(object):
+class OldPositionCounts(object):
     ''' Wrapper around an array of counts of positions for an extent and for a
         buffer on either edge that allows for indexing relative to the extent's
         start and end.
@@ -173,6 +173,129 @@ class PositionCounts(object):
             adjusted_key = self.adjust_relative_to_end(key)
             self.counts[adjusted_key] = value
 
+
+class PositionCounts(object):
+    ''' Wrapper around an array of counts with annotated landmark positions '''
+    def __init__(self, landmarks, left_buffer, right_buffer, data=None, dtype=np.int32):
+        self.landmarks = landmarks
+        self.left_buffer = left_buffer
+        self.right_buffer = right_buffer
+
+        try:
+            leftmost_name = min(landmarks, key=landmarks.get)
+            leftmost_value = landmarks[leftmost_name]
+            rightmost_name = max(landmarks, key=landmarks.get)
+            rightmost_value = landmarks[rightmost_name]
+        except AttributeError:
+            print landmarks, left_buffer, right_buffer
+            raise
+
+        # For historical reasons, rightmost_value is assumed to point to one
+        # past the 'interesting' region, so that it is the first index of the
+        # left buffer. This means that this is NOT a '+ 1' at the end of this
+        # length expression as might be expected.
+        length = (rightmost_value + right_buffer) - (leftmost_value - left_buffer)
+        self.landmark_to_index = {name: left_buffer + (landmarks[name] - leftmost_value)
+                                  for name in landmarks}
+        
+        if data == None:
+            self.data = np.zeros(length, dtype)
+        else:
+            if len(data) != length:
+                raise ValueError(len(data), length)
+            else:
+                self.data = data
+
+    def adjust_relative_to_landmark(self, landmark, key):
+        if isinstance(key, (int, long)):
+            adjusted_key = self.landmark_to_index[landmark] + key
+            # Note that adjusted_key must be allowed to be equal to
+            # len(self.data) to allow a slice to contain the end point.
+            if adjusted_key < 0 or adjusted_key > len(self.data):
+                raise IndexError(adjusted_key, key, self.landmark_to_index, self.left_buffer, self.right_buffer)
+
+        elif isinstance(key, str):
+            if key not in self.landmark_to_index:
+                raise ValueError(key)
+
+            adjusted_key = self.landmark_to_index[key]
+
+        elif isinstance(key, slice):
+            if key.start == None:
+                start = 0
+            else:
+                start = key.start
+
+            if key.stop == None:
+                raise ValueError('None not allowed as stop in slice')
+            else:
+                stop = key.stop
+
+            if key.step == None:
+                adjusted_step = 1
+            elif key.step < 0:
+                raise ValueError('Negative step not allowed')
+            else:
+                adjusted_step = key.step
+
+            adjusted_start = self.adjust_relative_to_landmark(landmark, start)
+            adjusted_stop = self.adjust_relative_to_landmark(landmark, stop)
+            adjusted_key = slice(adjusted_start, adjusted_stop, adjusted_step)
+
+        elif isinstance(key, (list, np.ndarray)):
+            adjusted_key = [self.adjust_relative_to_landmark(landmark, k) for k in key]
+
+        else:
+            raise TypeError(type(key))
+
+        return adjusted_key
+    
+    def __getitem__(self, landmark_and_key):
+        landmark, key = landmark_and_key
+        adjusted_key = self.adjust_relative_to_landmark(landmark, key)
+        return self.data[adjusted_key]
+
+    def __setitem__(self, landmark_and_key, value):
+        landmark, key = landmark_and_key
+        adjusted_key = self.adjust_relative_to_landmark(landmark, key)
+        self.data[adjusted_key] = value
+    
+    def __iadd__(self, other):
+        if self.landmarks != other.landmarks:
+            raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
+        if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
+            raise ValueError('Unequal buffer lengths')
+        else:
+            self.data += other.data
+
+        return self
+
+    def sum(self):
+        return self.data.sum()
+
+    @property
+    def CDS_length(self):
+        return self.landmarks['stop_codon'] - self.landmarks['start_codon']
+    
+    def __div__(self, other):
+        if isinstance(other, PositionCounts):
+            if self.landmarks != other.landmarks:
+                raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
+            if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
+                raise ValueError('Unequal buffer lengths')
+            else:
+                return PositionCounts(self.landmarks,
+                                      self.left_buffer,
+                                      self.right_buffer,
+                                      data=np.true_divide(self.data, other.data),
+                                     )
+        elif isinstance(other, numbers.Number):
+            return PositionCounts(self.landmarks,
+                                  self.left_buffer,
+                                  self.right_buffer,
+                                  data=np.true_divide(self.data, other),
+                                 )
+
 # Number of nucleotide positions to include on the left and right side of
 # counts of read positions.
 edge_buffer = 50
@@ -194,7 +317,12 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
         nonunique = 0
         alternatively_spliced = 0
 
-        transcript_position_counts = {l: PositionCounts(transcript.transcript_length, left_buffer, right_buffer)
+        landmarks = {'start': 0,
+                     'start_codon': transcript.transcript_start_codon,
+                     'stop_codon': transcript.transcript_stop_codon,
+                     'end': transcript.transcript_length,
+                    }
+        transcript_position_counts = {l: PositionCounts(landmarks, left_buffer, right_buffer)
                                       for l in relevant_lengths + ['all']}
         
         # fetch raises a ValueError if given a negative start, but it doesn't 
@@ -204,7 +332,6 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
         overlapping_reads = bam_file.fetch(transcript.seqname, left_edge, right_edge)
         for read in overlapping_reads:
             if any(position not in transcript.genomic_to_transcript for position in read.positions):
-                # Alternative splicing
                 alternatively_spliced += 1
                 continue
             
@@ -225,20 +352,12 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths):
                 five_prime_position = read.aend - 1
 
             transcript_coord = transcript.genomic_to_transcript[five_prime_position]
-            transcript_position_counts['all'][transcript_coord] += 1
+            transcript_position_counts['all']['start', transcript_coord] += 1
             if read.qlen in relevant_lengths:
-                transcript_position_counts[read.qlen][transcript_coord] += 1
+                transcript_position_counts[read.qlen]['start', transcript_coord] += 1
 
-        CDS_position_counts = {l: PositionCounts(transcript.CDS_length, left_buffer, right_buffer)
-                               for l in relevant_lengths + ['all']}
-
-        for key in CDS_position_counts:
-            CDS_slice = slice(transcript.transcript_start_codon - left_buffer, transcript.transcript_stop_codon + right_buffer)
-            # [:] is to cause an error if the lengths aren't the same.
-            CDS_position_counts[key].counts[:] = transcript_position_counts[key][CDS_slice]
-        
         gene_infos[transcript.name] = {'CDS_length': transcript.CDS_length,
-                                       'position_counts': CDS_position_counts,
+                                       'position_counts': transcript_position_counts,
                                        'expression': expression,
                                        'nonunique': nonunique,
                                        'alternatively_spliced': alternatively_spliced,
@@ -271,8 +390,8 @@ A_site_offsets = {'ingolia_cell': {29: 15,
                  }
 
 def compute_codon_counts(position_counts, offset_type):
-    arbitrary_length_counts = position_counts.values()[0]
-    CDS_length = arbitrary_length_counts.extent_length
+    CDS_length = position_counts.values()[0].CDS_length
+
     if CDS_length % 3 != 0:
         raise ValueError('CDS length not divisible by 3')
 
@@ -281,7 +400,10 @@ def compute_codon_counts(position_counts, offset_type):
     # subsequent data show an accumulation of (typically length 29 or 30) reads
     # that do advance this far.
     num_codons = CDS_length // 3
-    codon_counts = PositionCounts(num_codons, codon_buffer, codon_buffer)
+    codon_counts = PositionCounts({'start_codon': 0, 'stop_codon': num_codons},
+                                  codon_buffer,
+                                  codon_buffer,
+                                 )
 
     recorded_lengths = set(position_counts.keys())
     known_A_site_lengths = set(A_site_offsets[offset_type].keys())
@@ -293,9 +415,9 @@ def compute_codon_counts(position_counts, offset_type):
         in_frame = slice(start_index, end_index, 3)
         one_behind = slice(start_index - 1, end_index - 1, 3)
         one_ahead = slice(start_index + 1, end_index + 1, 3)
-        codon_counts.counts += position_counts[length][in_frame] + \
-                               position_counts[length][one_behind] + \
-                               position_counts[length][one_ahead]
+        codon_counts.data += position_counts[length]['start_codon', in_frame] + \
+                             position_counts[length]['start_codon', one_behind] + \
+                             position_counts[length]['start_codon', one_ahead]
 
     return codon_counts
 
@@ -310,19 +432,22 @@ def compute_metagene_positions(position_counts, max_CDS_length):
     left_buffer = random_position_counts.left_buffer
     right_buffer = random_position_counts.right_buffer
 
-    from_starts = {length: PositionCounts(max_CDS_length, left_buffer, right_buffer)
+    landmarks = {'start_codon': 0,
+                 'stop_codon': max_CDS_length,
+                }
+    from_starts = {length: PositionCounts(landmarks, left_buffer, right_buffer)
                    for length in relevant_lengths}
-    from_ends = {length: PositionCounts(max_CDS_length, left_buffer, right_buffer)
+    from_ends = {length: PositionCounts(landmarks, left_buffer, right_buffer)
                  for length in relevant_lengths}
     
     for name, counts in position_counts.iteritems():
-        CDS_length = counts[random_length].extent_length
-        start_slice = slice(-left_buffer, CDS_length)
-        # This is harmlessly wrong, should be in some sense -right_buffer + 1
-        end_slice = slice(-right_buffer, CDS_length)
+        landmarks = counts[random_length].landmarks
+        CDS_length = landmarks['stop_codon'] - landmarks['start_codon']
+        start_slice = ('start_codon', slice(-left_buffer, CDS_length))
+        end_slice = ('stop_codon', slice(-CDS_length, right_buffer))
         for length in relevant_lengths:
             from_starts[length][start_slice] += counts[length][start_slice]
-            from_ends[length].relative_to_end[end_slice] += counts[length].relative_to_end[end_slice]
+            from_ends[length][end_slice] += counts[length][end_slice]
 
     from_starts_and_ends = {'from_starts': from_starts,
                             'from_ends': from_ends,
@@ -332,10 +457,11 @@ def compute_metagene_positions(position_counts, max_CDS_length):
 def compute_metacodon_counts(codon_counts, gtf_fn, genome_dir):
     window = 30
 
-    metacodon_counts = {codon_id: {'actual': PositionCounts(window, window, 0),
-                                   'uniform': PositionCounts(window, window, 0, dtype=float),
-                                   'sum_of_enrichments': PositionCounts(window, window, 0, dtype=float),
-                                   'num_eligible': PositionCounts(window, window, 0),
+    landmarks = {'codon': 0}
+    metacodon_counts = {codon_id: {'actual': PositionCounts(landmarks, window, window),
+                                   'uniform': PositionCounts(landmarks, window, window, dtype=float),
+                                   'sum_of_enrichments': PositionCounts(landmarks, window, window, dtype=float),
+                                   'num_eligible': PositionCounts(landmarks, window, window),
                                   }
                         for codon_id in codons.non_stop_codons}
 
@@ -355,13 +481,13 @@ def compute_metacodon_counts(codon_counts, gtf_fn, genome_dir):
         for p, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
             if p >= window and p <= num_codons - window:
                 actual_counts = read_counts[p - window:p + window]
-                metacodon_counts[codon_id]['actual'][-window:window] += actual_counts
-                metacodon_counts[codon_id]['uniform'][-window:window] += uniform_counts
+                metacodon_counts[codon_id]['actual']['codon', -window:window] += actual_counts
+                metacodon_counts[codon_id]['uniform']['codon', -window:window] += uniform_counts
                 
                 if density > 0:
                     enrichments = actual_counts / density
-                    metacodon_counts[codon_id]['sum_of_enrichments'][-window:window] += enrichments
-                    metacodon_counts[codon_id]['num_eligible'][-window:window] += num_eligible
+                    metacodon_counts[codon_id]['sum_of_enrichments']['codon', -window:window] += enrichments
+                    metacodon_counts[codon_id]['num_eligible']['codon', -window:window] += num_eligible
 
     return metacodon_counts
 
@@ -406,17 +532,21 @@ def compute_metacodon_counts_nucleotide_resolution(read_positions, gtf_fn, genom
 def compute_averaged_codon_densities(codon_counts, names_to_skip=set()): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
     min_counts = 64
-    max_length = max(counts['relaxed'].extent_length
+    max_length = max(counts['relaxed'].CDS_length
                      for counts in codon_counts.itervalues()
                      if counts['relaxed'].sum() >= min_counts
                     )
 
-    sum_of_normalized_from_start = PositionCounts(max_length, codon_buffer, codon_buffer, dtype=float)
-    sum_of_normalized_from_end = PositionCounts(max_length, codon_buffer, codon_buffer, dtype=float)
-    long_enough_genes_from_start = PositionCounts(max_length, codon_buffer, codon_buffer)
-    long_enough_genes_from_end = PositionCounts(max_length, codon_buffer, codon_buffer)
+    landmarks = {'start_codon': 0,
+                 'stop_codon': max_length,
+                }
+    sum_of_normalized_from_start = PositionCounts(landmarks, codon_buffer, codon_buffer, dtype=float)
+    sum_of_normalized_from_end = PositionCounts(landmarks, codon_buffer, codon_buffer, dtype=float)
+    long_enough_genes_from_start = PositionCounts(landmarks, codon_buffer, codon_buffer)
+    long_enough_genes_from_end = PositionCounts(landmarks, codon_buffer, codon_buffer)
 
-    uniform = PositionCounts(max_length, codon_buffer, codon_buffer, counts=np.ones(max_length + 2 * codon_buffer))
+    uniform = PositionCounts(landmarks, codon_buffer, codon_buffer)
+    uniform.data[...] = 1
 
     for name, counts in codon_counts.iteritems():
         if name in names_to_skip:
@@ -427,17 +557,17 @@ def compute_averaged_codon_densities(codon_counts, names_to_skip=set()):
         if counts.sum() < min_counts:
             continue
 
-        num_codons = counts.extent_length + 2 * codon_buffer
+        num_codons = counts.CDS_length
         density = counts.sum() / float(num_codons)
         normalized = counts / float(density)
         
-        start_slice = slice(-codon_buffer, counts.extent_length + codon_buffer)
+        start_slice = ('start_codon', slice(-codon_buffer, counts.CDS_length + codon_buffer))
         sum_of_normalized_from_start[start_slice] += normalized[start_slice]
         long_enough_genes_from_start[start_slice] += uniform[start_slice]
         
-        end_slice = slice(-codon_buffer + 1, counts.extent_length + 1 + codon_buffer)
-        sum_of_normalized_from_end.relative_to_end[end_slice] += normalized.relative_to_end[end_slice]
-        long_enough_genes_from_end.relative_to_end[end_slice] += uniform.relative_to_end[end_slice]
+        end_slice = ('stop_codon', slice(-(counts.CDS_length + codon_buffer), codon_buffer))
+        sum_of_normalized_from_end[end_slice] += normalized[end_slice]
+        long_enough_genes_from_end[end_slice] += uniform[end_slice]
         
     mean_densities = {'from_start': {'codons': sum_of_normalized_from_start / long_enough_genes_from_start},
                       'from_end': {'codons': sum_of_normalized_from_end / long_enough_genes_from_end},
@@ -447,11 +577,10 @@ def compute_averaged_codon_densities(codon_counts, names_to_skip=set()):
 
 def get_total_read_count(position_counts, exclude_from_start, exclude_from_end):
     # TODO: this needs to be updated to new offset handling strategy
-    CDS_length = position_counts['all'].extent_length
     A_site_offset = 15
     start_index = -A_site_offset + exclude_from_start
-    end_index = CDS_length - A_site_offset + 3 - exclude_from_end
-    count = position_counts['all'][start_index:end_index].sum()
+    end_index = position_counts['all'].CDS_length - A_site_offset + 3 - exclude_from_end
+    count = position_counts['all']['start_codon', start_index:end_index].sum()
     return count
 
 def compute_read_counts(read_positions, exclude_from_start, exclude_from_end):
@@ -460,7 +589,7 @@ def compute_read_counts(read_positions, exclude_from_start, exclude_from_end):
         read_count = get_total_read_count(position_counts, exclude_from_start, exclude_from_end)
         
         expression = np.array([read_count, 0])
-        read_counts[name] = {'CDS_length': position_counts['all'].extent_length,
+        read_counts[name] = {'CDS_length': position_counts['all'].CDS_length - exclude_from_start - exclude_from_end,
                              'expression': expression,
                             }
     return read_counts

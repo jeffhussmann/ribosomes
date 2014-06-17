@@ -29,14 +29,14 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False)
 
     if zoomed_out:
         start_xs = np.arange(-100, 140)
-        end_xs = np.arange(-190, 140)
+        end_xs = np.arange(-140, 190)
     else:
         start_xs = np.arange(-21, 19)
-        end_xs = np.arange(-6, 34)
+        end_xs = np.arange(-34, 6)
 
     for length in relevant_lengths:
-        start_ax.plot(start_xs, from_starts[length][start_xs], '.-', label=length)
-        end_ax.plot(-end_xs, from_ends[length].relative_to_end[end_xs], '.-', label=length)
+        start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
+        end_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
 
     start_ax.set_xlim(min(start_xs), max(start_xs))
     mod_3 = [x for x in start_xs if x % 3 == 0]
@@ -51,9 +51,9 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False)
     start_ax.set_xlabel('Position of read relative to start of CDS')
     start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
     
-    end_ax.set_xlim(min(-end_xs), max(-end_xs))
-    mod_3 = [x for x in -end_xs if x % 3 == 0]
-    mod_30 = [x for x in -end_xs if x % 30 == 0]
+    end_ax.set_xlim(min(end_xs), max(end_xs))
+    mod_3 = [x for x in end_xs if x % 3 == 0]
+    mod_30 = [x for x in end_xs if x % 30 == 0]
     if zoomed_out:
         xticks = mod_30
     else:
@@ -98,13 +98,12 @@ def plot_frames(from_starts, figure_fn):
         leg.get_frame().set_alpha(0.5)
 
     relevant_lengths = sorted(from_starts.keys())
-    extent_length = from_starts[relevant_lengths[0]].extent_length
     fig, axs = plt.subplots(len(relevant_lengths), 1, figsize=(6, 3 * len(relevant_lengths)))
 
     for length, ax in zip(relevant_lengths, axs):
         frames = np.zeros(3, int)
-        for p in range(-15, extent_length):
-            frames[p % 3] += from_starts[length][p]
+        for p in range(-15, from_starts[length].CDS_length - 15 + 3):
+            frames[p % 3] += from_starts[length]['start_codon', p]
 
         frames = np.true_divide(frames, frames.sum())
 
@@ -130,13 +129,13 @@ def plot_averaged_codon_densities(data_sets,
         fig, start_ax = plt.subplots(figsize=(12, 8))
 
     start_xs = np.arange(-past_edge, plot_up_to + 1)
-    end_xs = np.arange(-past_edge + 1, plot_up_to + 1)
+    end_xs = np.arange(-plot_up_to, past_edge)
 
     for name, mean_densities, color_index in data_sets:
         densities = mean_densities['from_start']['codons']
         if smooth:
             densities = smoothed(densities, 5)
-        start_densities = densities[start_xs]
+        start_densities = densities['start_codon', start_xs]
 
         marker = '' if smooth else '.'
         linewidth = 2 if smooth else 1
@@ -153,8 +152,8 @@ def plot_averaged_codon_densities(data_sets,
             densities = mean_densities['from_end']['codons']
             if smooth:
                 densities = smoothed(densities, 5)
-            end_densities = densities.relative_to_end[end_xs]
-            end_ax.plot(-end_xs,
+            end_densities = densities['stop_codon', end_xs]
+            end_ax.plot(end_xs,
                         end_densities,
                         '.-',
                         label=name,
@@ -195,7 +194,7 @@ def plot_averaged_codon_densities(data_sets,
 
 def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=False, keys_to_plot=['actual']):
     random_counts = metacodon_counts['TTT'].itervalues().next()
-    xs = np.arange(-random_counts.left_buffer, random_counts.extent_length)
+    xs = np.arange(-random_counts.left_buffer, random_counts.right_buffer)
 
     bases = 'TCAG'
 
@@ -208,11 +207,11 @@ def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=
         if enrichment:
             average_enrichment = metacodon_counts[codon_id]['sum_of_enrichments'] / metacodon_counts[codon_id]['num_eligible']
             ones = np.ones(len(average_enrichment.counts))
-            ax.plot(xs, average_enrichment.counts, 'o-')
+            ax.plot(xs, average_enrichment.counts['codon', xs], 'o-')
             ax.plot(xs, ones, color='black', alpha=0.5)
         else:
             for key in keys_to_plot:
-                counts = metacodon_counts[codon_id][key].counts
+                counts = metacodon_counts[codon_id][key].data
                 line, = ax.plot(xs, counts, '.-', label=key)
                 if isinstance(key, int):
                     # -key + 1 is the position a read starts at if position 0
