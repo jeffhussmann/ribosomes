@@ -133,6 +133,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('rRNA_coverage_length_28_template', '{name}_rRNA_coverage_length_28_{{0}}.pdf'),
             ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
             ('starts_and_ends', '{name}_starts_and_ends.pdf'),
+            ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
             ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
             ('starts_and_ends_remapped', '{name}_starts_and_ends_remapped.pdf'),
             ('starts_and_ends_remapped_zoomed_out', '{name}_starts_and_ends_remapped_zoomed_out.pdf'),
@@ -552,6 +553,10 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                           from_starts_and_ends['from_ends'],
                                           self.figure_file_names['starts_and_ends'],
                                          )
+        visualize.plot_metagene_positions_heatmap(from_starts_and_ends['from_starts'],
+                                                  from_starts_and_ends['from_ends'],
+                                                  self.figure_file_names['starts_and_ends_heatmap'],
+                                                 )
         
         visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
                                           from_starts_and_ends['from_ends'],
