@@ -367,10 +367,14 @@ def compute_metacodon_counts_nucleotide_resolution(read_positions, gtf_fn, genom
 def compute_averaged_codon_densities(codon_counts, names_to_skip=set()): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
     min_counts = 64
-    max_length = max(counts['relaxed'].CDS_length
-                     for counts in codon_counts.itervalues()
-                     if counts['relaxed'].sum() >= min_counts
-                    )
+    try:
+        max_length = max(counts['relaxed'].CDS_length
+                         for counts in codon_counts.itervalues()
+                         if counts['relaxed'].sum() >= min_counts
+                        )
+    except ValueError:
+        # max() arg is an empty sequence
+        max_length = 100
 
     landmarks = {'start_codon': 0,
                  'stop_codon': max_length,
