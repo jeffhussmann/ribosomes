@@ -289,81 +289,6 @@ def compute_metagene_positions(position_counts, max_CDS_length):
                            }
     return from_starts_and_ends
 
-def compute_metacodon_counts(codon_counts, gtf_fn, genome_dir):
-    window = 30
-
-    landmarks = {'codon': 0}
-    metacodon_counts = {codon_id: {'actual': PositionCounts(landmarks, window, window),
-                                   'uniform': PositionCounts(landmarks, window, window, dtype=float),
-                                   'sum_of_enrichments': PositionCounts(landmarks, window, window, dtype=float),
-                                   'num_eligible': PositionCounts(landmarks, window, window),
-                                  }
-                        for codon_id in codons.non_stop_codons}
-
-    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir)
-
-    for name, read_counts in codon_counts.iteritems():
-        coding_sequence = coding_sequence_fetcher(name)
-        if coding_sequence == None:
-            continue
-
-        total_counts = codon_counts[name].sum()
-        num_codons = len(codon_counts[name])
-        density = float(total_counts) / num_codons
-        uniform_counts = np.full(2 * window, density)
-        num_eligible = np.ones(2 * window)
-
-        for p, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
-            if p >= window and p <= num_codons - window:
-                actual_counts = read_counts[p - window:p + window]
-                metacodon_counts[codon_id]['actual']['codon', -window:window] += actual_counts
-                metacodon_counts[codon_id]['uniform']['codon', -window:window] += uniform_counts
-                
-                if density > 0:
-                    enrichments = actual_counts / density
-                    metacodon_counts[codon_id]['sum_of_enrichments']['codon', -window:window] += enrichments
-                    metacodon_counts[codon_id]['num_eligible']['codon', -window:window] += num_eligible
-
-    return metacodon_counts
-
-def compute_metacodon_counts_nucleotide_resolution(read_positions, gtf_fn, genome_dir):
-    minus_window = 40
-    plus_window = 40
-
-    random_gene = read_positions.iterkeys().next()
-    length_keys = read_positions[random_gene].keys()
-
-    dinucleotides =  list(''.join(pair) for pair in itertools.product('TCAG', repeat=2))
-    keys = codons.non_stop_codons + ['T', 'C', 'A', 'G'] + dinucleotides
-
-    metacodon_counts = {key: {length: PositionCounts(plus_window, minus_window, 0)
-                              for length in length_keys
-                             }
-                        for key in keys}
-
-    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir)
-
-    for name, read_counts in read_positions.iteritems():
-        coding_sequence = coding_sequence_fetcher(name)
-        if coding_sequence == None:
-            continue
-
-        for c, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
-            p = 3 * c
-            if p >= minus_window and p <= len(coding_sequence) - plus_window:
-                for length in length_keys:
-                    actual_counts = read_positions[name][length][p - minus_window:p + plus_window]
-                    
-                    metacodon_counts[codon_id][length][-minus_window:plus_window] += actual_counts
-
-                    metacodon_counts[codon_id[0]][length][-minus_window:plus_window] += actual_counts
-                    
-                    #dinucleotide = codon_id[:2]
-                    dinucleotide = coding_sequence[p - 1:p + 1]
-                    metacodon_counts[dinucleotide][length][-minus_window:plus_window] += actual_counts
-
-    return metacodon_counts
-
 def compute_averaged_codon_densities(codon_counts, names_to_skip=set()): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
     min_counts = 64
@@ -413,6 +338,45 @@ def compute_averaged_codon_densities(codon_counts, names_to_skip=set()):
                      }
 
     return mean_densities
+
+def compute_metacodon_counts(read_positions, gtf_fn, genome_dir):
+    left_buffer = 50
+    right_buffer = 50
+
+    # Figure out what lengths were recorded.
+    random_gene = read_positions.iterkeys().next()
+    length_keys = read_positions[random_gene].keys()
+
+    dinucleotides =  list(''.join(pair) for pair in product('TCAG', repeat=2))
+    features_keys = codons.non_stop_codons + ['T', 'C', 'A', 'G'] + dinucleotides
+
+    metacodon_counts = {features_key: {length: PositionCounts({'feature': 0}, left_buffer, right_buffer)
+                                       for length in length_keys
+                                      }
+                        for features_key in features_keys}
+
+    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir)
+
+    for name, read_counts in read_positions.iteritems():
+        coding_sequence = coding_sequence_fetcher(name)
+        if coding_sequence == None:
+            continue
+
+        for c, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
+            p = 3 * c
+            if p >= left_buffer and p <= len(coding_sequence) - right_buffer:
+                p_slice = ('start_codon', slice(p - left_buffer, p + left_buffer))
+                for length in length_keys:
+                    actual_counts = read_positions[name][length][p_slice]
+                    
+                    feature_slice = ('feature', slice(-left_buffer, right_buffer))
+                    metacodon_counts[codon_id][length][feature_slice] += actual_counts
+                    nucleotide = codon_id[0]
+                    metacodon_counts[nucleotide][length][feature_slice] += actual_counts
+                    dinucleotide = codon_id[:2]
+                    metacodon_counts[dinucleotide][length][feature_slice] += actual_counts
+
+    return metacodon_counts
 
 def get_total_read_count(position_counts, exclude_from_start, exclude_from_end):
     # TODO: this needs to be updated to new offset handling strategy
