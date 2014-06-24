@@ -37,6 +37,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
     def __init__(self, **kwargs):
         map_reduce.MapReduceExperiment.__init__(self, **kwargs)
 
+        self.group = kwargs['group']
         self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
