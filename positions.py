@@ -318,7 +318,9 @@ def compute_averaged_codon_densities(codon_counts, names_to_skip=set()):
                         )
     except ValueError:
         # max() arg is an empty sequence
-        max_length = 100
+        max_length = 10000
+
+    max_length = max(max_length, 2000)
 
     landmarks = {'start_codon': 0,
                  'stop_codon': max_length,
