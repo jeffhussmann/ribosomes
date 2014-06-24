@@ -131,6 +131,25 @@ class PositionCounts(object):
                                   data=np.true_divide(self.data, other),
                                  )
 
+def convert_to_three_prime(position_counts, length):
+    ''' Shift position counts that represent 5' edges of fragments of given
+        length to represetnt 3' edges.
+    '''
+    if length >= len(position_counts.data):
+        # All counts will be destroyed, so just return zeros.
+        three_prime_counts = PositionCounts(position_counts.landmarks,
+                                            position_counts.left_buffer,
+                                            position_counts.right_buffer,
+                                           )
+    else:
+        converted_data = np.concatenate((np.zeros(length - 1), position_counts.data[:-(length - 1)]))
+        three_prime_counts = PositionCounts(position_counts.landmarks,
+                                            position_counts.left_buffer,
+                                            position_counts.right_buffer,
+                                            data=converted_data,
+                                           )
+    return three_prime_counts
+
 # Number of nucleotide positions to include on the left and right side of
 # counts of read positions.
 edge_buffer = 50
