@@ -295,8 +295,7 @@ def compute_metagene_positions(position_counts, max_CDS_length):
                  for length in relevant_lengths}
     
     for name, counts in position_counts.iteritems():
-        landmarks = counts[random_length].landmarks
-        CDS_length = landmarks['stop_codon'] - landmarks['start_codon']
+        CDS_length = counts[random_length].CDS_length
         start_slice = ('start_codon', slice(-left_buffer, CDS_length))
         end_slice = ('stop_codon', slice(-CDS_length, right_buffer))
         for length in relevant_lengths:
