@@ -830,26 +830,12 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('read_counts_exclude_edges', read_counts_exclude_edges)
 
     def compute_metacodon_counts(self):
-        codon_counts = self.read_file('codon_counts')
-        metacodon_counts = positions.compute_metacodon_counts(codon_counts,
+        read_positions = self.load_read_positions()
+        metacodon_counts = positions.compute_metacodon_counts(read_positions,
                                                               self.file_names['genes'],
                                                               self.file_names['genome'],
                                                              )
         self.write_file('metacodon_counts', metacodon_counts)
-
-        #codon_counts_stringent = positions.read_codon_counts_file(self.file_names['codon_counts_stringent'])
-        #metacodon_counts_stringent = positions.compute_metacodon_counts(codon_counts_stringent,
-        #                                                                self.file_names['genes'],
-        #                                                                self.file_names['genome'],
-        #                                                               )
-        #self.write_file('metacodon_counts_stringent', metacodon_counts_stringent)
-        #
-        #read_positions = self.load_read_positions()
-        #metacodon_counts_nucleotide_resolution = positions.compute_metacodon_counts_nucleotide_resolution(read_positions,
-        #                                                                                                  self.file_names['genes'],
-        #                                                                                                  self.file_names['genome'],
-        #                                                                                                 )
-        #self.write_file('metacodon_counts_nucleotide_resolution', metacodon_counts_nucleotide_resolution)
 
     def compute_mean_densities(self):
         codon_counts = self.read_file('buffered_codon_counts', merged=True)
