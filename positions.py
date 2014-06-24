@@ -47,7 +47,7 @@ class PositionCounts(object):
             # Note that adjusted_key must be allowed to be equal to
             # len(self.data) to allow a slice to contain the end point.
             if adjusted_key < 0 or adjusted_key > len(self.data):
-                raise IndexError(adjusted_key, key, self.landmark_to_index, self.left_buffer, self.right_buffer)
+                raise IndexError(len(self.data), adjusted_key, key, self.landmark_to_index, self.left_buffer, self.right_buffer)
 
         elif isinstance(key, str):
             if key not in self.landmark_to_index:
