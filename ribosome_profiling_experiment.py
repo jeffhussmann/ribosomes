@@ -145,6 +145,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             ('starts_and_ends', '{name}_starts_and_ends.pdf'),
             ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
             ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
+            ('starts_and_ends_heatmap_zoomed_out', '{name}_starts_and_ends_heatmap_zoomed_out.pdf'),
             ('starts_and_ends_remapped', '{name}_starts_and_ends_remapped.pdf'),
             ('starts_and_ends_remapped_zoomed_out', '{name}_starts_and_ends_remapped_zoomed_out.pdf'),
             ('mean_densities', '{name}_mean_densities.pdf'),
@@ -582,6 +583,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                           self.figure_file_names['starts_and_ends_zoomed_out'],
                                           zoomed_out=True,
                                          )
+        visualize.plot_metagene_positions_heatmap(from_starts_and_ends['from_starts'],
+                                                  from_starts_and_ends['from_ends'],
+                                                  self.figure_file_names['starts_and_ends_heatmap_zoomed_out'],
+                                                  zoomed_out=True,
+                                                 )
         
         from_starts_and_ends_remapped = self.read_file('from_starts_and_ends_remapped')
 
