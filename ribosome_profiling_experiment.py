@@ -486,49 +486,58 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                 yield_file.write(line)
 
     def plot_lengths(self):
-        too_short_lengths = self.read_file('too_short_lengths')
-        rRNA_lengths = self.read_file('rRNA_lengths')
-        synthetic_lengths = self.read_file('synthetic_lengths')
-        tRNA_lengths = self.read_file('tRNA_lengths')
-        other_ncRNA_lengths = self.read_file('other_ncRNA_lengths')
-        unmapped_lengths = self.read_file('unmapped_lengths')
-        clean_lengths = self.read_file('clean_lengths')
 
-        if self.adapter_type == 'polyA':
-            unambiguous_lengths = self.read_file('unambiguous_lengths')
+        max_interesting_length = 50
+
+        lengths = {'too short': (self.read_file('too_short_lengths'), 'purple'),
+                   'rRNA': (self.read_file('rRNA_lengths'), 'red'),
+                   'synthetic': (self.read_file('synthetic_lengths'), 'orange'),
+                   'tRNA': (self.read_file('tRNA_lengths'), 'blue'),
+                   'other ncRNA': (self.read_file('other_ncRNA_lengths'), 'black'),
+                   'unmapped': (self.read_file('unmapped_lengths'), 'cyan'),
+                   'clean': (self.read_file('clean_lengths'), 'green'),
+                  }
 
         fig_all, ax_all = plt.subplots(figsize=(12, 8))
     
-        ax_all.plot(rRNA_lengths, '.-', label='rRNA', color='red')
-        ax_all.plot(synthetic_lengths, '.-', label='synthetic', color='orange')
-        ax_all.plot(tRNA_lengths, '.-', label='tRNA', color='blue')
-        ax_all.plot(other_ncRNA_lengths, '.-', label='other_ncRNA', color='black')
-        ax_all.plot(unmapped_lengths, '.-', label='unmapped', color='cyan')
-        ax_all.plot(too_short_lengths, '.-', label='too short', color='purple')
-        ax_all.plot(clean_lengths, '.-', label='clean', color='green')
-        ax_all.set_xlim(0, self.max_read_length)
-        ax_all.set_title('Fragment length distribution by source')
+        for key, (counts, color) in lengths.items():
+            if len(counts) != self.max_read_length + 1:
+                raise ValueError
+
+            if self.max_read_length > max_interesting_length:
+                counts[max_interesting_length] = counts[max_interesting_length:].sum()
+                counts[max_interesting_length + 1:] = 0
+            ax_all.plot(counts, '.-', label=key, color=color)
+
+        ax_all.set_xlim(0, max_interesting_length)
+        ax_all.set_title('{0}\n{1}\nFragment length distribution by source'.format(self.group, self.name))
         ax_all.set_xlabel('Length of original RNA fragment')
         ax_all.set_ylabel('Number of reads')
         ax_all.legend(loc='upper left', framealpha=0.5)
         fig_all.savefig(self.figure_file_names['all_lengths'])
+        plt.close(fig_all)
         
         fig_clean, ax_clean = plt.subplots(figsize=(12, 8))
         
-        normalized_clean_lengths = np.true_divide(clean_lengths, clean_lengths.sum())
-        ax_clean.plot(normalized_clean_lengths, '.-', label='clean', color='green')
         if self.adapter_type == 'polyA':
-            normalized_unambiguous_lengths = np.true_divide(unambiguous_lengths, unambiguous_lengths.sum())
-            ax_clean.plot(normalized_unambiguous_lengths, '.-', label='unambiguous', color='blue')
+            lengths['unambiguous'] = (self.read_file('unambiguous_lengths'), 'blue')
+
+        for key in ('clean', 'unambiguous'):
+            if key in lengths:
+                counts, color = lengths[key]
+                normalized_counts = np.true_divide(counts, counts.sum())
+                ax_clean.plot(normalized_counts, '.-', label=key, color=color)
+        
         ax_clean.axvspan(27.5, 28.5, color='green', alpha=0.2)
-        ax_clean.set_xlim(0, self.max_read_length)
+        ax_clean.set_xlim(0, max_interesting_length)
         ax_clean.legend()
-        ax_clean.set_title('Fragment length distribution by source')
+        ax_clean.set_title('{0}\n{1}\nFragment length distribution by source'.format(self.group, self.name))
         ax_clean.set_xlabel('Length of original RNA fragment')
         ax_clean.set_ylabel('Fraction of clean reads')
         ax_clean.legend(loc='upper left', framealpha=0.5)
     
         fig_clean.savefig(self.figure_file_names['clean_lengths'])
+        plt.close(fig_clean)
 
     def plot_rRNA_coverage(self):
         trimmed_lengths = self.read_file('trimmed_lengths')
