@@ -6,6 +6,7 @@ from collections import Counter
 from Sequencing import genomes, utilities, fastq
 from Circles.annotation import Annotation_factory
 from trim_cython import *
+from Sequencing.adapters_cython import *
 
 payload_annotation_fields = [
     ('original_name', 's'),
@@ -69,23 +70,17 @@ finders = {'truseq':        (lambda seq: 0,
            'linker':        (lambda seq: 0,
                              partial(find_adapter, smRNA_linker[:adapter_prefix_length], max_distance),
                             ),
-           'linker_short':  (lambda seq: 0,
-                             partial(find_short_adapter, smRNA_linker),
-                            ),
            'polyA':         (lambda seq: 0,
                              find_poly_A,
                             ),
            'weinberg':      (lambda seq: 8,
-                             partial(find_short_adapter, bartel_linker),
-                            ),
-           'bartel_medium': (lambda seq: 0,
-                             partial(find_medium_adapter, bartel_linker),
+                             partial(find_adapter, bartel_linker[:adapter_prefix_length], max_distance),
                             ),
            'nothing':       (lambda seq: 0,
                              len,
                             ),
            'jeff':          (find_jeff_start,
-                             partial(find_short_adapter, smRNA_linker),
+                             partial(find_adapter, smRNA_linker[:adapter_prefix_length], max_distance),
                             ),
           }
 
