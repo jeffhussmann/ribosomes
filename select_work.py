@@ -3,6 +3,8 @@ import glob
 import ribosome_profiling_experiment
 import subprocess
 import numpy as np
+import visualize
+from collections import Counter
 
 def build_all_experiments(verbose=True):
     families = ['zinshteyn_plos_genetics',
@@ -98,3 +100,60 @@ def make_counts_array_file(exclude_edges=False):
         for gene_name, row in zip(gene_names, full_array):
             fh.write('{0}\t'.format(gene_name))
             fh.write('{0}\n'.format('\t'.join(map(str, row))))
+
+def make_restricted_starts_and_ends_plots():
+    all_experiments = build_all_experiments(verbose=False)
+
+    relevant_lengths = range(19, 25)
+    for name in all_experiments['lareau_elife']:
+        if 'Anisomycin' in name or 'Untreated' in name:
+            print name
+            experiment = all_experiments['lareau_elife'][name]
+            position_counts = experiment.read_file('from_starts_and_ends')
+            #visualize.plot_metagene_positions(position_counts['from_starts'],
+            #                                  position_counts['from_ends'],
+            #                                  experiment.figure_file_names['starts_and_ends'],
+            #                                  relevant_lengths=relevant_lengths,
+            #                                 )
+            visualize.plot_metacodon_positions(position_counts['from_starts'],
+                                               experiment.figure_file_names['starts_and_ends'],
+                                               key='start_codon',
+                                              )
+
+def make_mismatch_position_plots():
+    all_experiments = build_all_experiments(verbose=False)
+
+    for group in all_experiments:
+        for name in all_experiments[group]:
+            if group == 'dunn_elife':
+                continue
+            print name
+            experiment = all_experiments[group][name]
+            #experiment.plot_mismatch_positions()
+            #experiment.plot_starts_and_ends()
+            experiment.plot_lengths()
+
+def make_multipage_pdf(figure_name):
+    all_experiments = build_all_experiments(verbose=False)
+    all_fn = '/home/jah/projects/arlen/results/all_{0}.pdf'.format(figure_name)
+    fns = []
+    for group in sorted(all_experiments):
+        if group == 'dunn_elife':
+            continue
+        for name in sorted(all_experiments[group]):
+            fns.append(all_experiments[group][name].figure_file_names[figure_name])
+
+    pdftk_command = ['pdftk'] + fns + ['cat', 'output', all_fn]
+    subprocess.check_call(pdftk_command)
+
+def get_read_lengths():
+    all_experiments = build_all_experiments(verbose=False)
+    read_lengths = Counter()
+    for group in sorted(all_experiments):
+        for name in sorted(all_experiments[group]):
+            experiment = all_experiments[group][name]
+            read_lengths[experiment.max_read_length] += 1
+            if experiment.max_read_length == 76:
+                print group, name
+    print read_lengths.most_common()
+
