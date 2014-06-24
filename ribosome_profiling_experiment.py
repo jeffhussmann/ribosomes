@@ -60,7 +60,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             start, stop = map(int, length_range.split(','))
             self.relevant_lengths = range(start, stop + 1)
         
-        self.min_length = 10
+        self.min_length = 12
         
         specific_results_files = [
             ('clean_composition', array_3d, '{name}_clean_composition.npy'),
