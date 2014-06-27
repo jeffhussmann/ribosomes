@@ -73,7 +73,7 @@ def get_ratios(first, second):
     ratios = {key: np.divide(float(first[key]), second[key]) for key in first}
     return ratios
 
-def error_profile(bam_file_name, simple_CDSs, relevant_lengths, max_read_length):
+def error_profile(bam_file_name, CDSs, relevant_lengths, max_read_length):
     type_shape = (len(relevant_lengths),
                   max_read_length,
                   fastq.MAX_EXPECTED_QUAL + 1,
@@ -84,7 +84,7 @@ def error_profile(bam_file_name, simple_CDSs, relevant_lengths, max_read_length)
     length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
 
     bamfile = pysam.Samfile(bam_file_name, 'rb')
-    for CDS in simple_CDSs:
+    for CDS in CDSs:
         reads = bamfile.fetch(CDS.seqname,
                               CDS.start - edge_buffer,
                               CDS.end + edge_buffer,
@@ -95,7 +95,7 @@ def error_profile(bam_file_name, simple_CDSs, relevant_lengths, max_read_length)
                 continue
             elif read.qlen not in relevant_lengths:
                 continue
-            elif sam.contains_indel_pysam(read):
+            elif sam.contains_indel_pysam(read) or sam.contains_splicing_pysam(read):
                 continue
             else:
                 strand = '-' if read.is_reverse else '+'
@@ -113,6 +113,8 @@ def error_profile(bam_file_name, simple_CDSs, relevant_lengths, max_read_length)
                     for ref_char, read_char, qual, ref_pos, read_pos in alignment:
                         ref_index = index_lookup[ref_char]
                         read_index = index_lookup[read_char]
+                        if strand == '-':
+                            read_pos = read.qlen - 1 - read_pos
                         coords = (length_to_index[read.qlen],
                                   read_pos,
                                   qual,
