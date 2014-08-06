@@ -16,27 +16,6 @@ colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
 # excludes genes that have another gene within 50 bp.
 edge_buffer = 50
 
-def map_tophat(reads_file_names,
-               bowtie2_index,
-               gtf_file_name,
-               transcriptome_index,
-               tophat_dir,
-               num_threads=1,
-              ):
-    tophat_command = ['tophat2',
-                      '--GTF', gtf_file_name,
-                      '--no-novel-juncs',
-                      '--num-threads', str(num_threads),
-                      #'--bt2-mm',
-                      '--output-dir', tophat_dir,
-                      '--transcriptome-index', transcriptome_index,
-                      bowtie2_index,
-                      ','.join(reads_file_names),
-                     ]
-    # tophat maintains its own logs of everything that is written to the
-    # console, so discard output.
-    subprocess.check_output(tophat_command, stderr=subprocess.STDOUT)
-
 def determine_ambiguity_of_positions(extent, genome_index):
     edge_overlap = 50
 
@@ -146,19 +125,3 @@ def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
                 ratio_lists[amino_acid][first_codon, second_codon].append(ratio)
         
     return ratio_lists
-
-def trim_polyA_from_unmapped(unmapped_bam_file_name,
-                             trimmed_fastq_file_name,
-                             min_length,
-                             max_read_length,
-                             second_time=False,
-                            ):
-    reads = (fastq.Read(read.qname, read.seq, read.qual) for read in pysam.Samfile(unmapped_bam_file_name))
-    trim.trim(reads,
-              trimmed_fastq_file_name,
-              min_length,
-              max_read_length,
-              lambda seq: 0,
-              trim.find_poly_A,
-              second_time=second_time,
-             )
