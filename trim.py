@@ -1,4 +1,5 @@
 import numpy as np
+import string
 import pysam
 from functools import partial
 from itertools import chain
@@ -11,12 +12,25 @@ from Sequencing.adapters_cython import *
 payload_annotation_fields = [
     ('original_name', 's'),
     ('barcode', 's'),
-    ('trimmed', 's'),
+    ('trimmed_seq', 's'),
+    ('trimmed_qual', 's'),
 ]
 PayloadAnnotation = Annotation_factory(payload_annotation_fields)
 
-trimmed_twice_annotation_fields = payload_annotation_fields + [('retrimmed', 's')]
+retrimmed_fields = [('retrimmed_seq', 's'),
+                    ('retrimmed_qual', 's'),
+                   ]
+trimmed_twice_annotation_fields = payload_annotation_fields + retrimmed_fields
 TrimmedTwiceAnnotation = Annotation_factory(trimmed_twice_annotation_fields)
+
+_sanitize_table = string.maketrans('/', '.')
+def sanitize_qual(qual):
+    ''' If '/' is in a qname, bowtie/tophat truncate the rest of the qname.
+        If qual strings of trimmed portions of reads are to be put in qnames,
+        '/' needs to be downgraded to chr(ord('/') - 1) = '.'
+    '''
+    sanitized = qual.translate(_sanitize_table)
+    return sanitized
 
 def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end, second_time=False):
     ''' Wrapper that handles the logistics of trimming reads given functions
@@ -38,16 +52,19 @@ def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end, s
             else:
                 trimmed_lengths[length] += 1
                 barcode = read.seq[:start]
-                trimmed = read.seq[end:]
+                trimmed_seq = read.seq[end:]
+                trimmed_qual = sanitize_qual(read.qual[end:])
                 barcode_counts[barcode] += 1
                 if second_time:
                     payload_annotation = PayloadAnnotation.from_identifier(read.name)
-                    annotation = TrimmedTwiceAnnotation(retrimmed=trimmed,
+                    annotation = TrimmedTwiceAnnotation(retrimmed_seq=trimmed_seq,
+                                                        retrimmed_qual=trimmed_qual,
                                                         **payload_annotation)
                 else:
                     annotation = PayloadAnnotation(original_name=read.name,
                                                    barcode=barcode,
-                                                   trimmed=trimmed,
+                                                   trimmed_seq=trimmed_seq,
+                                                   trimmed_qual=trimmed_qual,
                                                   )
                 trimmed_record = fastq.make_record(annotation.identifier,
                                                    read.seq[start:end],
@@ -60,6 +77,7 @@ def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end, s
 truseq_R2_rc = 'AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC'
 smRNA_linker = 'CTGTAGGCACCATCAAT'
 bartel_linker = 'TCGTATGCCGTCTTCTGCTTG'
+smRNA_15_linker = 'TGGAATTCTCGGGTGCCAAGG'
 
 adapter_prefix_length = 10
 max_distance = 1
@@ -69,6 +87,9 @@ finders = {'truseq':        (lambda seq: 0,
                             ),
            'linker':        (lambda seq: 0,
                              partial(find_adapter, smRNA_linker[:adapter_prefix_length], max_distance),
+                            ),
+           'linker_15':     (lambda seq: 0,
+                             partial(find_adapter, smRNA_15_linker[:adapter_prefix_length], max_distance),
                             ),
            'polyA':         (lambda seq: 0,
                              find_poly_A,
