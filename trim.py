@@ -120,3 +120,115 @@ def unambiguously_trimmed(bam_fn, unambiguous_bam_fn, genome_dir):
                 unambiguous_bam_fh.write(read)
 
     pysam.index(unambiguous_bam_fn)
+
+def trim_polyA_from_unmapped(unmapped_bam_file_name,
+                             trimmed_fastq_file_name,
+                             min_length,
+                             max_read_length,
+                             second_time=False,
+                            ):
+    reads = (fastq.Read(read.qname, read.seq, read.qual) for read in pysam.Samfile(unmapped_bam_file_name))
+    trim(reads,
+         trimmed_fastq_file_name,
+         min_length,
+         max_read_length,
+         lambda seq: 0,
+         find_poly_A,
+         second_time=second_time,
+        )
+
+def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir):
+    bam_file = pysam.Samfile(bam_fn)
+    region_fetcher = genomes.build_region_fetcher(genome_dir,
+                                                  load_references=True,
+                                                  sam_file=bam_file,
+                                                 )
+    with pysam.Samfile(extended_bam_fn, 'wb', template=bam_file) as extended_bam_file:
+        for mapping in bam_file:
+            if mapping.is_unmapped:
+                extended_bam_file.write(mapping)
+                continue
+
+            payload_annotation = PayloadAnnotation.from_identifier(mapping.qname)
+            num_trimmed = len(payload_annotation['trimmed_seq'])
+            
+            if mapping.is_reverse:
+                after = region_fetcher(mapping.tid, mapping.pos - num_trimmed, mapping.pos)
+                after = utilities.reverse_complement(after)
+            else:
+                after = region_fetcher(mapping.tid, mapping.aend, mapping.aend + num_trimmed)
+
+            extra_genomic_As = 0
+            for b in after:
+                if b == 'A':
+                    extra_genomic_As += 1
+                else:
+                    break
+
+            nongenomic_length = num_trimmed - extra_genomic_As
+
+            if mapping.is_reverse:
+                nongenomic_start = mapping.pos - 1 - extra_genomic_As
+            else:
+                # Note: 'aend points to one past the last aligned residue'
+                nongenomic_start = mapping.aend + extra_genomic_As
+
+            extra_genomic_seq = payload_annotation['trimmed_seq'][:extra_genomic_As]
+            soft_clipped_seq = payload_annotation['trimmed_seq'][extra_genomic_As:]
+            extra_genomic_qual = payload_annotation['trimmed_qual'][:extra_genomic_As]
+            soft_clipped_qual = payload_annotation['trimmed_qual'][extra_genomic_As:]
+
+            extra_seq = extra_genomic_seq + soft_clipped_seq
+            extra_qual = extra_genomic_qual + soft_clipped_qual
+
+            if mapping.is_reverse:
+                final_cigar_block_index = 0
+                extended_seq = utilities.reverse_complement(extra_seq) + mapping.seq
+                extended_qual = extra_qual[::-1] + mapping.qual
+                mapping.pos = mapping.pos - extra_genomic_As
+            else:
+                final_cigar_block_index = -1
+                extended_seq = mapping.seq + extra_seq
+                extended_qual = mapping.qual + extra_qual
+
+            # Note: writing to mapping.seq destroys mapping.qual, so
+            # mapping.qual needs to be retrieved above
+            mapping.seq = extended_seq
+            mapping.qual = extended_qual
+
+            op, length = mapping.cigar[final_cigar_block_index]
+            if op != 0:
+                raise ValueError
+            length += extra_genomic_As
+            
+            updated_cigar = mapping.cigar
+            updated_cigar[final_cigar_block_index] = (op, length)
+            if len(soft_clipped_seq) > 0:
+                soft_clipped_block = [(4, len(soft_clipped_seq))]
+                if final_cigar_block_index == 0:
+                    updated_cigar = soft_clipped_block + updated_cigar
+                elif final_cigar_block_index == -1:
+                    updated_cigar = updated_cigar + soft_clipped_block
+
+            mapping.cigar = updated_cigar
+
+            if mapping.tags:
+                # Clear the MD tag since the possible addition of bases to the
+                # alignment may have made it inaccurate. 
+                filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
+                mapping.tags = filtered_tags
+
+            set_nongenomic_length(mapping, nongenomic_length)
+
+            mapping.qname = '{0}_{1}'.format(payload_annotation['original_name'],
+                                             payload_annotation['barcode'],
+                                            )
+            extended_bam_file.write(mapping)
+
+def get_nongenomic_length(mapping):
+    tags = {name: value for name, value in mapping.tags}
+    nongenomic_length = tags['ZN']
+    return nongenomic_length
+
+def set_nongenomic_length(mapping, nongenomic_length):
+    mapping.setTag('ZN', nongenomic_length)
