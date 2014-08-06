@@ -9,27 +9,31 @@ def is_an_int(string):
         return False
     return True
 
+def build_gene(group):
+    gene = {} 
+    for key in group:
+        dataset = group[key]
+        data = dataset[...]
+        attrs = dict(dataset.attrs.items())
+        left_buffer = attrs.pop('left_buffer')
+        right_buffer = attrs.pop('right_buffer')
+        landmarks = attrs
+
+        if is_an_int(key):
+            key = int(key)
+
+        gene[key] = positions.PositionCounts(landmarks,
+                                             left_buffer,
+                                             right_buffer,
+                                             data=data,
+                                            )
+    return gene
+
 def read_file(file_name):
     genes = {}
     with h5py.File(file_name, 'r') as hdf5_file:
         for gene_name in hdf5_file:
-            genes[gene_name] = {}
-            for key in hdf5_file[gene_name]:
-                dataset = hdf5_file[gene_name][key]
-                data = dataset[...]
-                attrs = dict(dataset.attrs.items())
-                left_buffer = attrs.pop('left_buffer')
-                right_buffer = attrs.pop('right_buffer')
-                landmarks = attrs
-
-                if is_an_int(key):
-                    key = int(key)
-
-                genes[gene_name][key] = positions.PositionCounts(landmarks,
-                                                                 left_buffer,
-                                                                 right_buffer,
-                                                                 data=data,
-                                                                )
+            genes[gene_name] = build_gene(hdf5_file[gene_name])
     return genes
 
 def write_file(genes, file_name):
@@ -51,6 +55,9 @@ def combine_data(first_genes, second_genes):
         if gene_name not in first_genes:
             first_genes[gene_name] = second_genes[gene_name]
         else:
-            for length in first_genes[gene_name]:
-                first_genes[gene_name][length] += second_genes[gene_name][length] 
+            for key in second_genes[gene_name]:
+                if key not in first_genes[gene_name]:
+                    first_genes[gene_name][key] = second_genes[gene_name][key]
+                else:
+                    first_genes[gene_name][key] += second_genes[gene_name][key] 
     return first_genes
