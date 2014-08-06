@@ -5,159 +5,129 @@ import trim
 import os
 import pysam
 import glob
-from collections import Counter, defaultdict
+from collections import Counter
 from itertools import izip, chain
-from Sequencing import fastq, fasta, utilities, mapping_tools, sam
+from Sequencing import fastq, utilities, mapping_tools, sam, genomes
+from Circles.annotation import Annotation_factory
 from Sequencing.Parallel import map_reduce, split_file
-from Sequencing.utilities import reverse_complement, counts_to_array
-from Circles import adapters
-from Circles.adapters import find_adapter_positions, simple_hamming_distance
+from Sequencing.Serialize import array_1d, array_2d, counts, sparse_joint_counts
+from Serialize import read_positions
+from Sequencing.utilities import counts_to_array
 import TIF_seq_structure
-
-mp1  = 'AGCGCTT'
-mp5  = 'CACTGTT'
-mp19 = 'ATTCCGT'
-mp22 = 'GTATAGT'
-mp34 = 'GCTACCT'
-mp37 = 'CGAAACT'
-
-forwards = {'middle': ('AGGCGGCCGCTAT', 1),
-            'left_A': ('CTCC', 0),
-            'left_B': ('GTGG', 0),
-            'right_A': ('CACTCTGAGCAATACC', 2),
-            'right_B': ('ATCACTCTGAGCAATACC', 2),
-           }
-
-reverses = {}
-for key, (string, mismatches) in forwards.items():
-    if 'left' in key:
-        new_key = key.replace('left', 'right')
-    elif 'right' in key:
-        new_key = key.replace('right', 'left')
-    else:
-        new_key = key
-    reverses[new_key] = (utilities.reverse_complement(string), mismatches)
-
-# For reference:
-#CTCC AGGCGGCCGCTAT CACTCTGAGCAATACC
-#GTGG AGGCGGCCGCTAT ATCACTCTGAGCAATACC
-
-#  GGTATTGCTCAGAGTG ATAGCGGCCGCCT GGAG
-#GGTATTGCTCAGAGTGAT ATAGCGGCCGCCT CCAC
-
-#  GGTATTGCTCAGAGTG   ATAGCGGCCGCCT GGAG
-#  GGTATTGCTCAGAGTG   ATATAGCGGCCGCCT CCAC
+import rna_experiment
+import positions
+import visualize
+import three_p_experiment
 
 orientations = ['R1_forward', 'R1_reverse', 'R2_forward', 'R2_reverse']
 
-def trim_read_pairs(read_pairs):
-    num_to_trim = len(mp1)
-    def trim_read(read):
-        return fastq.Read(read.name, read.seq[num_to_trim:], read.qual[num_to_trim:])
-    for R1, R2 in read_pairs:
-        yield trim_read(R1), trim_read(R2)
+class TIFSeqExperiment(rna_experiment.RNAExperiment):
+    num_stages = 2
 
-class TIFSeqExperiment(map_reduce.MapReduceExperiment):
-    num_stages = 1
+    specific_results_files = [
+        ('five_prime_boundaries', 'fastq', '{name}_five_prime_boundaries.fastq'),
+        ('three_prime_boundaries', 'fastq', '{name}_three_prime_boundaries.fastq'),
+        ('R1_forward_positions', array_1d, '{name}_R1_forward_positions.txt'),
+        ('R1_reverse_positions', array_1d, '{name}_R1_reverse_positions.txt'),
+        ('R2_forward_positions', array_1d, '{name}_R2_forward_positions.txt'),
+        ('R2_reverse_positions', array_1d, '{name}_R2_reverse_positions.txt'),
+        ('polyA_lengths', array_1d, '{name}_polyA_lengths.txt'),
+        ('joint_lengths', array_2d, '{name}_joint_lengths.txt'),
+        ('control_ids', counts, '{name}_control_ids.txt'),
+        ('left_ids', counts, '{name}_left_ids.txt'),
+        ('right_ids', counts, '{name}_right_ids.txt'),
+
+        ('five_prime_tophat_dir', 'dir', 'tophat_five_prime'),
+        ('five_prime_accepted_hits', 'bam', 'tophat_five_prime/accepted_hits.bam'),
+        ('five_prime_unmapped', 'bam', 'tophat_five_prime/unmapped.bam'),
+        ('five_prime_sorted_by_name', 'bam', '{name}_five_prime_by_name.bam'),
+        ('five_prime_read_positions', read_positions, '{name}_five_prime_read_positions.hdf5'),
+
+        ('three_prime_tophat_dir', 'dir', 'tophat_three_prime'),
+        ('three_prime_accepted_hits', 'bam', 'tophat_three_prime/accepted_hits.bam'),
+        ('three_prime_unmapped', 'bam', 'tophat_three_prime/unmapped.bam'),
+        ('three_prime_sorted_by_name', 'bam', '{name}_three_prime_by_name.bam'),
+        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
+
+        ('combined', 'bam', '{name}_combined.bam'),
+        ('combined_extended', 'bam', '{name}_combined_extended.bam'),
+        ('combined_extended_sorted', 'bam', '{name}_combined_extended_sorted.bam'),
+        
+        ('nongenomic_lengths', array_1d, '{name}_nongenomic_lengths.txt'),
+
+        ('joint_positions', sparse_joint_counts, '{name}_joint_positions.txt'),
+    ]
+
+    specific_figure_files = [
+        ('positions', '{name}_positions.pdf'),
+        ('polyA_lengths', '{name}_polyA_lengths.pdf'),
+    ]
+
+    specific_outputs = [
+        ['R1_forward_positions',
+         'R1_reverse_positions',
+         'R2_forward_positions',
+         'R2_reverse_positions',
+         'polyA_lengths',
+         'control_ids',
+         'left_ids',
+         'right_ids',
+         'joint_lengths',
+         'combined_extended_sorted',
+        ],
+        ['five_prime_read_positions',
+         'three_prime_read_positions',
+         'from_starts_and_ends',
+         'joint_positions',
+        ],
+    ]
+
+    specific_work = [
+        ['extract_boundary_sequences',
+         'map_tophat',
+         'sort_by_name',
+         'combine_mappings',
+         'extend_mappings',
+        ],
+        ['get_read_positions',
+         'get_metagene_positions',
+        ],
+    ]
+
+    specific_cleanup = [
+        ['plot_positions',
+         'plot_polyA_lengths',
+        ],
+        ['plot_starts_and_ends',
+        ],
+    ]
 
     def __init__(self, **kwargs):
-        map_reduce.MapReduceExperiment.__init__(self, **kwargs)
+        super(TIFSeqExperiment, self).__init__(**kwargs)
 
-        self.data_dir = kwargs['data_dir']
-
-        self.bowtie2_index = kwargs['bowtie2_index']
-
-        specific_results_files = [
-            ('five_prime_boundaries', 'fastq', '{name}_five_prime_boundaries.fastq'),
-            ('three_prime_boundaries', 'fastq', '{name}_three_prime_boundaries.fastq'),
-            ('R1_forward_positions', 'array_1d', '{name}_R1_forward_positions.txt'),
-            ('R1_reverse_positions', 'array_1d', '{name}_R1_reverse_positions.txt'),
-            ('R2_forward_positions', 'array_1d', '{name}_R2_forward_positions.txt'),
-            ('R2_reverse_positions', 'array_1d', '{name}_R2_reverse_positions.txt'),
-            ('polyA_lengths', 'array_1d', '{name}_polyA_lengths.txt'),
-            ('control_ids', 'counts', '{name}_control_ids.txt'),
-            ('mapped_sam', 'sam_unsorted', '{name}_mapped.sam'),
-            ('mapped_bam', 'bam', '{name}_mapped.bam'),
-            ('mapped_bam_sorted', 'bam', '{name}_mapped_sorted.bam'),
-        ]
-
-        specific_figure_files = [
-            ('positions', '{name}_positions.pdf'),
-            ('polyA_lengths', '{name}_polyA_lengths.pdf'),
-        ]
-
-        specific_outputs = [
-            ['R1_forward_positions',
-             'R1_reverse_positions',
-             'R2_forward_positions',
-             'R2_reverse_positions',
-             'polyA_lengths',
-             'control_ids',
-             'mapped_bam_sorted',
-            ],
-        ]
-
-        specific_work = [
-            [(self.extract_boundary_sequences, 'Extracting boundary sequences'),
-             (self.map, 'Mapping'),
-             (self.filter_mappings, 'Filtering mappings'),
-            ],
-        ]
-
-        specific_cleanup = [
-            [self.plot_positions,
-             self.plot_polyA_lengths,
-             self.index_bam,
-            ],
-        ]
-
-        self.results_files.extend(specific_results_files)
-        self.figure_files.extend(specific_figure_files)
-        map_reduce.extend_stages(self.outputs, specific_outputs)
-        map_reduce.extend_stages(self.work, specific_work)
-        map_reduce.extend_stages(self.cleanup, specific_cleanup)
-
-        self.make_file_names()
-    
-    def get_read_pairs(self):
-        data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
-        fn_pairs = defaultdict(lambda: {1: None, 2: None})
-        for data_fn in data_fns:
-            head, tail = os.path.split(data_fn)
-            root, ext = os.path.splitext(tail)
-            # Expect root to end in either 1 or 2
-            prefix, which_member = root[:-1], int(root[-1])
-            fn_pairs[prefix][which_member] = data_fn 
-
-        read_pairs_list = []
-
-        for prefix in sorted(fn_pairs):
-            R1_fn = fn_pairs[prefix][1]
-            R2_fn = fn_pairs[prefix][2]
-
-            if R1_fn == None or R2_fn == None:
-                raise ValueError('unpaired file names in data_dir')
-
-            R1_lines = split_file.piece(R1_fn, self.num_pieces, self.which_piece, 'fastq')
-            R2_lines = split_file.piece(R2_fn, self.num_pieces, self.which_piece, 'fastq')
-            read_pairs = fastq.read_pairs(R1_lines, R2_lines, ensure_sanger_encoding=True)
-            read_pairs_list.append(read_pairs)
+        self.min_payload_length = 12
         
-        all_read_pairs = chain.from_iterable(read_pairs_list)
-
-        return all_read_pairs
+    def trim_barcodes(self, read_pairs):
+        num_to_trim = len(TIF_seq_structure.barcodes['mp1'])
+        def trim_read(read):
+            return fastq.Read(read.name, read.seq[num_to_trim:], read.qual[num_to_trim:])
+        for R1, R2 in read_pairs:
+            yield trim_read(R1), trim_read(R2)
 
     def extract_boundary_sequences(self):
         read_pairs = self.get_read_pairs()
-        trimmed_read_pairs = trim_read_pairs(read_pairs)
+        trimmed_read_pairs = self.trim_barcodes(read_pairs)
 
         total_reads = 0
+        well_formed = 0
         long_enough = 0
     
         counters = {'positions': {orientation: Counter() for orientation in orientations},
                     'control_ids': Counter(),
                     'polyA_lengths': Counter(),
-                    'well_formed': 0,
+                    'left_ids': Counter(),
+                    'right_ids': Counter(),
+                    'joint_lengths': Counter(),
                    }
 
         with open(self.file_names['five_prime_boundaries'], 'w') as fives_fh, \
@@ -165,61 +135,226 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
 
             for R1, R2 in trimmed_read_pairs:
                 total_reads += 1
-                five_record, three_record = TIF_seq_structure.find_boundary_sequences(R1, R2, counters)
-                if five_record and three_record:
-                    long_enough += 1
-                    fives_fh.write(five_record)
-                    threes_fh.write(three_record)
+                five_payload_read, three_payload_read = TIF_seq_structure.find_boundary_sequences(R1, R2, counters)
+                if five_payload_read and three_payload_read:
+                    well_formed += 1
+                    if len(five_payload_read.seq) >= self.min_payload_length and \
+                       len(three_payload_read.seq) >= self.min_payload_length:
+                        long_enough += 1
+                        fives_fh.write(fastq.make_record(*five_payload_read))
+                        threes_fh.write(fastq.make_record(*three_payload_read))
 
         for orientation in orientations:
             key = '{0}_{1}'.format(orientation, 'positions')
             array = counts_to_array(counters['positions'][orientation])
             self.write_file(key, array)
 
+        self.write_file('left_ids', counters['left_ids'])
+        self.write_file('right_ids', counters['right_ids'])
         self.write_file('control_ids', counters['control_ids'])
         self.write_file('polyA_lengths', counts_to_array(counters['polyA_lengths']))
+        self.write_file('joint_lengths', counts_to_array(counters['joint_lengths'], dim=2))
 
         self.log.extend(
             [('Total read pairs', total_reads),
-             ('Well-formed read pairs', counters['well_formed']),
+             ('Well-formed', well_formed),
              ('Long enough', long_enough),
             ],
         )
 
-    def map(self):
-        mapping_tools.map_bowtie2_paired(self.file_names['five_prime_boundaries'],
-                                         self.file_names['three_prime_boundaries'],
-                                         self.bowtie2_index,
-                                         self.file_names['mapped_sam'],
-                                         threads=1,
-                                         forward_forward=True,
-                                         max_insert_size=10000,
-                                        )
+    def map_tophat(self):
+        mapping_tools.map_tophat([self.file_names['five_prime_boundaries']],
+                                 self.file_names['bowtie2_index_prefix'],
+                                 self.file_names['genes'],
+                                 self.file_names['transcriptome_index'],
+                                 self.file_names['five_prime_tophat_dir'],
+                                )
+        mapping_tools.map_tophat([self.file_names['three_prime_boundaries']],
+                                 self.file_names['bowtie2_index_prefix'],
+                                 self.file_names['genes'],
+                                 self.file_names['transcriptome_index'],
+                                 self.file_names['three_prime_tophat_dir'],
+                                )
 
-    def filter_mappings(self):
-        sam_file = pysam.Samfile(self.file_names['mapped_sam'])
-        with pysam.Samfile(self.file_names['mapped_bam'], 'wb', template=sam_file) as bam_file:
-            read_pairs = izip(*[sam_file]*2)
-            for R1, R2 in read_pairs:
-                if R1.qname != R2.qname:
+    def sort_by_name(self):
+        for edge in ['five', 'three']:
+            accepted_fn = self.file_names['{}_prime_accepted_hits'.format(edge)]
+            accepted_prefix, _ = os.path.splitext(accepted_fn)
+            accepted_sorted_fn = '{}_sorted.bam'.format(accepted_prefix)
+
+            unmapped_fn = self.file_names['{}_prime_unmapped'.format(edge)]
+            unmapped_prefix, _ = os.path.splitext(unmapped_fn)
+            unmapped_sorted_fn = '{}_sorted.bam'.format(unmapped_prefix)
+
+            merged_fn = self.file_names['{}_prime_sorted_by_name'.format(edge)]
+
+            sam.sort_bam(accepted_fn, accepted_sorted_fn, by_name=True)
+            sam.sort_bam(unmapped_fn, unmapped_sorted_fn, by_name=True)
+            pysam.merge('-nf', merged_fn, accepted_sorted_fn, unmapped_sorted_fn)
+
+    def combine_mappings(self):
+        num_unmapped = 0
+        num_five_unmapped = 0
+        num_three_unmapped = 0
+        num_nonunique = 0
+        num_discordant = 0
+        num_concordant = 0
+
+        five_prime_mappings = pysam.Samfile(self.file_names['five_prime_sorted_by_name'])
+        three_prime_mappings = pysam.Samfile(self.file_names['three_prime_sorted_by_name'])
+
+        five_prime_grouped = utilities.group_by(five_prime_mappings, lambda m: m.qname)
+        three_prime_grouped = utilities.group_by(three_prime_mappings, lambda m: m.qname)
+        with pysam.Samfile(self.file_names['combined'], 'wb', template=five_prime_mappings) as combined_bam_file:
+            group_pairs = izip(five_prime_grouped, three_prime_grouped)
+            for (five_qname, five_group), (three_qname, three_group) in group_pairs:
+                five_annotation = trim.PayloadAnnotation.from_identifier(five_qname)
+                three_annotation = trim.PayloadAnnotation.from_identifier(three_qname)
+                if five_annotation['original_name'] != three_annotation['original_name']:
                     # Ensure that the iteration through pairs is in sync.
+                    print five_qname, three_qname
                     raise ValueError
-                if R1.is_unmapped or \
-                   R2.is_unmapped or \
-                   R1.mapq < 40 or \
-                   R2.mapq < 40 or \
-                   R1.tid != R2.tid or \
-                   abs(R1.tlen) > 10000:
+
+                five_unmapped = any(m.is_unmapped for m in five_group)
+                three_unmapped = any(m.is_unmapped for m in three_group)
+                if five_unmapped:
+                    num_five_unmapped += 1
+                if three_unmapped:
+                    num_three_unmapped += 1
+                if five_unmapped or three_unmapped:
+                    num_unmapped += 1
                     continue
 
-                bam_file.write(R1)
-                bam_file.write(R2)
+                five_nonunique = len(five_group) > 1 or any(m.mapq < 40 for m in five_group)
+                three_nonunique = len(three_group) > 1 or any(m.mapq < 40 for m in three_group)
+                if five_nonunique or three_nonunique:
+                    num_nonunique += 1
+                    continue
+                
+                five_m = five_group.pop()
+                three_m = three_group.pop()
 
-        sam.sort_bam(self.file_names['mapped_bam'], self.file_names['mapped_bam_sorted'])
+                five_strand = '-' if five_m.is_reverse else '+'
+                three_strand = '-' if three_m.is_reverse else '+'
 
-    def index_bam(self):
-        pysam.index(self.file_names['mapped_bam_sorted'])
+                tlen = max(five_m.aend, three_m.aend) - min(five_m.pos, three_m.pos)
+                discordant = (five_m.tid != three_m.tid) or (five_strand) != (three_strand) or (tlen > 10000) 
+                if discordant:
+                    num_discordant += 1
+                    continue
+                
+                if five_strand == '+':
+                    first_read = five_m
+                    second_read = three_m
+                elif five_strand == '-':
+                    first_read = three_m
+                    second_read = five_m
+                
+                gap = second_read.pos - first_read.aend
+                if gap < 0:
+                    num_discordant += 1
+                    continue
+                
+                combined_read = pysam.AlignedRead()
+                # qname needs to come from three_m to include trimmed As
+                combined_read.qname = three_m.qname
+                combined_read.tid = five_m.tid
+                combined_read.seq = first_read.seq + second_read.seq
+                combined_read.qual = first_read.qual + second_read.qual
+                combined_read.cigar = first_read.cigar + [(3, gap)] + second_read.cigar
+                combined_read.pos = first_read.pos
+                combined_read.is_reverse = first_read.is_reverse
+                combined_read.mapq = min(first_read.mapq, second_read.mapq)
+                combined_read.rnext = -1
+                combined_read.pnext = -1
+                
+                num_concordant += 1
 
+                combined_bam_file.write(combined_read)
+
+        self.log.extend(
+            [('Unmapped', num_unmapped),
+             ('Five prime unmapped', num_five_unmapped),
+             ('Three prime unmapped', num_three_unmapped),
+             ('Nonunique', num_nonunique),
+             ('Discordant', num_discordant),
+             ('Concordant', num_concordant),
+            ],
+        )
+
+    def extend_mappings(self):
+        trim.extend_polyA_ends(self.file_names['combined'],
+                               self.file_names['combined_extended'],
+                               self.file_names['genome'],
+                              )
+
+        sam.sort_bam(self.file_names['combined_extended'],
+                     self.file_names['combined_extended_sorted'],
+                    )
+    
+    def get_read_positions(self):
+        piece_CDSs, max_gene_length = self.get_CDSs()
+        five_prime_gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['combined_extended_sorted'],
+                                                                         piece_CDSs,
+                                                                         relevant_lengths=[],
+                                                                         left_buffer=500,
+                                                                         right_buffer=500,
+                                                                        )
+        
+        self.five_prime_read_positions = {name: info['position_counts']
+                                          for name, info in five_prime_gene_infos.iteritems()}
+
+        self.write_file('five_prime_read_positions', self.five_prime_read_positions)
+        
+
+        three_prime_gene_infos = positions.get_Transcript_polyA_position_counts(self.merged_file_names['combined_extended_sorted'],
+                                                                                piece_CDSs,
+                                                                                max_relevant_length=5,
+                                                                                left_buffer=500,
+                                                                                right_buffer=500,
+                                                                               )
+        self.three_prime_read_positions = {name: info['position_counts']
+                                          for name, info in three_prime_gene_infos.iteritems()}
+
+        self.write_file('three_prime_read_positions', self.three_prime_read_positions)
+
+        joint_position_counts = {}
+        for transcript in piece_CDSs:
+            counts = positions.get_joint_position_counts_sparse(self.merged_file_names['combined_extended_sorted'],
+                                                                transcript,
+                                                                left_buffer=500,
+                                                                right_buffer=500,
+                                                               )
+            joint_position_counts[transcript.name] = counts
+
+        self.write_file('joint_positions', joint_position_counts)
+
+    def get_metagene_positions(self):
+        piece_CDSs, max_gene_length = self.get_CDSs()
+
+        five_prime_read_positions = self.load_read_positions(modifier='five_prime')
+        three_prime_read_positions = self.load_read_positions(modifier='three_prime')
+
+        processed_read_positions = {}
+        for name in five_prime_read_positions:
+            gene = {'five_prime': five_prime_read_positions[name]['all'],
+                    'three_prime_genomic': three_prime_read_positions[name][0],
+                    'three_prime_nongenomic': three_prime_read_positions[name]['all'] - three_prime_read_positions[name][0],
+                   }
+            processed_read_positions[name] = gene
+
+        from_starts_and_ends = positions.compute_metagene_positions(processed_read_positions, max_gene_length)
+        self.write_file('from_starts_and_ends', from_starts_and_ends)
+    
+    def plot_starts_and_ends(self):
+        from_starts_and_ends = self.read_file('from_starts_and_ends')
+
+        visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
+                                          from_starts_and_ends['from_ends'],
+                                          self.figure_file_names['starts_and_ends_zoomed_out'],
+                                          zoomed_out=True,
+                                         )
+        
     def plot_positions(self):
         fig, ax = plt.subplots()
 
@@ -242,6 +377,23 @@ class TIFSeqExperiment(map_reduce.MapReduceExperiment):
 
         ax.legend(loc='upper right', framealpha=0.5)
         fig.savefig(self.figure_file_names['polyA_lengths'])
+
+
+    def get_joint_position_counts(self, gene_name):
+        CDSs, _ = self.get_CDSs()
+        CDS_dict = {t.name: t for t in CDSs}
+        transcript = CDS_dict[gene_name]
+
+        joint_position_counts = positions.get_joint_position_counts_sparse(self.file_names['combined_extended_sorted'],
+                                                                           transcript,
+                                                                          )
+        return joint_position_counts, transcript
+
+    def get_total_eligible_reads(self):
+        log_pairs = self.read_file('log')
+        log_dict = {name: values[0] for name, values in log_pairs}
+        total_mapped_reads = log_dict['Nonunique'] + log_dict['Concordant']
+        return total_mapped_reads
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
