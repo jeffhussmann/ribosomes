@@ -7,76 +7,32 @@ import explore_UTRs
 from Sequencing import Serialize
 import scipy.stats
 
-RPKM_fns = {'ingolia': {'mRNA': '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_RPKMs.txt',
-                        'RPF': '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_RPKMs.txt',
-                       },
-            'ingolia2': {'mRNA': '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-2/results/mRNA-rich-2_RPKMs.txt',
-                         'RPF': '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_RPKMs.txt',
-                        },
-            'weinberg': {'RiboZero': '/home/jah/projects/arlen/experiments/weinberg/RiboZero/results/RiboZero_RPKMs.txt',
-                         'mRNA': '/home/jah/projects/arlen/experiments/weinberg/RiboZero/results/RiboZero_RPKMs.txt',
-                         'RiboMinus': '/home/jah/projects/arlen/experiments/weinberg/RiboMinus/results/RiboMinus_RPKMs.txt',
-                         'Dynabeads': '/home/jah/projects/arlen/experiments/weinberg/Dynabeads/results/Dynabeads_RPKMs.txt',
-                         'Unselected': '/home/jah/projects/arlen/experiments/weinberg/Unselected/results/Unselected_RPKMs.txt',
-                         'RPF': '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_RPKMs.txt',
-                        }
-           }
-
-read_counts_fns = {#'ingolia': {'mRNA_1': '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_counts.txt',
-                   #            'RPF_1': '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-1/results/Footprints-rich-1_read_counts.txt',
-                   #            'mRNA_2': '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-2/results/mRNA-rich-2_read_counts.txt',
-                   #            'RPF_2': '/home/jah/projects/arlen/experiments/ingolia_science/Footprints-rich-2/results/Footprints-rich-2_read_counts.txt',
-                   #           },
-                   #'weinberg': {'RiboZero': '/home/jah/projects/arlen/experiments/weinberg/RiboZero/results/RiboZero_read_counts.txt',
-                   #             'mRNA': '/home/jah/projects/arlen/experiments/weinberg/RiboZero/results/RiboZero_read_counts.txt',
-                   #             'RiboMinus': '/home/jah/projects/arlen/experiments/weinberg/RiboMinus/results/RiboMinus_read_counts.txt',
-                   #             'Dynabeads': '/home/jah/projects/arlen/experiments/weinberg/Dynabeads/results/Dynabeads_read_counts.txt',
-                   #             'Unselected': '/home/jah/projects/arlen/experiments/weinberg/Unselected/results/Unselected_read_counts.txt',
-                   #             'RPF': '/home/jah/projects/arlen/experiments/weinberg/RPF/results/RPF_read_counts.txt',
-                   #            },
-                   #'mcmanus': {'RPF_1': '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_Ribo-seq_Rep_1/results/S._cerevisiae_Ribo-seq_Rep_1_read_counts.txt',
-                   #            'mRNA_1': '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_RNA-seq_Rep_1/results/S._cerevisiae_RNA-seq_Rep_1_read_counts.txt',
-                   #           },
-                   #'belgium': {'RPF': '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_sample/results/WT_cDNA_sample_read_counts.txt',
-                   #            'mRNA': '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_mRNA/results/WT_cDNA_mRNA_read_counts.txt',
-                   #           },
-                   #'gerashchenko': {'RPF': '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_foot/results/Initial_rep1_foot_read_counts.txt',
-                   #                 'mRNA': '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_mRNA/results/Initial_rep1_mRNA_read_counts.txt',
-                   #                },
-                   #'guydosh': {'RPF': '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_CHX/results/wild-type_CHX_read_counts.txt',
-                   #            'mRNA': '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_mRNA-Seq/results/wild-type_mRNA-Seq_read_counts.txt',
-                   #           },
-                   'zinshteyn': {'RPF': '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_Ribosome_Footprint_1/results/WT_Ribosome_Footprint_1_read_counts.txt',
-                                 'mRNA': '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_counts.txt',
-                                },
-                  }
-
 bad_gene_names = {'YER109C', 'YOR031W'}
 
-RPKMs = {}
-for experiment in RPKM_fns:
-    RPKMs[experiment] = {}
-    for kind in RPKM_fns[experiment]:
-        RPKMs[experiment][kind] = ribosomes.read_RPKMs_file(RPKM_fns[experiment][kind])
-
-random_experiment = RPKMs.keys().pop()
-random_type = RPKMs[random_experiment].keys().pop()
-gene_names = sorted(RPKMs[random_experiment][random_type].keys())
-gene_names = [name for name in gene_names if name not in bad_gene_names]
-
-arrays = {}
-for experiment in RPKM_fns:
-    arrays[experiment] = {}
-    for kind in RPKMs[experiment]:
-        dictionary = RPKMs[experiment][kind]
-        arrays[experiment][kind] = np.asarray([dictionary[name] for name in gene_names]) + 1e-3
-
-TEs = {}
-for experiment in arrays:
-    TEs[experiment] = {}
-    for kind in RPKMs[experiment]:
-        if kind != 'RPF':
-            TEs[experiment][kind] = np.log2(arrays[experiment]['RPF']) - np.log2(arrays[experiment][kind])
+#RPKMs = {}
+#for experiment in RPKM_fns:
+#    RPKMs[experiment] = {}
+#    for kind in RPKM_fns[experiment]:
+#        RPKMs[experiment][kind] = ribosomes.read_RPKMs_file(RPKM_fns[experiment][kind])
+#
+#random_experiment = RPKMs.keys().pop()
+#random_type = RPKMs[random_experiment].keys().pop()
+#gene_names = sorted(RPKMs[random_experiment][random_type].keys())
+#gene_names = [name for name in gene_names if name not in bad_gene_names]
+#
+#arrays = {}
+#for experiment in RPKM_fns:
+#    arrays[experiment] = {}
+#    for kind in RPKMs[experiment]:
+#        dictionary = RPKMs[experiment][kind]
+#        arrays[experiment][kind] = np.asarray([dictionary[name] for name in gene_names]) + 1e-3
+#
+#TEs = {}
+#for experiment in arrays:
+#    TEs[experiment] = {}
+#    for kind in RPKMs[experiment]:
+#        if kind != 'RPF':
+#            TEs[experiment][kind] = np.log2(arrays[experiment]['RPF']) - np.log2(arrays[experiment][kind])
 
 def colored_scatter(x_list, y_list, x_label, y_label, title, ax_scatter):
     sampled_points = np.vstack([x_list[:10000], y_list[:10000]])

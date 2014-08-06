@@ -16,6 +16,7 @@ import composition
 import gtf
 import codons
 import visualize
+import rna_experiment
 from Sequencing import mapping_tools, fastq, sam, utilities
 from Sequencing.Parallel import map_reduce, piece_of_list, split_file
 from Sequencing.Serialize import (array_1d,
@@ -31,17 +32,188 @@ from Serialize import (read_positions,
                       )
 from Circles import Visualize
 
-class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
+class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     num_stages = 2
+    
+    specific_results_files = [
+        ('clean_composition', array_3d, '{name}_clean_composition.npy'),
+        ('clean_composition_perfect', array_3d, '{name}_clean_composition_perfect.npy'),
+        ('quality', array_2d, '{name}_quality.txt'),
+
+        ('bowtie_error', '', '{name}_bowtie_error.txt'),
+        ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
+        ('rRNA_filtered_reads', 'fastq', '{name}_rRNA_filtered.fastq'), 
+        ('synthetic_filtered_reads', 'fastq', '{name}_synthetic_filtered.fastq'), 
+
+        ('too_short_lengths', array_1d, '{name}_too_short_lengths.txt'),
+        ('trimmed_lengths', array_1d, '{name}_trimmed_lengths.txt'),
+        ('tRNA_lengths', array_1d, '{name}_tRNA_lengths.txt'),
+        ('rRNA_lengths', array_1d, '{name}_rRNA_lengths.txt'),
+        ('synthetic_lengths', array_1d, '{name}_synthetic_lengths.txt'),
+        ('other_ncRNA_lengths', array_1d, '{name}_ncRNA_lengths.txt'),
+        ('clean_lengths', array_1d, '{name}_clean_lengths.txt'),
+        ('unmapped_lengths', array_1d, '{name}_unmapped_lengths.txt'),
+        ('unambiguous_lengths', array_1d, '{name}_unambiguous_lengths.txt'),
+        ('oligo_hit_lengths', array_2d, '{name}_oligo_hit_lengths.txt'),
+
+        ('rRNA_sam', 'sam', '{name}_rRNA.sam'),
+        ('rRNA_bam', 'bam', '{name}_rRNA.bam'),
+        ('synthetic_sam', 'sam', '{name}_synthetic.sam'),
+        ('synthetic_bam', 'bam', '{name}_synthetic.bam'),
+        ('clean_bam', 'bam', '{name}_clean.bam'),
+        ('more_rRNA_bam', 'bam', '{name}_more_rRNA.bam'),
+        ('more_rRNA_bam_sorted', 'bam', '{name}_more_rRNA_sorted.bam'),
+        ('tRNA_bam', 'bam', '{name}_tRNA.bam'),
+        ('tRNA_bam_sorted', 'bam', '{name}_tRNA_sorted.bam'),
+        ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
+        ('other_ncRNA_bam_sorted', 'bam', '{name}_other_ncRNA_sorted.bam'),
+        ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
+
+        ('mismatches', mismatches, '{name}_mismatches.npy'),
+
+        ('read_positions', read_positions, '{name}_read_positions.hdf5'),
+        ('read_positions_remapped', read_positions, '{name}_read_positions_remapped.hdf5'),
+        ('unambiguous_read_positions', read_positions, '{name}_unambiguous_read_positions.hdf5'),
+        ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
+        ('unambiguous_from_starts', read_positions, '{name}_unambiguous_from_starts.hdf5'),
+        ('from_starts_and_ends_remapped', read_positions, '{name}_from_starts_and_ends_remapped.hdf5'),
+        ('codon_counts', codon_counts, '{name}_codon_counts.txt'),
+        ('codon_counts_anisomycin', codon_counts, '{name}_codon_counts_anisomycin.txt'),
+        ('codon_counts_stringent', codon_counts, '{name}_codon_counts_stringent.txt'),
+        ('buffered_codon_counts', read_positions, '{name}_buffered_codon_counts.hdf5'),
+        ('metacodon_counts', read_positions, '{name}_metacodon_counts.hdf5'),
+        ('mean_densities', read_positions, '{name}_mean_densities.hdf5'),
+        ('mean_densities_anisomycin', read_positions, '{name}_mean_densities_anisomycin.hdf5'),
+        ('mean_densities_no_misannotated', read_positions, '{name}_mean_densities_no_misannotated.hdf5'),
+        ('RPKMs', RPKMs, '{name}_RPKMs.txt'),
+        ('RPKMs_exclude_edges', RPKMs, '{name}_RPKMs_exclude_edges.txt'),
+        ('read_counts', expression, '{name}_read_counts.txt'),
+        ('read_counts_exclude_edges', expression, '{name}_read_counts_exclude_edges.txt'),
+
+        ('rRNA_coverage', coverage, '{name}_rRNA_coverage.txt'),
+        ('rRNA_coverage_length_28', coverage, '{name}_rRNA_coverage_length_28.txt'),
+        ('dominant_stretches', 'PH', '{name}_dominant_stretches.txt'),
+
+        ('unmapped_trimmed_fastq', 'fastq', '{name}_unmapped_trimmed.fastq'),
+        ('tophat_remapped_polyA_dir', 'dir', 'tophat_remapped_polyA'),
+        ('remapped_accepted_hits', 'bam', 'tophat_remapped_polyA/accepted_hits.bam'),
+        ('remapped_clean_bam', 'bam', '{name}_remapped_clean.bam'),
+    
+        ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
+
+        ('reciprocal_rates', 'pickle', '{name}_reciprocal_rates.pkl'),
+
+        ('yield', '', '{name}_yield.txt'),
+    ]
+
+    specific_figure_files = [
+        ('quality', '{name}_quality.png'),
+        ('clean_composition', '{name}_clean_composition.pdf'),
+        ('clean_composition_perfect', '{name}_clean_composition_perfect.pdf'),
+        ('all_lengths', '{name}_all_lengths.pdf'),
+        ('clean_lengths', '{name}_clean_lengths.pdf'),
+        ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
+        ('rRNA_coverage_length_28_template', '{name}_rRNA_coverage_length_28_{{0}}.pdf'),
+        ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
+        ('starts_and_ends', '{name}_starts_and_ends.pdf'),
+        ('starts', '{name}_starts.pdf'),
+        ('ends', '{name}_ends.pdf'),
+        ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
+        ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
+        ('starts_and_ends_heatmap_zoomed_out', '{name}_starts_and_ends_heatmap_zoomed_out.pdf'),
+        ('starts_and_ends_remapped', '{name}_starts_and_ends_remapped.pdf'),
+        ('starts_and_ends_remapped_zoomed_out', '{name}_starts_and_ends_remapped_zoomed_out.pdf'),
+        ('mean_densities', '{name}_mean_densities.pdf'),
+        ('mean_densities_anisomycin', '{name}_mean_densities_anisomycin.pdf'),
+        ('mismatch_positions', '{name}_mismatch_positions.png'),
+        ('first_mismatch_types', '{name}_first_mismatch_types.png'),
+        ('last_mismatch_types', '{name}_last_mismatch_types.png'),
+        ('frames', '{name}_frames.pdf'),
+        ('unambiguous_frames', '{name}_unambiguous_frames.pdf'),
+        ('metacodon_counts', '{name}_metacodon_counts.pdf'),
+        ('metacodon_counts_stringent', '{name}_metacodon_counts_stringent.pdf'),
+        ('metacodon_mean_enrichments', '{name}_metacodon_mean_enrichments.pdf'),
+        ('metacodon_counts_nucleotide_resolution', '{name}_metacodon_counts_nucleotide_resolution.pdf'),
+        ('metanucleotide_counts', '{name}_metanucleotide_counts.pdf'),
+    ]
+
+    specific_outputs = [
+        ['clean_composition',
+         'clean_composition_perfect',
+         'quality',
+         'too_short_lengths',
+         'trimmed_lengths',
+         'tRNA_lengths',
+         'rRNA_lengths',
+         'synthetic_lengths',
+         'other_ncRNA_lengths',
+         'clean_lengths',
+         'unmapped_lengths',
+         'rRNA_coverage',
+         'rRNA_coverage_length_28',
+         'oligo_hit_lengths',
+         'clean_bam',
+         'remapped_clean_bam',
+         'rRNA_bam',
+         'more_rRNA_bam',
+         'tRNA_bam_sorted',
+         'other_ncRNA_bam_sorted',
+        ],
+        ['read_positions',
+         'buffered_codon_counts',
+         'codon_counts',
+         'codon_counts_anisomycin',
+         'metacodon_counts',
+         'from_starts_and_ends',
+         'from_starts_and_ends_remapped',
+         'read_counts',
+         'read_counts_exclude_edges',
+         'mismatches',
+        ],
+    ]
+    
+    specific_work = [
+        ['trim_reads',
+         'pre_filter_contaminants',
+         'map_tophat',
+         'remap_trimmed',
+         'post_filter_contaminants',
+         'compute_base_composition',
+         'quality_distribution',
+         'find_unambiguous_lengths',
+         'get_rRNA_coverage',
+         'get_oligo_hit_lengths',
+        ],
+        ['get_read_positions',
+         'get_metagene_positions',
+         'compute_total_read_counts',
+         'compute_codon_occupancy_counts',
+         'compute_metacodon_counts',
+         'get_error_profile',
+        ],
+    ]
+
+    specific_cleanup = [
+        ['compute_yield',
+         'plot_base_composition',
+         'plot_lengths',
+         'plot_rRNA_coverage',
+         'plot_oligo_hit_lengths',
+        ],
+        ['compute_RPKMs',
+         'compute_mean_densities',
+         'plot_starts_and_ends',
+         'plot_frames',
+         'plot_mismatch_positions',
+         'plot_mismatch_types',
+         #'plot_metacodon_counts',
+        ],
+    ]
 
     def __init__(self, **kwargs):
-        map_reduce.MapReduceExperiment.__init__(self, **kwargs)
+        super(RibosomeProfilingExperiment, self).__init__(**kwargs)
 
-        self.group = kwargs['group']
-        self.data_dir = kwargs['data_dir'].rstrip('/')
         self.adapter_type = kwargs['adapter_type']
-        self.organism_dir = kwargs['organism_dir'].rstrip('/')
-        self.transcripts_file_name = kwargs.get('transcripts_file_name', None)
         self.possibly_misannotated_file_name = kwargs.get('possibly_misannotated_file_name', None)
         
         # A bowtie2 index of synthetic sequences (markers, adapters) that need
@@ -62,213 +234,20 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         
         self.min_length = 12
         
-        specific_results_files = [
-            ('clean_composition', array_3d, '{name}_clean_composition.npy'),
-            ('clean_composition_perfect', array_3d, '{name}_clean_composition_perfect.npy'),
+        #if self.adapter_type == 'polyA':
+        #    specific_outputs[0].extend(['unambiguous_lengths',
+        #                                'unambiguous_bam',
+        #                               ])
+        #    specific_outputs[1].extend(['unambiguous_read_positions',
+        #                                'unambiguous_from_starts'
+        #                               ])
 
-            ('bowtie_error', '', '{name}_bowtie_error.txt'),
-            ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
-            ('rRNA_filtered_reads', 'fastq', '{name}_rRNA_filtered.fastq'), 
-            ('synthetic_filtered_reads', 'fastq', '{name}_synthetic_filtered.fastq'), 
-
-            ('too_short_lengths', array_1d, '{name}_too_short_lengths.txt'),
-            ('trimmed_lengths', array_1d, '{name}_trimmed_lengths.txt'),
-            ('tRNA_lengths', array_1d, '{name}_tRNA_lengths.txt'),
-            ('rRNA_lengths', array_1d, '{name}_rRNA_lengths.txt'),
-            ('synthetic_lengths', array_1d, '{name}_synthetic_lengths.txt'),
-            ('other_ncRNA_lengths', array_1d, '{name}_ncRNA_lengths.txt'),
-            ('clean_lengths', array_1d, '{name}_clean_lengths.txt'),
-            ('unmapped_lengths', array_1d, '{name}_unmapped_lengths.txt'),
-            ('unambiguous_lengths', array_1d, '{name}_unambiguous_lengths.txt'),
-            ('oligo_hit_lengths', array_2d, '{name}_oligo_hit_lengths.txt'),
-
-            ('rRNA_sam', 'sam', '{name}_rRNA.sam'),
-            ('rRNA_bam', 'bam', '{name}_rRNA.bam'),
-            ('synthetic_sam', 'sam', '{name}_synthetic.sam'),
-            ('synthetic_bam', 'bam', '{name}_synthetic.bam'),
-            ('clean_bam', 'bam', '{name}_clean.bam'),
-            ('more_rRNA_bam', 'bam', '{name}_more_rRNA.bam'),
-            ('more_rRNA_bam_sorted', 'bam', '{name}_more_rRNA_sorted.bam'),
-            ('tRNA_bam', 'bam', '{name}_tRNA.bam'),
-            ('tRNA_bam_sorted', 'bam', '{name}_tRNA_sorted.bam'),
-            ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
-            ('other_ncRNA_bam_sorted', 'bam', '{name}_other_ncRNA_sorted.bam'),
-            ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
-
-            ('mismatches', mismatches, '{name}_mismatches.npy'),
-
-            ('read_positions', read_positions, '{name}_read_positions.hdf5'),
-            ('read_positions_remapped', read_positions, '{name}_read_positions_remapped.hdf5'),
-            ('unambiguous_read_positions', read_positions, '{name}_unambiguous_read_positions.hdf5'),
-            ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
-            ('unambiguous_from_starts', read_positions, '{name}_unambiguous_from_starts.hdf5'),
-            ('from_starts_and_ends_remapped', read_positions, '{name}_from_starts_and_ends_remapped.hdf5'),
-            ('codon_counts', codon_counts, '{name}_codon_counts.txt'),
-            ('codon_counts_stringent', codon_counts, '{name}_codon_counts_stringent.txt'),
-            ('buffered_codon_counts', read_positions, '{name}_buffered_codon_counts.hdf5'),
-            ('metacodon_counts', read_positions, '{name}_metacodon_counts.hdf5'),
-            ('mean_densities', read_positions, '{name}_mean_densities.hdf5'),
-            ('mean_densities_no_misannotated', read_positions, '{name}_mean_densities_no_misannotated.hdf5'),
-            ('RPKMs', RPKMs, '{name}_RPKMs.txt'),
-            ('RPKMs_exclude_edges', RPKMs, '{name}_RPKMs_exclude_edges.txt'),
-            ('read_counts', expression, '{name}_read_counts.txt'),
-            ('read_counts_exclude_edges', expression, '{name}_read_counts_exclude_edges.txt'),
-
-            ('rRNA_coverage', coverage, '{name}_rRNA_coverage.txt'),
-            ('rRNA_coverage_length_28', coverage, '{name}_rRNA_coverage_length_28.txt'),
-            ('dominant_stretches', 'PH', '{name}_dominant_stretches.txt'),
-
-            ('tophat_dir', 'dir', 'tophat'),
-            ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
-            ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
-            ('unmapped_trimmed_fastq', 'fastq', '{name}_unmapped_trimmed.fastq'),
-            ('tophat_remapped_polyA_dir', 'dir', 'tophat_remapped_polyA'),
-            ('remapped_accepted_hits', 'bam', 'tophat_remapped_polyA/accepted_hits.bam'),
-            ('remapped_clean_bam', 'bam', '{name}_remapped_clean.bam'),
-        
-            ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
-
-            ('reciprocal_rates', 'pickle', '{name}_reciprocal_rates.pkl'),
-
-            ('yield', '', '{name}_yield.txt'),
-        ]
-
-        specific_figure_files = [
-            ('quality', '{name}_quality.png'),
-            ('clean_composition', '{name}_clean_composition.pdf'),
-            ('clean_composition_perfect', '{name}_clean_composition_perfect.pdf'),
-            ('all_lengths', '{name}_all_lengths.pdf'),
-            ('clean_lengths', '{name}_clean_lengths.pdf'),
-            ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
-            ('rRNA_coverage_length_28_template', '{name}_rRNA_coverage_length_28_{{0}}.pdf'),
-            ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
-            ('starts_and_ends', '{name}_starts_and_ends.pdf'),
-            ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
-            ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
-            ('starts_and_ends_heatmap_zoomed_out', '{name}_starts_and_ends_heatmap_zoomed_out.pdf'),
-            ('starts_and_ends_remapped', '{name}_starts_and_ends_remapped.pdf'),
-            ('starts_and_ends_remapped_zoomed_out', '{name}_starts_and_ends_remapped_zoomed_out.pdf'),
-            ('mean_densities', '{name}_mean_densities.pdf'),
-            ('mismatch_positions', '{name}_mismatch_positions.png'),
-            ('first_mismatch_types', '{name}_first_mismatch_types.png'),
-            ('last_mismatch_types', '{name}_last_mismatch_types.png'),
-            ('frames', '{name}_frames.pdf'),
-            ('unambiguous_frames', '{name}_unambiguous_frames.pdf'),
-            ('metacodon_counts', '{name}_metacodon_counts.pdf'),
-            ('metacodon_counts_stringent', '{name}_metacodon_counts_stringent.pdf'),
-            ('metacodon_mean_enrichments', '{name}_metacodon_mean_enrichments.pdf'),
-            ('metacodon_counts_nucleotide_resolution', '{name}_metacodon_counts_nucleotide_resolution.pdf'),
-            ('metanucleotide_counts', '{name}_metanucleotide_counts.pdf'),
-        ]
-
-        self.organism_files = [
-            ('bowtie2_index_prefix', 'genome/genome'),
-            ('genome', 'genome'),
-            ('genes', 'transcriptome/genes.gtf'),
-            ('dubious_ORFs', 'transcriptome/dubious_ORF_gene_ids.txt'),
-            ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
-            ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
-            ('oligos', 'contaminant/subtraction_oligos.fasta'),
-            ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
-        ]
-
-        specific_outputs = [
-            ['clean_composition',
-             'clean_composition_perfect',
-             'too_short_lengths',
-             'trimmed_lengths',
-             'tRNA_lengths',
-             'rRNA_lengths',
-             'synthetic_lengths',
-             'other_ncRNA_lengths',
-             'clean_lengths',
-             'unmapped_lengths',
-             'rRNA_coverage',
-             'rRNA_coverage_length_28',
-             'oligo_hit_lengths',
-             'clean_bam',
-             'remapped_clean_bam',
-             'rRNA_bam',
-             'more_rRNA_bam',
-             'tRNA_bam_sorted',
-             'other_ncRNA_bam_sorted',
-            ],
-            ['read_positions',
-             'buffered_codon_counts',
-             'codon_counts',
-             'metacodon_counts',
-             #'metacodon_counts_stringent',
-             #'metacodon_counts_nucleotide_resolution',
-             'from_starts_and_ends',
-             'from_starts_and_ends_remapped',
-             'read_counts',
-             'read_counts_exclude_edges',
-             'mismatches',
-            ],
-        ]
-
-        if self.adapter_type == 'polyA':
-            specific_outputs[0].extend(['unambiguous_lengths',
-                                        'unambiguous_bam',
-                                       ])
-            specific_outputs[1].extend(['unambiguous_read_positions',
-                                        'unambiguous_from_starts'
-                                       ])
-
-        specific_work = [
-            [self.trim_reads,
-             self.pre_filter_contaminants,
-             self.map_tophat,
-             self.remap_trimmed,
-             self.post_filter_contaminants,
-             self.compute_base_composition,
-             self.find_unambiguous_lengths,
-             self.get_rRNA_coverage,
-             self.get_oligo_hit_lengths,
-            ],
-            [self.get_read_positions,
-             self.get_metagene_positions,
-             self.compute_total_read_counts,
-             self.compute_codon_occupancy_counts,
-             self.compute_metacodon_counts,
-             self.get_error_profile,
-            ],
-        ]
-
-        specific_cleanup = [
-            [self.compute_yield,
-             self.plot_base_composition,
-             self.plot_lengths,
-             self.plot_rRNA_coverage,
-             self.plot_oligo_hit_lengths,
-            ],
-            [self.compute_RPKMs,
-             self.compute_mean_densities,
-             self.plot_starts_and_ends,
-             self.plot_frames,
-             self.plot_mismatch_positions,
-             self.plot_mismatch_types,
-             self.plot_metacodon_counts,
-            ],
-        ]
-
-        self.results_files.extend(specific_results_files)
-        self.figure_files.extend(specific_figure_files)
-        map_reduce.extend_stages(self.outputs, specific_outputs)
-        map_reduce.extend_stages(self.work, specific_work)
-        map_reduce.extend_stages(self.cleanup, specific_cleanup)
-
-        self.make_file_names()
-        self.data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
         if self.max_read_length == None:
             self.max_read_length = self.get_max_read_length()
         else:
             self.max_read_length = int(self.max_read_length)
         
         self.trim_function = trim.bound_trim[self.adapter_type]
-
-        for key, tail in self.organism_files:
-            self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
 
     def get_simple_CDSs(self):
         all_simple_CDSs = gtf.get_simple_CDSs(self.file_names['genes'],
@@ -281,29 +260,16 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                          )
         return piece_simple_CDSs, max_gene_length
 
-    def get_CDSs(self):
-        if self.transcripts_file_name == None:
-            CDSs = gtf.get_simple_CDSs(self.file_names['genes'])
-        else:
-            all_CDSs = gtf.get_CDSs(self.file_names['genes'])
-            transcripts = {line.strip() for line in open(self.transcripts_file_name)}
-            CDSs = [t for t in all_CDSs if t.name in transcripts]
-        
-        max_gene_length = 0
-        for CDS in CDSs:
-            CDS.build_coordinate_maps()
-            max_gene_length = max(max_gene_length, CDS.CDS_length)
-            CDS.delete_coordinate_maps()
-        
-        piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
-        return piece_CDSs, max_gene_length
-
     def compute_base_composition(self):
         seq_info_pairs = composition.get_seq_info_pairs(self.file_names['clean_bam'])
         all_array, perfect_array = composition.length_stratified_composition(seq_info_pairs, self.max_read_length)
         
         self.write_file('clean_composition', all_array)
         self.write_file('clean_composition_perfect', perfect_array)
+
+    def quality_distribution(self):
+        q_array, c_array, _ = fastq.quality_and_complexity(self.get_reads(), self.max_read_length)
+        self.write_file('quality', q_array)
 
     def plot_base_composition(self):
         all_array = self.read_file('clean_composition', merged=True)
@@ -352,27 +318,27 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('synthetic_lengths', synthetic_lengths)
 
     def map_tophat(self):
-        ribosomes.map_tophat([self.file_names['filtered_reads']],
-                             self.file_names['bowtie2_index_prefix'],
-                             self.file_names['genes'],
-                             self.file_names['transcriptome_index'],
-                             self.file_names['tophat_dir'],
-                            )
+        mapping_tools.map_tophat([self.file_names['filtered_reads']],
+                                 self.file_names['bowtie2_index_prefix'],
+                                 self.file_names['genes'],
+                                 self.file_names['transcriptome_index'],
+                                 self.file_names['tophat_dir'],
+                                )
         pysam.index(self.file_names['accepted_hits'])
 
     def remap_trimmed(self):
-        ribosomes.trim_polyA_from_unmapped(self.file_names['unmapped_bam'],
-                                           self.file_names['unmapped_trimmed_fastq'],
-                                           self.min_length,
-                                           self.max_read_length,
-                                           second_time=True,
-                                         )
-        ribosomes.map_tophat([self.file_names['unmapped_trimmed_fastq']],
-                             self.file_names['bowtie2_index_prefix'],
-                             self.file_names['genes'],
-                             self.file_names['transcriptome_index'],
-                             self.file_names['tophat_remapped_polyA_dir'],
-                            )
+        trim.trim_polyA_from_unmapped(self.file_names['unmapped_bam'],
+                                      self.file_names['unmapped_trimmed_fastq'],
+                                      self.min_length,
+                                      self.max_read_length,
+                                      second_time=True,
+                                     )
+        mapping_tools.map_tophat([self.file_names['unmapped_trimmed_fastq']],
+                                 self.file_names['bowtie2_index_prefix'],
+                                 self.file_names['genes'],
+                                 self.file_names['transcriptome_index'],
+                                 self.file_names['tophat_remapped_polyA_dir'],
+                                )
         os.rename(self.file_names['remapped_accepted_hits'],
                   self.file_names['remapped_clean_bam'],
                  )
@@ -487,7 +453,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                 yield_file.write(line)
 
     def plot_lengths(self):
-
         max_interesting_length = 50
 
         lengths = {'too short': (self.read_file('too_short_lengths'), 'purple'),
@@ -588,7 +553,16 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                                   self.figure_file_names['starts_and_ends_heatmap_zoomed_out'],
                                                   zoomed_out=True,
                                                  )
-        
+
+        visualize.plot_metacodon_positions(from_starts_and_ends['from_starts'],
+                                           self.figure_file_names['starts'],
+                                           key='start_codon',
+                                          )
+        visualize.plot_metacodon_positions(from_starts_and_ends['from_ends'],
+                                           self.figure_file_names['ends'],
+                                           key='stop_codon',
+                                          )
+
         from_starts_and_ends_remapped = self.read_file('from_starts_and_ends_remapped')
 
         visualize.plot_metagene_positions(from_starts_and_ends_remapped['from_starts'],
@@ -605,9 +579,16 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'), 0)],
                                                 self.figure_file_names['mean_densities'],
                                                 past_edge=10,
-                                                plot_up_to=100,
+                                                plot_up_to=200,
                                                 smooth=False,
                                                )
+        
+        #visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
+        #                                        self.figure_file_names['mean_densities_anisomycin'],
+        #                                        past_edge=10,
+        #                                        plot_up_to=200,
+        #                                        smooth=False,
+        #                                       )
 
     def plot_frames(self):
         from_starts_and_ends = self.read_file('from_starts_and_ends')
@@ -647,17 +628,28 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         #                               )
 
     def plot_mismatch_positions(self):
-        fig, ax = plt.subplots(figsize=(16, 12))
+        fig, (short_ax, long_ax) = plt.subplots(2, 1, figsize=(16, 24))
         length_to_index = {length: i for i, length in enumerate(self.relevant_lengths)}
+        short_lengths = set(range(20, 24))
+        long_lengths = set(range(27, 32))
+        #short_lengths = set(range(17, 21))
+        #long_lengths = set(range(24, 29))
         type_counts = self.read_file('mismatches')
-        for length in self.relevant_lengths:
+        for length in sorted(short_lengths & set(self.relevant_lengths)):
             Visualize.mismatches.plot_read_positions(type_counts[length_to_index[length]][:length],
                                                      str(length),
-                                                     ax=ax,
+                                                     ax=short_ax,
                                                      min_q=30,
                                                     )
-        ax.set_xlim(-1, max(self.relevant_lengths))
-        ax.legend(loc='upper right', framealpha=0.5)
+        for length in sorted(long_lengths & set(self.relevant_lengths)):
+            Visualize.mismatches.plot_read_positions(type_counts[length_to_index[length]][:length],
+                                                     str(length),
+                                                     ax=long_ax,
+                                                     min_q=30,
+                                                    )
+        for ax in (short_ax, long_ax):
+            ax.set_xlim(-1, max(long_lengths))
+            ax.legend(loc='upper right', framealpha=0.5)
         fig.savefig(self.figure_file_names['mismatch_positions'])
 
     def plot_mismatch_types(self):
@@ -665,7 +657,11 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         last_data_sets = []
         type_counts = self.read_file('mismatches')
         length_to_index = {length: i for i, length in enumerate(self.relevant_lengths)}
-        for length in self.relevant_lengths:
+        short_lengths = set(range(20, 24))
+        long_lengths = set(range(27, 32))
+        #short_lengths = set(range(17, 21))
+        #long_lengths = set(range(24, 29))
+        for length in sorted(set(self.relevant_lengths) & (short_lengths | long_lengths)):
             first_counts = type_counts[length_to_index[length]][0]
             last_counts = type_counts[length_to_index[length]][length - 1]
             first_data_set = (str(length),
@@ -678,7 +674,7 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                              (30, fastq.MAX_EXPECTED_QUAL),
                             )
             last_data_sets.append(last_data_set)
-
+        
         Visualize.mismatches.plot_rates(first_data_sets,
                                         save_as=self.figure_file_names['first_mismatch_types'],
                                        )
@@ -687,14 +683,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
                                         save_as=self.figure_file_names['last_mismatch_types'],
                                        )
             
-    def get_max_read_length(self):
-        def length_from_file_name(file_name):
-            length = len(fastq.reads(file_name).next().seq)
-            return length
-        
-        max_length = max(length_from_file_name(fn) for fn in self.data_fns)
-        return max_length
-
     def zero_padded_array(self, counts):
         array = utilities.counts_to_array(counts)
         if len(array) < self.max_read_length + 1:
@@ -703,22 +691,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         else:
             padded_array = array
         return padded_array
-
-    def get_reads(self):
-        ''' Returns a generator over the reads in a piece of each data file.
-            Can handle a mixture of different fastq encodings across (but not
-            within) files.
-        '''
-        file_pieces = [split_file.piece(file_name,
-                                        self.num_pieces,
-                                        self.which_piece,
-                                        'fastq',
-                                       )
-                       for file_name in self.data_fns]
-        read_pieces = [fastq.reads(piece, standardize_names=True, ensure_sanger_encoding=True)
-                       for piece in file_pieces]
-        reads = chain.from_iterable(read_pieces)
-        return reads
 
     def get_read_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
@@ -748,22 +720,6 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
             self.unambiguous_read_positions = {name: info['position_counts']
                                                for name, info in gene_infos.iteritems()}
             self.write_file('unambiguous_read_positions', self.unambiguous_read_positions)
-
-    def load_read_positions(self, modifier=None):
-        ''' Read position arrays can be expensive to read from disk. This is a
-            a wrapper to make sure this is only done once.
-        '''
-        if modifier != None:
-            attribute_name = '{0}_read_positions'.format(modifier)
-        else:
-            attribute_name = 'read_positions'
-
-        if hasattr(self, attribute_name):
-            pass
-        else:
-            setattr(self, attribute_name, self.read_file(attribute_name))
-
-        return getattr(self, attribute_name)
 
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
@@ -801,25 +757,29 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         self.write_file('recycling_ratios', ratio_lists)
 
     def compute_codon_occupancy_counts(self):
-        transcripts = {line.strip() for line in open(self.transcripts_file_name)}
         read_positions = self.load_read_positions()
 
         buffered_codon_counts = {}
         codon_counts = {}
         codon_counts_stringent = {}
+        codon_counts_anisomycin = {}
         for name, position_counts in read_positions.iteritems():
             buffered_counts = positions.compute_codon_counts(position_counts, self.offset_type)
             buffered_counts_stringent = positions.compute_codon_counts(position_counts, self.offset_type + '_stringent')
+            buffered_counts_anisomycin = positions.compute_codon_counts(position_counts, self.offset_type + '_anisomycin')
             buffered_codon_counts[name] = {'relaxed': buffered_counts,
                                            'stringent': buffered_counts_stringent,
+                                           'anisomycin': buffered_counts_anisomycin,
                                           }
             num_codons = buffered_counts.CDS_length
             # + 1 is to include the stop codon
             codon_counts[name] = buffered_counts['start_codon', :num_codons + 1]
             codon_counts_stringent[name] = buffered_counts_stringent['start_codon', :num_codons + 1]
+            codon_counts_anisomycin[name] = buffered_counts_anisomycin['start_codon', :num_codons + 1]
 
         self.write_file('buffered_codon_counts', buffered_codon_counts)
         self.write_file('codon_counts', codon_counts)
+        self.write_file('codon_counts_anisomycin', codon_counts_anisomycin) 
         self.write_file('codon_counts_stringent', codon_counts_stringent)
 
     def compute_total_read_counts(self):
@@ -841,6 +801,8 @@ class RibosomeProfilingExperiment(map_reduce.MapReduceExperiment):
         codon_counts = self.read_file('buffered_codon_counts', merged=True)
         mean_densities = positions.compute_averaged_codon_densities(codon_counts)
         self.write_file('mean_densities', mean_densities)
+        mean_densities_anisomycin = positions.compute_averaged_codon_densities(codon_counts, offset_key='anisomycin')
+        self.write_file('mean_densities_anisomycin', mean_densities_anisomycin)
 
         if self.possibly_misannotated_file_name != None:
             possibly_misannotated_names = {line.strip() for line in open(self.possibly_misannotated_file_name)}

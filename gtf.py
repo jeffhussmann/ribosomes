@@ -141,7 +141,7 @@ class Transcript(object):
         self.start = min(exon.start for exon in self.exons)
         self.end = max(exon.end for exon in self.exons)
 
-    def build_coordinate_maps(self):
+    def build_coordinate_maps(self, left_buffer=0, right_buffer=0):
         ''' Make dictionaries mapping from genomic coordinates to transcript
             coordinates and vice-versa.
         '''
@@ -154,18 +154,15 @@ class Transcript(object):
 
         self.transcript_length = len(exon_positions)
         
-        # Add some upstream and downstream bases to support yeast's lack of
-        # annotated UTRs.
-        # This could cause problems in other organisms if one isoform is a
-        # truncation of another.
-        upstream_transcript = np.arange(-positions.left_buffer, 0)
-        downstream_transcript = np.arange(self.transcript_length, self.transcript_length + positions.right_buffer)
+        # Add some upstream and downstream bases.
+        upstream_transcript = np.arange(-left_buffer, 0)
+        downstream_transcript = np.arange(self.transcript_length, self.transcript_length + right_buffer)
         if self.strand == '+':
-            upstream_positions = np.arange(self.start - positions.left_buffer, self.start)
-            downstream_positions = np.arange(self.end + 1, self.end + 1 + positions.right_buffer)
+            upstream_positions = np.arange(self.start - left_buffer, self.start)
+            downstream_positions = np.arange(self.end + 1, self.end + 1 + right_buffer)
         elif self.strand == '-':
-            upstream_positions = np.arange(self.end + positions.left_buffer, self.end, -1)
-            downstream_positions = np.arange(self.start - 1, self.start - 1 - positions.right_buffer, -1)
+            upstream_positions = np.arange(self.end + left_buffer, self.end, -1)
+            downstream_positions = np.arange(self.start - 1, self.start - 1 - right_buffer, -1)
 
         self.transcript_to_genomic = dict(enumerate(exon_positions))
         self.transcript_to_genomic.update(zip(upstream_transcript, upstream_positions)) 
@@ -184,6 +181,14 @@ class Transcript(object):
             self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
             # By convention, CDS_length includes no bases of the stop codon.
             self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
+
+    def is_spliced_out(self, position):
+        ''' Returns True if the genomic position is between the start and end of
+            this transcript but not part of it.
+        '''
+        is_within = self.start < position < self.end
+        not_part_of = position not in self.genomic_to_transcript
+        return is_within and not_part_of
 
     def delete_coordinate_maps(self):
         del self.transcript_to_genomic
@@ -224,6 +229,8 @@ def make_coding_sequence_fetcher(gtf_fn, genome_dir):
             return None
 
         return seq.upper()
+
+    coding_sequence_fetcher.names = set(gtf_dict.keys())
 
     return coding_sequence_fetcher
 

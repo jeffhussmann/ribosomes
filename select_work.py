@@ -12,6 +12,7 @@ def build_all_experiments(verbose=True):
                 'weinberg',
                 'dunn_elife',
                 'gerashchenko_pnas',
+                'gerashchenko_nar',
                 'guydosh_cell',
                 'mcmanus_gr',
                 'artieri',
@@ -42,17 +43,18 @@ def read_counts_and_RPKMS():
             experiments[family][name].compute_total_read_counts()
             experiments[family][name].compute_RPKMs()
 
-def package_read_counts_and_RPKMs():
+def package_files(key):
     prefix = '/home/jah/projects/arlen/'
     os.chdir(prefix)
     full_file_names = []
-    package_file_name = 'all_RPKMs.tar.gz'
+    package_file_name = 'all_{}.tar.gz'.format(key)
 
     experiments = build_all_experiments()
     for family in experiments:
+        if 'belgium' in family:
+            continue
         for name in experiments[family]:
-            full_file_names.append(experiments[family][name].file_names['RPKMs'])
-            full_file_names.append(experiments[family][name].file_names['RPKMs_exclude_edges'])
+            full_file_names.append(experiments[family][name].file_names[key])
 
     def strip_prefix(fn, prefix):
         if not fn.startswith(prefix):
@@ -105,20 +107,22 @@ def make_restricted_starts_and_ends_plots():
     all_experiments = build_all_experiments(verbose=False)
 
     relevant_lengths = range(19, 25)
-    for name in all_experiments['lareau_elife']:
-        if 'Anisomycin' in name or 'Untreated' in name:
+    for name in all_experiments['gerashchenko_pnas']:
+        if 'rep1' in name and 'foot' in name and 'Initial' not in name:
             print name
-            experiment = all_experiments['lareau_elife'][name]
-            position_counts = experiment.read_file('from_starts_and_ends')
+            experiment = all_experiments['gerashchenko_pnas'][name]
+            #experiment.plot_starts_and_ends()
+            experiment.plot_mismatch_types()
+            #position_counts = experiment.read_file('from_starts_and_ends')
             #visualize.plot_metagene_positions(position_counts['from_starts'],
             #                                  position_counts['from_ends'],
             #                                  experiment.figure_file_names['starts_and_ends'],
             #                                  relevant_lengths=relevant_lengths,
             #                                 )
-            visualize.plot_metacodon_positions(position_counts['from_starts'],
-                                               experiment.figure_file_names['starts_and_ends'],
-                                               key='start_codon',
-                                              )
+            #visualize.plot_metacodon_positions(position_counts['from_starts'],
+            #                                   experiment.figure_file_names['starts_and_ends'],
+            #                                   key='start_codon',
+            #                                  )
 
 def make_mismatch_position_plots():
     all_experiments = build_all_experiments(verbose=False)
@@ -138,9 +142,11 @@ def make_multipage_pdf(figure_name):
     all_fn = '/home/jah/projects/arlen/results/all_{0}.pdf'.format(figure_name)
     fns = []
     for group in sorted(all_experiments):
-        if group == 'dunn_elife':
+        if group != 'gerashchenko_pnas':
             continue
         for name in sorted(all_experiments[group]):
+            if 'foot' not in name:
+                continue
             fns.append(all_experiments[group][name].figure_file_names[figure_name])
 
     pdftk_command = ['pdftk'] + fns + ['cat', 'output', all_fn]
@@ -157,3 +163,31 @@ def get_read_lengths():
                 print group, name
     print read_lengths.most_common()
 
+def make_averaged_codon_densities_plot():
+    experiments = build_all_experiments(verbose=False)
+    
+    def transform(experiment):
+        _, concentration = experiment.name.split('_', 1)
+        concentration, _ = concentration.split('CHX')
+        if concentration == 'no':
+            concentration = 0
+        else:
+            concentration = concentration.strip('_x')
+            if '_' in concentration:
+                num, denom = concentration.split('_')
+                concentration = float(num) / float(denom)
+            else:
+                concentration = int(concentration)
+
+        return concentration
+
+    sorted_experiments = sorted(experiments['gerashchenko_nar'].values(), key=transform)
+    data_sets = [(experiment.name, experiment.read_file('mean_densities'), i)
+                 for i, experiment in enumerate(sorted_experiments)]
+
+    visualize.plot_averaged_codon_densities(data_sets,
+                                            'test.pdf',
+                                            past_edge=10,
+                                            plot_up_to=100,
+                                            show_end=True,
+                                           )

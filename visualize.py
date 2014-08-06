@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import positions
 import numpy as np
 import brewer2mpl
+from Circles.Visualize.utilities import optional_ax
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
@@ -23,16 +24,18 @@ def smoothed(position_counts, window_size):
         smoothed_array[i] = position_counts[i:].sum() / float(smoothed_array.extent_length - i)
     return smoothed_array
 
-def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False):
-    relevant_lengths = sorted(from_starts.keys())
+def plot_metagene_positions(from_starts, from_ends, figure_fn, relevant_lengths=None, zoomed_out=False):
     fig, (start_ax, end_ax) = plt.subplots(2, 1, figsize=(12, 16))
 
     if zoomed_out:
-        start_xs = np.arange(-100, 140)
+        start_xs = np.arange(-190, 140)
         end_xs = np.arange(-140, 190)
     else:
         start_xs = np.arange(-21, 19)
         end_xs = np.arange(-33, 7)
+    
+    if relevant_lengths == None:
+        relevant_lengths = sorted(from_starts.keys())
 
     for length in relevant_lengths:
         start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
@@ -72,29 +75,89 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False)
     end_ax.set_ylim(0, ymax)
     
     fig.savefig(figure_fn)
+    plt.close(fig)
+
+def plot_metacodon_positions(position_counts, figure_fn, key='feature'):
+    fig, (long_ax, short_ax) = plt.subplots(2, 1, figsize=(12, 16))
+
+    xs = np.arange(-30, 30)
+    
+    short_lengths = range(20, 24)
+    long_lengths = range(27, 32)
+    #long_lengths = range(24, 29)
+
+    for length in long_lengths:
+        long_ax.plot(xs, position_counts[length][key, xs], '.-', label=length)
+    for length in short_lengths:
+        short_ax.plot(xs, position_counts[length][key, xs], '.-', label=length)
+
+    mod_3 = [x for x in xs if x % 3 == 0]
+    for ax in (long_ax, short_ax):
+        ax.set_xlim(min(xs), max(xs))
+        ax.set_xticks(mod_3)
+        for x in mod_3:
+            ax.axvline(x, color='black', alpha=0.1)
+        ax.set_xlabel('Position of read relative to codon')
+        ax.set_ylabel('Number of uniquely mapped reads of specified length')
+        
+        ax.legend(loc='upper right', framealpha=0.5)
+
+    fig.savefig(figure_fn)
+    plt.close(fig)
 
 def plot_metagene_positions_heatmap(from_starts, from_ends, figure_fn, zoomed_out=False):
     relevant_lengths = sorted(from_starts.keys())
-    fig, (start_ax, end_ax) = plt.subplots(2, 1)
+    fig, ((start_5_ax, end_5_ax), (start_3_ax, end_3_ax)) = plt.subplots(2, 2)
 
     if zoomed_out:
-        start_xs = np.arange(-100, 140)
-        end_xs = np.arange(-140, 190)
+        start_xs = np.arange(-30, 140)
+        end_xs = np.arange(-140, 30)
     else:
-        start_xs = np.arange(-21, 19)
-        end_xs = np.arange(-33, 7)
+        start_xs = np.arange(-21, 31)
+        end_xs = np.arange(-33, 19)
 
-    xs = np.arange(-21, 19)
+    if len(start_xs) != len(end_xs):
+        raise ValueError(len(start_xs), len(end_xs))
+
     lengths = sorted([k for k in from_starts if isinstance(k, int)], reverse=True)
-    from_starts_array = [from_starts[l]['start_codon', start_xs] for l in lengths]
-    from_ends_array = [from_ends[l]['stop_codon', end_xs] for l in lengths]
+    from_starts_5_array = [from_starts[l]['start_codon', start_xs] for l in lengths]
+    from_ends_5_array = [from_ends[l]['stop_codon', end_xs] for l in lengths]
+    from_starts_3_array = [positions.convert_to_three_prime(from_starts[l], l)['start_codon', start_xs] for l in lengths]
+    from_ends_3_array = [positions.convert_to_three_prime(from_ends[l], l)['stop_codon', end_xs] for l in lengths]
 
-    kwargs = {'interpolation': 'nearest',
-              'cmap': matplotlib.cm.Blues,
-             }
+    from_starts_5_array = np.asarray(from_starts_5_array)
+    from_starts_3_array = np.asarray(from_starts_3_array)
+    from_ends_5_array = np.asarray(from_ends_5_array)
+    from_ends_3_array = np.asarray(from_ends_3_array)
+    overall_max = max(from_starts_5_array.max(),
+                      from_ends_5_array.max(),
+                      from_starts_3_array.max(),
+                      from_ends_3_array.max(),
+                     )
 
-    start_ax.imshow(from_starts_array, **kwargs)
-    end_ax.imshow(from_ends_array, **kwargs)
+    modified_blues = matplotlib.cm.Blues
+    modified_blues.set_under('white')
+    modified_blues.set_over('red')
+    
+    modified_reds = matplotlib.cm.Reds
+    modified_reds.set_under('white')
+    modified_reds.set_over('blue')
+
+    kwargs_five = {'interpolation': 'nearest',
+                   'cmap': matplotlib.cm.Blues,
+                   'vmin': 1,
+                   'vmax': overall_max,
+                  }
+    kwargs_three = {'interpolation': 'nearest',
+                    'cmap': matplotlib.cm.Reds,
+                    'vmin': 1,
+                    'vmax': overall_max,
+                   }
+
+    start_5_ax.imshow(from_starts_5_array, **kwargs_five)
+    end_5_ax.imshow(from_ends_5_array, **kwargs_five)
+    start_3_ax.imshow(from_starts_3_array, **kwargs_three)
+    end_3_ax.imshow(from_ends_3_array, **kwargs_three)
 
     index_to_x = {i: x for i, x in enumerate(start_xs)}
     if zoomed_out:
@@ -104,29 +167,68 @@ def plot_metagene_positions_heatmap(from_starts, from_ends, figure_fn, zoomed_ou
     xticks = [i for i in range(len(start_xs)) if index_to_x[i] % modulus == 0]
     xticklabels = [str(index_to_x[i]) for i in xticks]
 
-    start_ax.set_xticks(xticks)
-    start_ax.set_xticklabels(xticklabels)
+    for ax in (start_5_ax, start_3_ax):
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xticklabels)
 
-    start_ax.set_xlabel('Position of read relative to start of CDS')
+    start_5_ax.set_xlabel('Position of 5\' end of read relative to start of CDS')
+    start_3_ax.set_xlabel('Position of 3\' end of read relative to start of CDS')
     
     index_to_x = {i: x for i, x in enumerate(end_xs)}
     xticks = [i for i in range(len(end_xs)) if index_to_x[i] % modulus == 0]
     xticklabels = [str(index_to_x[i]) for i in xticks]
 
-    end_ax.set_xticks(xticks)
-    end_ax.set_xticklabels(xticklabels)
+    for ax in (end_5_ax, end_3_ax):
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xticklabels)
 
-    end_ax.set_xlabel('Position of read relative to stop codon')
+    end_5_ax.set_xlabel('Position of 5\' end of read relative to stop codon')
+    end_3_ax.set_xlabel('Position of 3\' end of read relative to stop codon')
     
     y_ticks = np.arange(len(lengths))
     y_tick_labels = [str(l) for l in lengths]
-    start_ax.set_yticks(y_ticks)
-    start_ax.set_yticklabels(y_tick_labels)
-    end_ax.set_yticks(y_ticks)
-    end_ax.set_yticklabels(y_tick_labels)
     
-    fig.set_size_inches((len(start_xs) / 3., len(lengths) * 2 / 3.))
+    for ax in (start_5_ax, start_3_ax, end_5_ax, end_3_ax):
+        ax.set_yticks(y_ticks)
+        ax.set_yticklabels(y_tick_labels)
+    
+    fig.set_size_inches((len(start_xs) * 2. / 3., len(lengths) * 2 / 3.))
+    fig.tight_layout()
     fig.savefig(figure_fn, bbox_inches='tight')
+    plt.close(fig)
+
+@optional_ax
+def plot_joint_positions_scatter(joint_position_counts, transcript, name, ax=None):
+    xs = []
+    ys = []
+    cs = []
+    ss = []
+
+    sorted_counts = sorted(joint_position_counts.items(), key=lambda x: x[1])
+    for (x, y), c in sorted_counts:
+        xs.append(x)
+        ys.append(y)
+        cs.append(c)
+        #s = 3 * max(1, np.log10(c))
+        s = 3 * max(1, c / 10.)
+        ss.append(s)
+
+    transcript.build_coordinate_maps()
+    kwargs = {'color': 'black',
+              'alpha': 0.5,
+             }
+    ax.axvline(0, **kwargs)
+    ax.axvline(transcript.CDS_length, **kwargs)
+    ax.axhline(0, **kwargs)
+    ax.axhline(-transcript.CDS_length, **kwargs)
+    x_lims = [-500, transcript.CDS_length + 500]
+    y_lims = [-500 - transcript.CDS_length, 500]
+    ax.plot(x_lims, y_lims, **kwargs)
+    ax.scatter(xs, ys, ss, c=cs, linewidth=(0.,))
+    ax.set_xlim(x_lims)
+    ax.set_ylim(y_lims)
+    ax.set_aspect(1.)
+    ax.set_title(name)
 
 def plot_frames(from_starts, figure_fn):
     ''' Plots bar graphs of the distribution of reading frame that the 5' end of
@@ -169,7 +271,7 @@ def plot_frames(from_starts, figure_fn):
     axs[-1].set_xlabel('Frame')
     axs[len(axs) // 2].set_ylabel('Fraction of uniquely mapped reads of specified length')
 
-    fig.savefig(figure_fn)
+    fig.savefig(figure_fn, bbox_inches='tight')
 
 def plot_averaged_codon_densities(data_sets,
                                   figure_fn,
@@ -179,9 +281,9 @@ def plot_averaged_codon_densities(data_sets,
                                   plot_up_to=100,
                                  ):
     if show_end:
-        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(12, 8))
+        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(24, 12))
     else:
-        fig, start_ax = plt.subplots(figsize=(12, 8))
+        fig, start_ax = plt.subplots(figsize=(12, 12))
 
     start_xs = np.arange(-past_edge, plot_up_to + 1)
     end_xs = np.arange(-plot_up_to, past_edge)
@@ -228,8 +330,8 @@ def plot_averaged_codon_densities(data_sets,
     if show_end:
         end_ax.set_xlabel('Number of codons from stop codon')
         end_ax.yaxis.tick_right()
-        end_ax.set_xlim(min(-end_xs), max(-end_xs))
-        end_ax.plot(-end_xs, [1 for x in end_xs], color='black', alpha=0.5)
+        end_ax.set_xlim(min(end_xs), max(end_xs))
+        end_ax.plot(end_xs, [1 for x in end_xs], color='black', alpha=0.5)
     
     axs = [start_ax]
     if show_end:
@@ -244,8 +346,9 @@ def plot_averaged_codon_densities(data_sets,
         ax.set_aspect((xmax - xmin) / (ymax - ymin))
         #ax.set_aspect(1)
 
-    fig.set_size_inches(12, 12)
+    #fig.set_size_inches(12, 12)
     fig.savefig(figure_fn, bbox_inches='tight')
+    plt.close(fig)
 
 def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=False, keys_to_plot=['actual']):
     random_counts = metacodon_counts['TTT'].itervalues().next()
@@ -449,6 +552,6 @@ def plot_RPKMs():
 
 if __name__ == '__main__':
     from Sequencing import Serialize
-    ps = Serialize.read_file('/home/jah/projects/arlen/experiments/test/weinberg/results/test_from_starts_and_ends.hdf5', 'read_positions')
+    ps = Serialize.read_file('/home/jah/projects/arlen/experiments/lareau_elife/Cycloheximide_replicate_1/results/Cycloheximide_replicate_1_from_starts_and_ends.hdf5', 'read_positions')
 
     plot_metagene_positions_heatmap(ps['from_starts'], ps['from_ends'], 'test.pdf', zoomed_out=False)

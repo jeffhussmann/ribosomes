@@ -1,250 +1,209 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
 import os
-import glob
-import ribosomes
-import gtf
 import positions
 import visualize
-from itertools import chain
-import Sequencing.fastq as fastq
-import Sequencing.sam as sam
-from Sequencing.Parallel import map_reduce, split_file, piece_of_list
+import trim
+import pysam
+from Sequencing import fastq, sam, mapping_tools, genomes, utilities
+from Sequencing.Parallel import map_reduce
+from Serialize import read_positions
+from Sequencing.Serialize import array_1d
+import rna_experiment
+from Circles.annotation import Annotation_factory
+from collections import Counter
 
-class ThreePExperiment(map_reduce.MapReduceExperiment):
+class ThreePExperiment(rna_experiment.RNAExperiment):
     num_stages = 2
+        
+    specific_results_files = [
+        ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
+        ('too_short_lengths', array_1d, '{name}_too_short_lengths.txt'),
+        ('trimmed_lengths', array_1d, '{name}_trimmed_lengths.txt'),
+        ('nongenomic_lengths', array_1d, '{name}_nongenomic_lengths.txt'),
+
+        ('sorted_by_name', 'bam', '{name}_by_name.bam'),
+        ('extended', 'bam', '{name}_extended.bam'),
+        ('extended_sorted', 'bam', '{name}_extended_sorted.bam'),
+        ('extended_filtered', 'bam', '{name}_extended_filtered.bam'),
+        ('extended_filtered_sorted', 'bam', '{name}_extended_filtered_sorted.bam'),
+
+        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
+    ]
+
+    specific_figure_files = []
+
+    specific_outputs = [
+        ['trimmed_lengths',
+         'too_short_lengths',
+         #'extended_sorted',
+         #'extended_filtered_sorted',
+         'nongenomic_lengths',
+        ],
+        [#'from_starts_and_ends',
+         #'three_prime_read_positions',
+        ],
+    ]
+
+    specific_work = [
+        [#'trim_reads',
+         #'map_tophat',
+         #'sort_by_name',
+         #'extend_mappings',
+         'filter_mappings',
+        ],
+        [#'get_polyA_positions',
+         #'get_metagene_positions',
+        ],
+    ]
+
+    specific_cleanup = [
+        [],
+        ['plot_starts_and_ends',
+        ],
+    ]
 
     def __init__(self, **kwargs):
-        map_reduce.MapReduceExperiment.__init__(self, **kwargs)
-
-        self.data_dir = kwargs['data_dir'].rstrip('/')
-        self.organism_dir = kwargs['organism_dir'].rstrip('/')
-        self.transcripts_file_name = kwargs.get('transcripts_file_name')
-
-        specific_results_files = [
-            ('preprocessed', 'fastq', '{name}_preprocessed.fastq'),
-
-            ('read_positions', 'read_positions', '{name}_read_positions.txt'),
-            ('read_positions_remapped', 'read_positions', '{name}_read_positions_remapped.txt'),
-            ('from_starts_and_ends', 'read_positions', '{name}_from_starts_and_ends.txt'),
-            ('from_starts_and_ends_remapped', 'read_positions', '{name}_from_starts_and_ends_remapped.txt'),
-
-            ('tophat_dir', 'dir', 'tophat'),
-            ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
-            ('clean_bam', 'bam', '{name}_clean.bam'),
-            ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
-            ('unmapped_trimmed_fastq', 'fastq', '{name}_unmapped_trimmed.fastq'),
-            ('tophat_remapped_polyA_dir', 'dir', 'tophat_remapped_polyA'),
-            ('remapped_accepted_hits', 'bam', 'tophat_remapped_polyA/accepted_hits.bam'),
-            ('remapped_clean_bam', 'bam', '{name}_remapped_clean.bam'),
-        
-            ('yield', '', '{name}_yield.txt'),
-        ]
-
-
-        specific_figure_files = [
-            ('starts_and_ends', '{name}_starts_and_ends.pdf'),
-            ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
-            ('starts_and_ends_remapped', '{name}_starts_and_ends_remapped.pdf'),
-            ('starts_and_ends_remapped_zoomed_out', '{name}_starts_and_ends_remapped_zoomed_out.pdf'),
-        ]
-
-        self.organism_files = [
-            ('bowtie2_index_prefix', 'genome/genome'),
-            ('genome', 'genome'),
-            ('genes', 'transcriptome/genes.gtf'),
-            ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
-        ]
-
-        specific_outputs = [
-            ['clean_bam',
-             'remapped_clean_bam',
-            ],
-            ['from_starts_and_ends',
-             'from_starts_and_ends_remapped',
-            ],
-        ]
-
-        specific_work = [
-            [(self.preprocess, 'Preprocessing'),
-             (self.map_tophat, 'Mapping'),
-             (self.remap_trimmed, 'Remapping trimmed'),
-            ],
-            [(self.get_read_positions, 'Counting mapping positions'),
-             (self.get_metagene_positions, 'Aggregating metagene positions'),
-            ],
-        ]
-
-        specific_cleanup = [
-            [self.index_bams,
-            ],
-            [self.plot_starts_and_ends,
-            ],
-        ]
-
-        self.results_files.extend(specific_results_files)
-        self.figure_files.extend(specific_figure_files)
-        map_reduce.extend_stages(self.outputs, specific_outputs)
-        map_reduce.extend_stages(self.work, specific_work)
-        map_reduce.extend_stages(self.cleanup, specific_cleanup)
-
-        self.make_file_names()
-        
-        self.data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
+        super(ThreePExperiment, self).__init__(**kwargs)
 
         self.max_read_length = self.get_max_read_length()
+        self.min_length = 12
 
-        for key, tail in self.organism_files:
-            self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
+    def trim_reads(self):
+        trim_function = trim.bound_trim['polyA']
+
+        trimmed_lengths, too_short_lengths, barcode_counts = trim_function(self.get_reads(),
+                                                                           self.file_names['trimmed_reads'],
+                                                                           self.min_length,
+                                                                           self.max_read_length,
+                                                                          )
+        self.write_file('trimmed_lengths', trimmed_lengths)
+        self.write_file('too_short_lengths', too_short_lengths)
     
-    def get_reads(self):
-        ''' Returns a generator over the reads in a piece of each data file.
-            Can handle a mixture of different fastq encodings across (but not
-            within) files.
-        '''
-        file_pieces = [split_file.piece(file_name,
-                                        self.num_pieces,
-                                        self.which_piece,
-                                        'fastq',
-                                       )
-                       for file_name in self.data_fns]
-        read_pieces = [fastq.reads(piece, standardize_names=True, ensure_sanger_encoding=True)
-                       for piece in file_pieces]
-        reads = chain.from_iterable(read_pieces)
-        return reads
-
-    def preprocess(self):
-        reads = self.get_reads()
-        with open(self.file_names['preprocessed'], 'w') as preprocessed_file:
-            for read in reads:
-                record = fastq.make_record(*read)
-                preprocessed_file.write(record)
-    
-    def get_max_read_length(self):
-        def length_from_file_name(file_name):
-            length = len(fastq.reads(file_name).next().seq)
-            return length
-        
-        max_length = max(length_from_file_name(fn) for fn in self.data_fns)
-        return max_length
-
     def map_tophat(self):
-        ribosomes.map_tophat([self.file_names['preprocessed']],
-                             self.file_names['bowtie2_index_prefix'],
-                             self.file_names['genes'],
-                             self.file_names['transcriptome_index'],
-                             self.file_names['tophat_dir'],
-                            )
-        os.rename(self.file_names['accepted_hits'],
-                  self.file_names['clean_bam'],
-                 )
-    
-    def remap_trimmed(self):
-        ribosomes.trim_polyA_from_unmapped(self.file_names['unmapped_bam'],
-                                          self.file_names['unmapped_trimmed_fastq'],
-                                          15,
-                                          self.max_read_length,
-                                         )
-        ribosomes.map_tophat([self.file_names['unmapped_trimmed_fastq']],
-                             self.file_names['bowtie2_index_prefix'],
-                             self.file_names['genes'],
-                             self.file_names['transcriptome_index'],
-                             self.file_names['tophat_remapped_polyA_dir'],
-                            )
-        os.rename(self.file_names['remapped_accepted_hits'],
-                  self.file_names['remapped_clean_bam'],
-                 )
-    
-    def index_bams(self):
-        sam.index_bam(self.merged_file_names['clean_bam'])
-        sam.index_bam(self.merged_file_names['remapped_clean_bam'])
-    
-    def get_CDSs(self):
-        all_CDSs = gtf.get_CDSs(self.file_names['genes'])
-        transcripts = {line.strip() for line in open(self.transcripts_file_name)}
-        CDSs = [t for t in all_CDSs if t.name in transcripts]
-        
-        max_gene_length = 0
-        for CDS in CDSs:
-            CDS.build_coordinate_maps()
-            max_gene_length = max(max_gene_length, CDS.CDS_length)
-            CDS.delete_coordinate_maps()
-        
-        piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
-        return piece_CDSs, max_gene_length
+        mapping_tools.map_tophat([self.file_names['trimmed_reads']],
+                                 self.file_names['bowtie2_index_prefix'],
+                                 self.file_names['genes'],
+                                 self.file_names['transcriptome_index'],
+                                 self.file_names['tophat_dir'],
+                                )
+    def sort_by_name(self):
+        accepted_fn = self.file_names['accepted_hits']
+        accepted_prefix, _ = os.path.splitext(accepted_fn)
+        accepted_sorted_fn = '{}_sorted.bam'.format(accepted_prefix)
 
-    def get_read_positions(self):
+        unmapped_fn = self.file_names['unmapped_bam']
+        unmapped_prefix, _ = os.path.splitext(unmapped_fn)
+        unmapped_sorted_fn = '{}_sorted.bam'.format(unmapped_prefix)
+
+        merged_fn = self.file_names['sorted_by_name']
+
+        sam.sort_bam(accepted_fn, accepted_sorted_fn, by_name=True)
+        sam.sort_bam(unmapped_fn, unmapped_sorted_fn, by_name=True)
+        pysam.merge('-nf', merged_fn, accepted_sorted_fn, unmapped_sorted_fn)
+
+    def extend_mappings(self):
+        trim.extend_polyA_ends(self.file_names['sorted_by_name'],
+                               self.file_names['extended'],
+                               self.file_names['genome'],
+                              )
+        
+        sam.sort_bam(self.file_names['extended'],
+                     self.file_names['extended_sorted'],
+                    )
+
+    def filter_mappings(self):
+        num_unmapped = 0
+        num_entirely_genomic = 0
+        num_nonunique = 0
+        num_unique = 0
+
+        nongenomic_lengths = Counter()
+
+        extended_mappings = pysam.Samfile(self.file_names['extended'])
+        groups = utilities.group_by(extended_mappings, lambda m: m.qname)
+
+        with pysam.Samfile(self.file_names['extended_filtered'], 'wb', template=extended_mappings) as filtered_bam_file:
+            for qname, group in groups:
+                unmapped = any(m.is_unmapped for m in group)
+                if unmapped:
+                    num_unmapped += 1
+                    continue
+
+                min_nongenomic_length = min(trim.get_nongenomic_length(m) for m in group)
+                nongenomic_lengths[min_nongenomic_length] += 1
+                if min_nongenomic_length == 0:
+                    num_entirely_genomic += 1
+                    continue
+                
+                for m in group:
+                    filtered_bam_file.write(m)
+
+                nonunique = len(group) > 1 or any(m.mapq < 40 for m in group)
+                if nonunique:
+                    num_nonunique += 1
+                    continue
+
+                num_unique += 1
+            
+        self.log.extend(
+            [('Unmapped', num_unmapped),
+             ('Entirely genomic', num_entirely_genomic),
+             ('Nonunique', num_nonunique),
+             ('Unique', num_unique),
+            ],
+        )
+
+        sam.sort_bam(self.file_names['extended_filtered'],
+                     self.file_names['extended_filtered_sorted'],
+                    )
+        
+        nongenomic_lengths = utilities.counts_to_array(nongenomic_lengths)
+        self.write_file('nongenomic_lengths', nongenomic_lengths)
+
+    def get_polyA_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['clean_bam'],
-                                                              piece_CDSs,
-                                                              relevant_lengths=[],
-                                                             )
+        gene_infos = positions.get_Transcript_polyA_position_counts(self.merged_file_names['extended_sorted'],
+                                                                    piece_CDSs,
+                                                                    max_relevant_length=5,
+                                                                    left_buffer=500,
+                                                                    right_buffer=500,
+                                                                   )
 
-        self.read_positions = {name: info['position_counts']
-                               for name, info in gene_infos.iteritems()}
+        self.three_prime_read_positions = {name: info['position_counts']
+                                           for name, info in gene_infos.iteritems()}
 
-        self.write_file('read_positions', self.read_positions)
+        self.write_file('three_prime_read_positions', self.three_prime_read_positions)
         
-        remapped_gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['remapped_clean_bam'],
-                                                                       piece_CDSs,
-                                                                       relevant_lengths=[],
-                                                                      )
-
-        self.remapped_read_positions = {name: info['position_counts']
-                                        for name, info in remapped_gene_infos.iteritems()}
-
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        read_positions = self.load_read_positions()
-        from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
-        remapped_read_positions = self.load_read_positions(modifier='remapped')
-        from_starts_and_ends_remapped = positions.compute_metagene_positions(remapped_read_positions, max_gene_length)
+        read_positions = self.load_read_positions(modifier='three_prime')
+        
+        processed_read_positions = {}
+        for name in read_positions:
+            gene = {'three_prime_genomic': read_positions[name][0],
+                    'three_prime_nongenomic': read_positions[name]['all'] - read_positions[name][0],
+                   }
+            processed_read_positions[name] = gene
+    
+        from_starts_and_ends = positions.compute_metagene_positions(processed_read_positions, max_gene_length)
 
         self.write_file('from_starts_and_ends', from_starts_and_ends)
-        self.write_file('from_starts_and_ends_remapped', from_starts_and_ends_remapped)
     
-    def load_read_positions(self, modifier=None):
-        ''' Read position arrays can be expensive to read from disk. This is a
-            a wrapper to make sure this is only done once.
-        '''
-        if modifier != None:
-            attribute_name = '{0}_read_positions'.format(modifier)
-        else:
-            attribute_name = 'read_positions'
-
-        if hasattr(self, attribute_name):
-            pass
-        else:
-            setattr(self, attribute_name, self.read_file(attribute_name))
-
-        return getattr(self, attribute_name)
-
     def plot_starts_and_ends(self):
         from_starts_and_ends = self.read_file('from_starts_and_ends')
 
         visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
                                           from_starts_and_ends['from_ends'],
-                                          self.figure_file_names['starts_and_ends'],
-                                         )
-        
-        visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
-                                          from_starts_and_ends['from_ends'],
                                           self.figure_file_names['starts_and_ends_zoomed_out'],
                                           zoomed_out=True,
                                          )
-        
-        from_starts_and_ends_remapped = self.read_file('from_starts_and_ends_remapped')
 
-        visualize.plot_metagene_positions(from_starts_and_ends_remapped['from_starts'],
-                                          from_starts_and_ends_remapped['from_ends'],
-                                          self.figure_file_names['starts_and_ends_remapped'],
-                                         )
-        
-        visualize.plot_metagene_positions(from_starts_and_ends_remapped['from_starts'],
-                                          from_starts_and_ends_remapped['from_ends'],
-                                          self.figure_file_names['starts_and_ends_remapped_zoomed_out'],
-                                          zoomed_out=True,
-                                         )
+    def get_total_eligible_reads(self):
+        log_pairs = self.read_file('log')
+        log_dict = {name: values[0] for name, values in log_pairs}
+        total_mapped_reads = log_dict['Nonunique'] + log_dict['Unique']
+        return total_mapped_reads
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
