@@ -35,6 +35,32 @@ def pre_filter(contaminant_index,
                              )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
     os.remove(sam_fn)
+    
+def pre_filter_paired(R1_trimmed_reads_fn,
+                      R2_trimmed_reads_fn,
+                      R1_noncontaminant_fn,
+                      contaminant_index,
+                      sam_fn,
+                      bam_fn,
+                      error_fn,
+                     ):
+    # Bowtie2 will expaned the '%' symbol into 1 and 2 to get the file
+    # names it will write to.
+    non_contaminant_template = R1_noncontaminant_fn.replace('R1', 'R%')
+    
+    mapping_tools.map_bowtie2_paired(R1_trimmed_reads_fn,
+                                     R2_trimmed_reads_fn,
+                                     contaminant_index,
+                                     sam_fn,
+                                     unaligned_pairs_file_name=non_contaminant_template,
+                                     threads=1,
+                                     max_insert_size=1500,
+                                     suppress_unaligned_SAM=True,
+                                     report_all=True,
+                                     error_file_name=error_fn,
+                                    )
+    sam.make_sorted_indexed_bam(sam_fn, bam_fn)
+    os.remove(sam_fn)
 
 def post_filter(input_bam_fn,
                 gtf_fn,
