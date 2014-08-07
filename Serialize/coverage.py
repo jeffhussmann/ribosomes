@@ -1,15 +1,19 @@
-from itertools import izip
+import h5py
 import numpy as np
+from itertools import izip
 
-def read_file(coverage_file_name):
-    lines = open(coverage_file_name)
-    line_pairs = izip(*[lines]*2)
+def read_file(file_name):
     counts = {}
-    for name_line, counts_line in line_pairs:
-        name = name_line.strip().lstrip('>')
-        these_counts = np.fromstring(counts_line.strip(), dtype=int, sep=' ')
-        counts[name] = these_counts
+    with h5py.File(file_name, 'r') as hdf5_file:
+        for name in hdf5_file:
+            # str is to convert from unicode
+            counts[str(name)] = hdf5_file[name][...]
     return counts
+
+def write_file(counts, file_name):
+    with h5py.File(file_name, 'w') as hdf5_file:
+        for name in counts:
+            hdf5_file[name] = counts[name]
 
 def combine_data(first_counts, second_counts):
     assert first_counts.viewkeys() == second_counts.viewkeys()
@@ -17,10 +21,3 @@ def combine_data(first_counts, second_counts):
     counts = {name: first_counts[name] + second_counts[name] for name in first_counts}
 
     return counts
-
-def write_file(counts, coverage_file_name):
-    with open(coverage_file_name, 'w') as coverage_file:
-        for name in sorted(counts):
-            coverage_file.write('>{0}\n'.format(name))
-            counts_string = ' '.join(str(c) for c in counts[name])
-            coverage_file.write('{0}\n'.format(counts_string))
