@@ -550,6 +550,54 @@ def plot_RPKMs():
             ax.set_xlabel(first)
             ax.set_ylabel(second)
 
+def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
+    index_counts = type_counts.sum(axis=(1, 2, 3, 4))
+    nonzero_lengths = [length for count, length in zip(index_counts, relevant_lengths) if count > 0]
+    length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
+    
+    fig, axs = plt.subplots(len(nonzero_lengths), 1, figsize=(12, 8 * len(nonzero_lengths)))
+
+    min_qual = 30
+
+    for length, ax in zip(nonzero_lengths, axs):
+        length_counts = type_counts[length_to_index[length]]
+        num_positions, _, _, _ = length_counts.shape
+        all_rates = np.zeros((num_positions, 4))
+        base_order = utilities.base_order[:4]
+        for p in range(num_positions):
+            position_ms = length_counts[p][min_qual:].sum(axis=0)
+            calls_of_each_type = position_ms.sum(axis=0)
+            bad_calls = calls_of_each_type - position_ms.diagonal()
+            total_calls = np.maximum(1, calls_of_each_type.sum())
+            # rates is the fraction of all calls at this position that were of each
+            # type when they shouldn't have been
+            rates = np.true_divide(bad_calls, total_calls)
+            all_rates[p] = rates[:4]
+
+        xs = np.arange(length)
+        for i, b in enumerate(base_order):
+            ax.plot(xs,
+                    all_rates[:length, i],
+                    '.-',
+                    color=igv_colors.normalized_rgbs[b],
+                    label=b,
+                    markersize=10,
+                    linewidth=0.5,
+                   )
+        ax.legend(framealpha=0.5)
+        ax.set_ylim(0, 1)
+
+        ax.set_xlim(-1, max(nonzero_lengths))
+        ax.set_title('Length {0}'.format(length))
+        ax.axvline(0, color='black', alpha=0.5)
+        ax.axvline(length - 1, color='black', alpha=0.5)
+    
+    axs[-1].set_xlabel('Position in read')
+    axs[len(axs) // 2].set_ylabel('Fraction of bases miscalled as each type')
+
+    fig.savefig(figure_fn, bbox_inches='tight')
+    plt.close(fig)
+
 if __name__ == '__main__':
     from Sequencing import Serialize
     ps = Serialize.read_file('/home/jah/projects/arlen/experiments/lareau_elife/Cycloheximide_replicate_1/results/Cycloheximide_replicate_1_from_starts_and_ends.hdf5', 'read_positions')
