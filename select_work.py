@@ -17,6 +17,8 @@ def build_all_experiments(verbose=True):
                 'mcmanus_gr',
                 'artieri',
                 'lareau_elife',
+                'belgium_2014_03_05',
+                'belgium_2013_08_06',
                ]
     experiments = {}
     for family in families:

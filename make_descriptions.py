@@ -62,8 +62,8 @@ if __name__ == '__main__':
     all_bash_fn = '/home/jah/projects/arlen/code/everything.sh'
     fns = []
     fns.append(make_descriptions('artieri', 'polyA', **kwargs))
-    fns.append(make_descriptions('belgium_3_5_14', 'linker', **kwargs))
-    fns.append(make_descriptions('belgium_8_6_13', 'truseq', **kwargs))
+    fns.append(make_descriptions('belgium_2014_03_05', 'linker', **kwargs))
+    fns.append(make_descriptions('belgium_2013_08_06', 'truseq', **kwargs))
     fns.append(make_descriptions('dunn_elife', 'linker', **kwargs))
     fns.append(make_descriptions('gerashchenko_pnas', 'polyA', max_read_length=44, **kwargs))
     fns.append(make_descriptions('guydosh_cell', 'linker', **kwargs))
