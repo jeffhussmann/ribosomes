@@ -135,47 +135,41 @@ def post_filter(input_bam_fn,
             if mapping.qname not in contaminant_qnames:
                 clean_bam_file.write(mapping)
 
-def produce_rRNA_coverage(bam_file_name, specific_length=None):
+def produce_rRNA_coverage(bam_file_name, max_read_length):
     ''' Counts the number of mappings that overlap each position in the
         reference sequences that bam_file_names were mapped to.
     
-        counts: dict (keyed by RNAME) of arrays representing counts for each
-                position in RNAME
+        counts: dict (keyed by RNAME) of 2D arrays representing counts of each 
+                length for each position in RNAME
     '''
     bam_file = pysam.Samfile(bam_file_name)
 
-    if specific_length:
-        eligible_reads = (read for read in bam_file if read.qlen == specific_length)
-    else:
-        eligible_reads = bam_file
-
     rnames = bam_file.references
-    lengths = bam_file.lengths
-    counts = {name: np.zeros(length, int) for name, length in zip(rnames, lengths)}
+    sequence_lengths = bam_file.lengths
+    counts = {name: np.zeros((max_read_length + 1, sequence_length), int)
+              for name, sequence_length in zip(rnames, sequence_lengths)}
     
-    read_names = set()
-
-    for mapping in eligible_reads:
-        read_names.add(mapping.qname)
+    for mapping in bam_file:
         array = counts[rnames[mapping.tid]]
+        read_length = mapping.qlen
         for position in mapping.positions:
-            array[position] += 1
+            array[read_length, position] += 1
 
     return counts
 
 threshold = 0.02
-def identify_dominant_stretches(counts, total_reads, bam_fn):
+def identify_dominant_stretches(counts, total_reads, max_read_length, bam_fn):
     ''' Identify connected stretches of positions where the fraction of total
         reads mapping is greater than a threshold.
     '''
     boundaries = {}
 
     for rname in counts:
+        all_lengths = counts[rname].sum(axis=0)
         # Zero added to the beginning and end so that if a dominant stretch
         # starts at beginning or end, there will be a transition for np.diff
         # to find.
-        augmented_counts = np.concatenate(([0], counts[rname], [0]))
-        #augemented_counts = np.concatenate(([counts[rname]]))
+        augmented_counts = np.concatenate(([0], all_lengths, [0]))
         normalized_counts = np.true_divide(augmented_counts, total_reads)
         above_threshold = normalized_counts >= threshold
         if not np.any(above_threshold):
@@ -183,7 +177,7 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
         # np.diff(above_threshold) is True wherever above_threshold changes
         # between True and False. Adapted from a stackoverflow answer.
         # + 1 is so this will be the first thing over the threshold or first
-        # thing under it, - 1 is to under the shift of adding a zero at the
+        # thing under it, - 1 is to undo the shift of adding a zero at the
         # front.
         above_threshold_boundaries = np.where(np.diff(above_threshold))[0] + 1 - 1
 
@@ -191,23 +185,25 @@ def identify_dominant_stretches(counts, total_reads, bam_fn):
 
         iter_boundaries = iter(above_threshold_boundaries)
         pairs = list(izip(iter_boundaries, iter_boundaries))
-        boundaries[rname] = pairs
+        boundaries[rname] = {pair: np.zeros(max_read_length + 1) for pair in pairs}
 
-    # Count the number of reads that overlap any of the dominant stretches.
+    # Count the number of reads that overlap any of the dominant stretches and
+    # characterize the length distibution of reads overlapping each dominant
+    # stretch.
     overlapping_qnames = set()
-    all_qnames = set()
     bam_file = pysam.Samfile(bam_fn)
     for rname in boundaries:
         for start, end in boundaries[rname]:
             reads = bam_file.fetch(rname, start, end)
             for aligned_read in reads:
                 overlapping_qnames.add(aligned_read.qname)
+                boundaries[rname][start, end][aligned_read.qlen] += 1
 
     dominant_reads = len(overlapping_qnames)
 
     return dominant_reads, boundaries
 
-def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
+def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template, lengths_slice=slice(None)):
     ''' Plots the number of mappings that overlap each position in the reference
         sequences mapped to. Highlights the regions targeted by oligos.
     '''
@@ -227,7 +223,8 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template):
     for experiment_name in coverage_data:
         total_reads, counts, color = coverage_data[experiment_name]
         for rname in counts:
-            normalized_counts = np.true_divide(counts[rname], total_reads)
+            all_lengths = counts[rname][lengths_slice].sum(axis=0)
+            normalized_counts = np.true_divide(all_lengths, total_reads)
             axs[rname].plot(normalized_counts, color=color, label=experiment_name)
             axs[rname].axhline(threshold, linestyle='--', color='black', alpha=0.5)
             legends[rname] = axs[rname].legend(loc='upper right', framealpha=0.5)
@@ -313,6 +310,27 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
     ax.set_xlabel('Length of original RNA fragment')
     ax.set_ylabel('Number of fragments')
     ax.set_title('Distribution of fragment lengths overlapping each oligo')
+    
+    fig.savefig(fig_fn)
+    plt.close(fig)
+
+def plot_dominant_stretch_lengths(boundaries, fig_fn):
+    fig, ax = plt.subplots(figsize=(18, 12))
+    for rname in boundaries:
+        for start, end in boundaries[rname]:
+            counts = boundaries[rname][start, end]
+            denominator = np.maximum(counts.sum(), 1)
+            normalized_lengths = np.true_divide(counts, denominator)
+            label = '{0}: {1:,}-{2:,}'.format(rname, start, end)
+            ax.plot(normalized_lengths, 'o-', label=label)
+    
+    ax.legend(loc='upper right', framealpha=0.5)
+    
+    ax.set_xlim(0, len(counts) - 1)
+
+    ax.set_xlabel('Length of original RNA fragment')
+    ax.set_ylabel('Fraction of fragments')
+    ax.set_title('Distribution of fragment lengths overlapping each dominant stretch')
     
     fig.savefig(fig_fn)
     plt.close(fig)
