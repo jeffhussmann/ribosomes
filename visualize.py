@@ -5,6 +5,8 @@ import positions
 import numpy as np
 import brewer2mpl
 from Circles.Visualize.utilities import optional_ax
+from Sequencing.Visualize import igv_colors
+from Sequencing import utilities
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
@@ -251,22 +253,30 @@ def plot_frames(from_starts, figure_fn):
         ax.xaxis.set_ticks_position('none')
         ax.set_ylim(0, 1)
 
-        leg = ax.legend(loc='upper right', fancybox=True)
-        leg.get_frame().set_alpha(0.5)
-
     relevant_lengths = sorted(from_starts.keys())
-    fig, axs = plt.subplots(len(relevant_lengths), 1, figsize=(6, 3 * len(relevant_lengths)))
 
-    for length, ax in zip(relevant_lengths, axs):
-        frames = np.zeros(3, int)
+    nonzero_lengths = []
+    for length in relevant_lengths:
+        frame_counts = np.zeros(3, int)
         for p in range(-15, from_starts[length].CDS_length - 15 + 3):
-            frames[p % 3] += from_starts[length]['start_codon', p]
+            frame_counts[p % 3] += from_starts[length]['start_codon', p]
 
-        frames = np.true_divide(frames, frames.sum())
+        if frame_counts.sum() != 0:
+            nonzero_lengths.append((length, frame_counts))
+
+    fig, axs = plt.subplots(len(nonzero_lengths), 1, figsize=(6, 3 * len(nonzero_lengths)))
+    for (length, frame_counts), ax in zip(nonzero_lengths, axs):
+        frame_fractions = np.true_divide(frame_counts, frame_counts.sum())
 
         tick_labels = ['0', '1', '2']
 
-        bar_plot(frames, str(length), tick_labels, ax)
+        bar_plot(frame_fractions, str(length), tick_labels, ax)
+        label = 'Length {0}\n{1:,} total reads'.format(length, frame_counts.sum())
+        ax.text(0.99, 0.98, label,
+                horizontalalignment='right',
+                verticalalignment='top',
+                transform=ax.transAxes,
+               )
         
     axs[-1].set_xlabel('Frame')
     axs[len(axs) // 2].set_ylabel('Fraction of uniquely mapped reads of specified length')
