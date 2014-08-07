@@ -4,7 +4,7 @@ import pysam
 from functools import partial
 from itertools import chain
 from collections import Counter
-from Sequencing import genomes, utilities, fastq
+from Sequencing import genomes, utilities, fastq, sam
 from Circles.annotation import Annotation_factory
 from trim_cython import *
 from Sequencing.adapters_cython import *
@@ -253,3 +253,87 @@ def get_nongenomic_length(mapping):
 
 def set_nongenomic_length(mapping, nongenomic_length):
     mapping.setTag('ZN', nongenomic_length)
+
+
+def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir):
+    ''' Remove all consecutive Q30+ mismatches from the beginning of alignments,
+        under the assumption that these represent untemplated additions during
+        reverse transcription.
+    '''
+    bam_file = pysam.Samfile(bam_fn)
+    region_fetcher = genomes.build_region_fetcher(genome_dir,
+                                                  load_references=True,
+                                                  sam_file=bam_file,
+                                                 )
+
+    q30 = fastq.encode_sanger([30])
+    with pysam.Samfile(trimmed_bam_fn, 'wb', template=bam_file) as trimmed_bam_file:
+        for mapping in bam_file:
+            if sam.contains_indel_pysam(mapping):
+                continue
+            if mapping.is_unmapped:
+                trimmed_bam_file.write(mapping)
+                continue
+
+            if mapping.is_reverse:
+                aligned_pairs = mapping.aligned_pairs[::-1]
+            else:
+                aligned_pairs = mapping.aligned_pairs
+            
+            bases_to_trim = 0
+            for read_index, ref_index in aligned_pairs:
+                if read_index == None:
+                    continue
+
+                ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+                if mapping.seq[read_index] != ref_base and mapping.qual[read_index] >= q30:
+                    bases_to_trim += 1
+                else:
+                    first_ref_index = ref_index
+                    break
+
+            if bases_to_trim == 0:
+                trimmed_mapping = mapping
+            else:
+                trimmed_mapping = pysam.AlignedRead()
+                trimmed_mapping.qname = mapping.qname
+                trimmed_mapping.tid = mapping.tid
+                
+                # first_ref_index has been set above to the be index of the
+                # reference base aligned to the first non-trimmed base in the
+                # read. If the mapping is forward, this will be the new pos.
+                # If the mapping is reverse, the pos won't change.
+                if mapping.is_reverse:
+                    first_ref_index = mapping.pos
+                trimmed_mapping.pos = first_ref_index
+
+                trimmed_mapping.is_reverse = mapping.is_reverse
+                trimmed_mapping.mapq = mapping.mapq
+
+                if mapping.is_reverse:
+                    # bases_to_trim is never zero here, so there is no danger
+                    # of minus zero
+                    trimmed_slice = slice(None, -bases_to_trim)
+                else:
+                    trimmed_slice = slice(bases_to_trim, None)
+
+                trimmed_mapping.seq = mapping.seq[trimmed_slice]
+                trimmed_mapping.qual = mapping.qual[trimmed_slice]
+                trimmed_mapping.rnext = -1
+                trimmed_mapping.pnext = -1
+
+                trimmed_length = len(mapping.seq) - bases_to_trim
+                if mapping.is_reverse:
+                    # truncate_cigar_blocks removes bases from the end, which is
+                    # what we want for reverse reads
+                    trimmed_cigar = sam.truncate_cigar_blocks(mapping.cigar, trimmed_length)
+                else:
+                    # We want to remove from the beginning, so flip the blocks,
+                    # remove from the end, then flip back.
+                    flipped_cigar = mapping.cigar[::-1]
+                    trimmed_cigar = sam.truncate_cigar_blocks(flipped_cigar, trimmed_length)
+                    trimmed_cigar = trimmed_cigar[::-1]
+                
+                trimmed_mapping.cigar = trimmed_cigar
+
+            trimmed_bam_file.write(trimmed_mapping)
