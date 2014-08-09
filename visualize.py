@@ -27,54 +27,47 @@ def smoothed(position_counts, window_size):
     return smoothed_array
 
 def plot_metagene_positions(from_starts, from_ends, figure_fn, relevant_lengths=None, zoomed_out=False):
-    fig, (start_ax, end_ax) = plt.subplots(2, 1, figsize=(12, 16))
+    fig, axs = plt.subplots(2, 2, figsize=(24, 16))
 
     if zoomed_out:
         start_xs = np.arange(-190, 140)
         end_xs = np.arange(-140, 190)
+        tick_interval = 30
     else:
         start_xs = np.arange(-21, 19)
         end_xs = np.arange(-33, 7)
+        tick_interval = 3
     
-    if relevant_lengths == None:
-        relevant_lengths = sorted(from_starts.keys())
+    short_lengths = range(20, 24)
+    long_lengths = range(27, 32)
 
-    for length in relevant_lengths:
-        start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
-        end_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
+    for lengths, (start_ax, end_ax) in zip([short_lengths, long_lengths], axs):
+        for length in lengths:
+            start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
+            end_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
 
-    start_ax.set_xlim(min(start_xs), max(start_xs))
-    mod_3 = [x for x in start_xs if x % 3 == 0]
-    mod_30 = [x for x in start_xs if x % 30 == 0]
-    if zoomed_out:
-        xticks = mod_30
-    else:
-        xticks = mod_3
-    start_ax.set_xticks(xticks)
-    for x in xticks:
-        start_ax.axvline(x, color='black', alpha=0.1)
-    start_ax.set_xlabel('Position of read relative to start of CDS')
-    start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
-    
-    end_ax.set_xlim(min(end_xs), max(end_xs))
-    mod_3 = [x for x in end_xs if x % 3 == 0]
-    mod_30 = [x for x in end_xs if x % 30 == 0]
-    if zoomed_out:
-        xticks = mod_30
-    else:
-        xticks = mod_3
-    end_ax.set_xticks(xticks)
-    for x in xticks:
-        end_ax.axvline(x, color='black', alpha=0.1)
-    end_ax.set_xlabel('Position of read relative to stop codon')
-    end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+        start_ax.set_xlim(min(start_xs), max(start_xs))
+        start_xticks = [x for x in start_xs if x % tick_interval == 0]
+        start_ax.set_xticks(start_xticks)
+        for x in start_xticks:
+            start_ax.axvline(x, color='black', alpha=0.1)
+        start_ax.set_xlabel('Position of read relative to start of CDS')
+        start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+        
+        end_ax.set_xlim(min(end_xs), max(end_xs))
+        end_xticks = [x for x in end_xs if x % tick_interval == 0]
+        end_ax.set_xticks(end_xticks)
+        for x in end_xticks:
+            end_ax.axvline(x, color='black', alpha=0.1)
+        end_ax.set_xlabel('Position of read relative to stop codon')
+        end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
 
-    start_ax.legend(loc='upper right', framealpha=0.5)
-    end_ax.legend(loc='upper right', framealpha=0.5)
+        start_ax.legend(loc='upper right', framealpha=0.5)
+        end_ax.legend(loc='upper right', framealpha=0.5)
 
-    ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
-    start_ax.set_ylim(0, ymax)
-    end_ax.set_ylim(0, ymax)
+        ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
+        start_ax.set_ylim(0, ymax)
+        end_ax.set_ylim(0, ymax)
     
     fig.savefig(figure_fn)
     plt.close(fig)
@@ -86,7 +79,6 @@ def plot_metacodon_positions(position_counts, figure_fn, key='feature'):
     
     short_lengths = range(20, 24)
     long_lengths = range(27, 32)
-    #long_lengths = range(24, 29)
 
     for length in long_lengths:
         long_ax.plot(xs, position_counts[length][key, xs], '.-', label=length)
@@ -565,11 +557,11 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
     nonzero_lengths = [length for count, length in zip(index_counts, relevant_lengths) if count > 0]
     length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
     
-    fig, axs = plt.subplots(len(nonzero_lengths), 1, figsize=(12, 8 * len(nonzero_lengths)))
+    fig, axs = plt.subplots(len(nonzero_lengths), 2, figsize=(24, 8 * len(nonzero_lengths)))
 
     min_qual = 30
 
-    for length, ax in zip(nonzero_lengths, axs):
+    for length, (absolute_ax, zoomed_ax) in zip(nonzero_lengths, axs):
         length_counts = type_counts[length_to_index[length]]
         num_positions, _, _, _ = length_counts.shape
         all_rates = np.zeros((num_positions, 4))
@@ -585,25 +577,27 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
             all_rates[p] = rates[:4]
 
         xs = np.arange(length)
-        for i, b in enumerate(base_order):
-            ax.plot(xs,
-                    all_rates[:length, i],
-                    '.-',
-                    color=igv_colors.normalized_rgbs[b],
-                    label=b,
-                    markersize=10,
-                    linewidth=0.5,
-                   )
-        ax.legend(framealpha=0.5)
-        ax.set_ylim(0, 1)
+        for ax in [absolute_ax, zoomed_ax]:
+            for i, b in enumerate(base_order):
+                ax.plot(xs,
+                        all_rates[:length, i],
+                        '.-',
+                        color=igv_colors.normalized_rgbs[b],
+                        label=b,
+                        markersize=10,
+                        linewidth=0.5,
+                       )
+            ax.legend(framealpha=0.5)
 
-        ax.set_xlim(-1, max(nonzero_lengths))
-        ax.set_title('Length {0}'.format(length))
-        ax.axvline(0, color='black', alpha=0.5)
-        ax.axvline(length - 1, color='black', alpha=0.5)
+            ax.set_xlim(-1, max(nonzero_lengths))
+            ax.set_title('Length {0}'.format(length))
+            ax.axvline(0, color='black', alpha=0.5)
+            ax.axvline(length - 1, color='black', alpha=0.5)
     
-    axs[-1].set_xlabel('Position in read')
-    axs[len(axs) // 2].set_ylabel('Fraction of bases miscalled as each type')
+            ax.set_xlabel('Position in read')
+        absolute_ax.set_ylim(0, 1)
+
+    axs[len(axs) // 2, 0].set_ylabel('Fraction of bases miscalled as each type')
 
     fig.savefig(figure_fn, bbox_inches='tight')
     plt.close(fig)
