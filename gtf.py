@@ -197,6 +197,22 @@ class Transcript(object):
     def __str__(self):
         return '{0} {1}:{2}-{3}'.format(self.name, self.seqname, self.start, self.end)
 
+    def retrieve_sequence(self, region_fetcher, left_buffer=0, right_buffer=0):
+        # Remake coordinate maps to guarantee buffer sizes
+        self.build_coordinate_maps(left_buffer, right_buffer)
+
+        transcript_positions = range(self.transcript_start_codon - left_buffer,
+                                     self.transcript_stop_codon + right_buffer,
+                                    )
+        positions = [self.transcript_to_genomic[t] for t in transcript_positions]
+
+        bases = [region_fetcher(self.seqname, p, p + 1) for p in positions]
+        if self.strand == '-':
+            bases = [utilities.complement(b) for b in bases]
+        sequence = ''.join(bases).upper()
+
+        return sequence
+
 def make_coding_sequence_fetcher(gtf_fn, genome_dir):
     CDSs = get_CDSs(gtf_fn)
     gtf_dict = {t.name: t for t in CDSs}
