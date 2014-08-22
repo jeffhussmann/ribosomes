@@ -99,8 +99,12 @@ def plot_metacodon_positions(position_counts, figure_fn, key='feature'):
     fig.savefig(figure_fn)
     plt.close(fig)
 
-def plot_metagene_positions_heatmap(from_starts, from_ends, figure_fn, zoomed_out=False):
-    relevant_lengths = sorted(from_starts.keys())
+def plot_metagene_positions_heatmap(from_starts,
+                                    from_ends,
+                                    figure_fn,
+                                    zoomed_out=False,
+                                    normalize_to_max_in=None,
+                                   ):
     fig, ((start_5_ax, end_5_ax), (start_3_ax, end_3_ax)) = plt.subplots(2, 2)
 
     if zoomed_out:
@@ -123,28 +127,52 @@ def plot_metagene_positions_heatmap(from_starts, from_ends, figure_fn, zoomed_ou
     from_starts_3_array = np.asarray(from_starts_3_array)
     from_ends_5_array = np.asarray(from_ends_5_array)
     from_ends_3_array = np.asarray(from_ends_3_array)
-    overall_max = max(from_starts_5_array.max(),
-                      from_ends_5_array.max(),
-                      from_starts_3_array.max(),
-                      from_ends_3_array.max(),
-                     )
 
-    modified_blues = matplotlib.cm.Blues
-    modified_blues.set_under('white')
-    modified_blues.set_over('red')
+    if normalize_to_max_in:
+        allowed_lengths, which_end, allowed_positions = normalize_to_max_in
+        if which_end == 'from_start':
+            counts = from_starts
+        elif which_end == 'from_end':
+            counts = from_ends
+        allowed_counts = [counts[l][allowed_positions] for l in allowed_lengths]
+        overall_max = np.asarray(allowed_counts).max()
+    else:
+        overall_max = max(from_starts_5_array.max(),
+                          from_ends_5_array.max(),
+                          from_starts_3_array.max(),
+                          from_ends_3_array.max(),
+                         )
+
+    blues_cdict = {'red': ((0.0, 1.0, 1.0),
+                           (1.0, 0.0, 0.0)),
+                   'green': ((0.0, 1.0, 1.0),
+                             (1.0, 0.0, 0.0)),
+                   'blue': ((0.0, 1.0, 1.0),
+                            (1.0, 1.0, 1.0)),
+                  }
+
+    blues = matplotlib.colors.LinearSegmentedColormap('blues', blues_cdict, 10000)
+    blues.set_over('red')
     
-    modified_reds = matplotlib.cm.Reds
-    modified_reds.set_under('white')
-    modified_reds.set_over('blue')
+    reds_cdict = {'red': ((0.0, 1.0, 1.0),
+                          (1.0, 1.0, 1.0)),
+                  'green': ((0.0, 1.0, 1.0),
+                            (1.0, 0.0, 0.0)),
+                  'blue': ((0.0, 1.0, 1.0),
+                           (1.0, 0.0, 0.0)),
+                 }
+
+    reds = matplotlib.colors.LinearSegmentedColormap('blues', reds_cdict, 10000)
+    reds.set_over('blue')
 
     kwargs_five = {'interpolation': 'nearest',
-                   'cmap': matplotlib.cm.Blues,
-                   'vmin': 1,
+                   'cmap': blues,
+                   'vmin': 0,
                    'vmax': overall_max,
                   }
     kwargs_three = {'interpolation': 'nearest',
-                    'cmap': matplotlib.cm.Reds,
-                    'vmin': 1,
+                    'cmap': reds,
+                    'vmin': 0,
                     'vmax': overall_max,
                    }
 
