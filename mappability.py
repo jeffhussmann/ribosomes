@@ -48,6 +48,10 @@ adapter_sequences = {'linker': trim.smRNA_linker + trim.truseq_R2_rc}
 class MappabilityExperiment(ribosome_profiling_experiment.RibosomeProfilingExperiment):
     num_stages = 1
 
+    specific_work = [
+        ['record_uniqueness'],
+    ]
+
     specific_results_files = [
         ('uniqueness', read_positions, '{name}_uniqueness.hdf5'),
     ]
@@ -63,9 +67,8 @@ class MappabilityExperiment(ribosome_profiling_experiment.RibosomeProfilingExper
         self.fragment_length = int(kwargs['fragment_length'])
         self.common_buffer = 100
 
-        self.work = [['record_uniqueness']]
-        self.outputs = [['uniqueness']]
-        self.cleanup = [[]]
+
+        print self.work
 
     def get_reads(self):
         CDSs, _ = self.get_CDSs()
@@ -147,7 +150,6 @@ class MappabilityExperiment(ribosome_profiling_experiment.RibosomeProfilingExper
                     uniqueness[true_transcript.name][self.fragment_length]['start_codon', true_position] = 1
 
         self.write_file('uniqueness', uniqueness)
-
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
