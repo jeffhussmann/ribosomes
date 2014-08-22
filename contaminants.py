@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import pysam
 from collections import defaultdict
 from itertools import chain, izip, cycle
-from Sequencing import mapping_tools, fasta, sam
+from Sequencing import mapping_tools, fasta, fastq, sam
 import gtf
 
 colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
@@ -29,8 +29,6 @@ def pre_filter(contaminant_index,
                               threads=1,
                               report_all=True,
                               suppress_unaligned_SAM=True,
-                              seed_mismatches=1,
-                              seed_interval_function='C,1,0',
                               error_file_name=error_fn,
                              )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
@@ -61,6 +59,24 @@ def pre_filter_paired(R1_trimmed_reads_fn,
                                     )
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
     os.remove(sam_fn)
+
+def filter_synthetic_suffixes(trimmed_reads_fn,
+                              filtered_reads_fn,
+                              synthetic_fn,
+                              max_read_length,
+                             ):
+    def prefix_or_suffix(target, query):
+        return target.startswith(query) or target.endswith(query)
+
+    synthetic_sequences = [read.seq for read in fasta.reads(synthetic_fn)]
+    length_counts = np.zeros(max_read_length + 1)
+    with open(filtered_reads_fn, 'w') as filtered_reads_fh:
+        for read in fastq.reads(trimmed_reads_fn):
+            if any(prefix_or_suffix(synthetic_seq, read.seq) for synthetic_seq in synthetic_sequences):
+                length_counts[len(read.seq)] += 1
+            else:
+                filtered_reads_fh.write(fastq.make_record(*read))
+    return length_counts
 
 def post_filter(input_bam_fn,
                 gtf_fn,
@@ -316,13 +332,17 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
 
 def plot_dominant_stretch_lengths(boundaries, fig_fn):
     fig, ax = plt.subplots(figsize=(18, 12))
+    plotted_something = False
     for rname in boundaries:
         for start, end in boundaries[rname]:
+            plotted_something = True
             counts = boundaries[rname][start, end]
             denominator = np.maximum(counts.sum(), 1)
             normalized_lengths = np.true_divide(counts, denominator)
             label = '{0}: {1:,}-{2:,}'.format(rname, start, end)
             ax.plot(normalized_lengths, 'o-', label=label)
+    if not plotted_something:
+        return None
     
     ax.legend(loc='upper right', framealpha=0.5)
     
