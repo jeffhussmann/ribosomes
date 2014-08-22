@@ -26,12 +26,12 @@ def smoothed(position_counts, window_size):
         smoothed_array[i] = position_counts[i:].sum() / float(smoothed_array.extent_length - i)
     return smoothed_array
 
-def plot_metagene_positions(from_starts, from_ends, figure_fn, relevant_lengths=None, zoomed_out=False):
+def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False):
     fig, axs = plt.subplots(2, 2, figsize=(24, 16))
 
     if zoomed_out:
-        start_xs = np.arange(-190, 140)
-        end_xs = np.arange(-140, 190)
+        start_xs = np.arange(-190, 190)
+        end_xs = np.arange(-190, 190)
         tick_interval = 30
     else:
         start_xs = np.arange(-21, 19)
@@ -41,7 +41,10 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, relevant_lengths=
     short_lengths = range(20, 24)
     long_lengths = range(27, 32)
 
-    for lengths, (start_ax, end_ax) in zip([short_lengths, long_lengths], axs):
+    recorded_short_lengths = sorted(set(short_lengths) & set(from_starts.keys()))
+    recorded_long_lengths = sorted(set(long_lengths) & set(from_starts.keys()))
+
+    for lengths, (start_ax, end_ax) in zip([recorded_short_lengths, recorded_long_lengths], axs):
         for length in lengths:
             start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
             end_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
