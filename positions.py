@@ -51,7 +51,7 @@ class PositionCounts(object):
             # Note that adjusted_key must be allowed to be equal to
             # len(self.data) to allow a slice to contain the end point.
             if adjusted_key < 0 or adjusted_key > len(self.data):
-                raise IndexError(len(self.data), adjusted_key, key, self.landmark_to_index, self.left_buffer, self.right_buffer)
+                raise IndexError('Length of data - {0}, attempted to access {1} from key of {2}'.format(len(self.data), adjusted_key, key), self.landmark_to_index, self.left_buffer, self.right_buffer)
 
         elif isinstance(key, slice):
             if key.start == None:
@@ -169,7 +169,10 @@ def convert_to_three_prime(position_counts, length):
                                             position_counts.right_buffer,
                                            )
     else:
-        converted_data = np.concatenate((np.zeros(length - 1), position_counts.data[:-(length - 1)]))
+        converted_data = np.concatenate((np.zeros(length - 1, position_counts.data.dtype),
+                                         position_counts.data[:-(length - 1)],
+                                        ),
+                                       )
         three_prime_counts = PositionCounts(position_counts.landmarks,
                                             position_counts.left_buffer,
                                             position_counts.right_buffer,
@@ -459,12 +462,12 @@ def compute_averaged_codon_densities(codon_counts, offset_key='relaxed', names_t
     uniform = PositionCounts(landmarks, codon_buffer, codon_buffer)
     uniform.data[...] = 1
 
-    for name, counts in codon_counts.iteritems():
+    for name, counts_offset_groups in codon_counts.iteritems():
         if name in names_to_skip:
             print 'skipping', name
             continue
 
-        counts = counts[offset_key]
+        counts = counts_offset_groups[offset_key]
         if counts.sum() < min_counts:
             continue
 

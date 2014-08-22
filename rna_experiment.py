@@ -117,8 +117,6 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
 
         return all_read_pairs
 
-
-    
     def preprocess(self):
         ''' Needs to exist to make files to feed to mapping programs. Would be
             better off as named pipes.
