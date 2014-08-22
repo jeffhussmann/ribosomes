@@ -21,6 +21,7 @@ def make_descriptions(group,
                       max_relevant_length=31,
                       num_pieces=16,
                       bartel_markers=False,
+                      stephanie_markers=False,
                      ):
     prefix = '/home/jah/projects/arlen/experiments/{0}/'.format(group)
     bash_fn = '/home/jah/projects/arlen/code/all_{0}.sh'.format(group)
@@ -48,6 +49,8 @@ def make_descriptions(group,
                 description_fh.write('max_read_length {0}\n'.format(max_read_length))
             if bartel_markers:
                 description_fh.write('synthetic_index_prefix /home/jah/projects/arlen/data/bartel_markers/bartel_markers\n')
+            elif stephanie_markers:
+                description_fh.write('synthetic_fasta /home/jah/projects/arlen/data/stephanie_markers/stephanie_markers.fa\n')
 
         bash_fh.write('echo {name}\n'.format(name=name))
         bash_fh.write('python ribosome_profiling_experiment.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))

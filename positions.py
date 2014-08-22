@@ -489,6 +489,17 @@ def compute_averaged_codon_densities(codon_counts, offset_key='relaxed', names_t
 
     return mean_densities
 
+def normalized_codon_density_distribution(codon_counts, offset_key='relaxed'):
+    all_normalized_densities = []
+    for name, counts_offset_groups in codon_counts.iteritems():
+        counts = counts_offset_groups[offset_key]
+        num_codons = counts.CDS_length
+        normalization = float(counts['start_codon', 0:num_codons].sum()) / num_codons
+        if normalization != 0:
+            all_normalized_densities.append(np.true_divide(counts['start_codon', 0:10], normalization))
+
+    return np.asarray(all_normalized_densities)
+
 def compute_metacodon_counts(read_positions, gtf_fn, genome_dir):
     left_buffer = 50
     right_buffer = 50

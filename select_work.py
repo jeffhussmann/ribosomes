@@ -4,6 +4,7 @@ import ribosome_profiling_experiment
 import subprocess
 import numpy as np
 import visualize
+import contaminants
 from collections import Counter
 
 def build_all_experiments(verbose=True):
@@ -17,6 +18,7 @@ def build_all_experiments(verbose=True):
                 'mcmanus_gr',
                 'artieri',
                 'lareau_elife',
+                'belgium_2014_08_07',
                 'belgium_2014_03_05',
                 'belgium_2013_08_06',
                ]
@@ -141,14 +143,12 @@ def make_mismatch_position_plots():
 
 def make_multipage_pdf(figure_name):
     all_experiments = build_all_experiments(verbose=False)
-    all_fn = '/home/jah/projects/arlen/results/all_{0}.pdf'.format(figure_name)
+    all_fn = '/home/jah/projects/arlen/results/guydosh_{0}.pdf'.format(figure_name)
     fns = []
     for group in sorted(all_experiments):
-        if group != 'gerashchenko_pnas':
+        if 'guydosh' not in group:
             continue
         for name in sorted(all_experiments[group]):
-            if 'foot' not in name:
-                continue
             fns.append(all_experiments[group][name].figure_file_names[figure_name])
 
     pdftk_command = ['pdftk'] + fns + ['cat', 'output', all_fn]
@@ -193,3 +193,16 @@ def make_averaged_codon_densities_plot():
                                             plot_up_to=100,
                                             show_end=True,
                                            )
+
+def make_rRNA_coverage_plot():
+    colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k'] * 10
+    experiments = build_all_experiments(verbose=False)
+    all_experiments = [exp for exp in experiments['belgium_2014_08_07'].values() if 'FP' in exp.name]
+
+    coverage_data = {exp.name: (exp.get_total_reads(), exp.read_file('rRNA_coverage'), color)
+                     for exp, color in zip(all_experiments, colors)}
+
+    contaminants.plot_rRNA_coverage(coverage_data,
+                                    all_experiments[0].file_names['oligos_sam'],
+                                    'belgium_2014_08_07_rRNA_coverage_{0}.pdf',
+                                   )
