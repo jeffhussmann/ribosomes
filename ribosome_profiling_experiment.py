@@ -117,7 +117,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('clean_composition_perfect', '{name}_clean_composition_perfect.pdf'),
         ('all_lengths', '{name}_all_lengths.pdf'),
         ('clean_lengths', '{name}_clean_lengths.pdf'),
-        ('rRNA_coverage_template', '{name}_rRNA_coverage_{{0}}.pdf'),
+        ('rRNA_coverage', '{name}_rRNA_coverage.pdf'),
         ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
         ('dominant_stretch_lengths', '{name}_dominant_stretch_lengths.pdf'),
         ('starts_and_ends', '{name}_starts_and_ends.pdf'),
@@ -549,7 +549,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         coverage_data = {self.name: (self.get_total_reads(), counts, 'blue')}
         contaminants.plot_rRNA_coverage(coverage_data,
                                         self.file_names['oligos_sam'],
-                                        self.figure_file_names['rRNA_coverage_template'],
+                                        self.figure_file_names['rRNA_coverage'],
                                        )
         
     def plot_oligo_hit_lengths(self):

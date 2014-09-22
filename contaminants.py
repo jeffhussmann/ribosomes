@@ -4,6 +4,7 @@ import random
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import pysam
 from collections import defaultdict
 from itertools import chain, izip, cycle
@@ -28,6 +29,7 @@ def pre_filter(contaminant_index,
                               unaligned_reads_file_name=filtered_reads_fn,
                               threads=1,
                               report_all=True,
+                              omit_secondary_seq=True,
                               suppress_unaligned_SAM=True,
                               error_file_name=error_fn,
                              )
@@ -213,13 +215,15 @@ def identify_dominant_stretches(counts, total_reads, max_read_length, bam_fn):
             reads = bam_file.fetch(rname, start, end)
             for aligned_read in reads:
                 overlapping_qnames.add(aligned_read.qname)
-                boundaries[rname][start, end][aligned_read.qlen] += 1
+                # Can't use qlen here because the bam files omit
+                # the seq and qual of secondary mappings
+                boundaries[rname][start, end][aligned_read.inferred_length] += 1
 
     dominant_reads = len(overlapping_qnames)
 
     return dominant_reads, boundaries
 
-def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template, lengths_slice=slice(None)):
+def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn, lengths_slice=slice(None)):
     ''' Plots the number of mappings that overlap each position in the reference
         sequences mapped to. Highlights the regions targeted by oligos.
     '''
@@ -232,7 +236,7 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template, lengths_sl
     axs = {}
     legends = {}
     for i, (rname, length) in enumerate(zip(rnames, lengths)):
-        figs[rname], axs[rname] = plt.subplots(figsize=(0.003 * length, 12))
+        figs[rname], axs[rname] = plt.subplots(figsize=(max(4, 0.006 * length), 12))
         axs[rname].set_title('rRNA identity: {0}'.format(rname))
         axs[rname].set_xlim(0, length)
 
@@ -272,11 +276,12 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn_template, lengths_sl
                 text, this_bbox = attempt_text(y)
             bboxes[rname].append(this_bbox)
 
-    for rname in rnames:
-        axs[rname].set_xlabel('Position in rRNA')
-        axs[rname].set_ylabel('Fraction of all reads mapping to position')
-        figs[rname].savefig(fig_fn_template.format(rname), bbox_inches='tight')
-        plt.close(figs[rname])
+    with PdfPages(fig_fn) as pdf:
+        for rname in sorted(rnames):
+            axs[rname].set_xlabel('Position in rRNA')
+            axs[rname].set_ylabel('Fraction of all reads mapping to position')
+            pdf.savefig(figure=figs[rname], bbox_inches='tight')
+            plt.close(figs[rname])
 
 def load_oligo_mappings(oligos_sam_fn):
     oligos_sam_file = pysam.Samfile(oligos_sam_fn, 'r')
@@ -303,7 +308,9 @@ def get_oligo_hit_lengths(bam_fn,
             reads = bam_file.fetch(rname, start, end)
             for aligned_read in reads:
                 if not aligned_read.is_secondary:
-                    lengths[oligo_number][aligned_read.qlen] += 1
+                    # Can't use qlen here because the bam files omit
+                    # the seq and qual of secondary mappings
+                    lengths[oligo_number][aligned_read.inferred_length] += 1
     
     return lengths
 
