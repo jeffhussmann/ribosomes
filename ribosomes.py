@@ -7,8 +7,7 @@ from collections import defaultdict
 import gtf
 import recycling
 import trim
-from Sequencing import sam, fastq, mapping_tools, Serialize
-from Sequencing.utilities import base_order, base_to_index, base_to_complement_index
+from Sequencing import sam, fastq, mapping_tools, Serialize, utilities
 
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold']
     
@@ -51,58 +50,6 @@ def get_ratios(first, second):
     assert set(first) == set(second)
     ratios = {key: np.divide(float(first[key]), second[key]) for key in first}
     return ratios
-
-def error_profile(bam_file_name, CDSs, relevant_lengths, max_read_length):
-    type_shape = (len(relevant_lengths),
-                  max_read_length,
-                  fastq.MAX_EXPECTED_QUAL + 1,
-                  6,
-                  6,
-                 )
-    type_counts = np.zeros(type_shape, int)
-    length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
-
-    bamfile = pysam.Samfile(bam_file_name, 'rb')
-    for CDS in CDSs:
-        reads = bamfile.fetch(CDS.seqname,
-                              CDS.start - edge_buffer,
-                              CDS.end + edge_buffer,
-                             )
-        for read in reads:
-            if read.mapq != 50:
-                # Non-unique mapping
-                continue
-            elif read.qlen not in relevant_lengths:
-                continue
-            elif sam.contains_indel_pysam(read) or sam.contains_splicing_pysam(read):
-                continue
-            else:
-                strand = '-' if read.is_reverse else '+'
-                
-                if strand != CDS.strand:
-                    continue
-                else:
-                    alignment = sam.produce_alignment(read, from_pysam=True)
-
-                    if strand == '+':
-                        index_lookup = base_to_index
-                    else:
-                        index_lookup = base_to_complement_index
-
-                    for ref_char, read_char, qual, ref_pos, read_pos in alignment:
-                        ref_index = index_lookup[ref_char]
-                        read_index = index_lookup[read_char]
-                        if strand == '-':
-                            read_pos = read.qlen - 1 - read_pos
-                        coords = (length_to_index[read.qlen],
-                                  read_pos,
-                                  qual,
-                                  ref_index,
-                                  read_index,
-                                 )
-                        type_counts[coords] += 1
-
-    return type_counts
 
 def recycling_ratios(rpf_positions_dict, simple_CDSs, genome):
     edge_overlap = 50

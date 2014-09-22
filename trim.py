@@ -5,7 +5,7 @@ from functools import partial
 from itertools import chain
 from collections import Counter
 from Sequencing import genomes, utilities, fastq, sam
-from Circles.annotation import Annotation_factory
+from Sequencing.annotation import Annotation_factory
 from trim_cython import *
 from Sequencing.adapters_cython import *
 
@@ -23,7 +23,7 @@ retrimmed_fields = [('retrimmed_seq', 's'),
 trimmed_twice_annotation_fields = payload_annotation_fields + retrimmed_fields
 TrimmedTwiceAnnotation = Annotation_factory(trimmed_twice_annotation_fields)
 
-_sanitize_table = string.maketrans('/', '.')
+_sanitize_table = string.maketrans('/', chr(ord('/') - 1))
 def sanitize_qual(qual):
     ''' If '/' is in a qname, bowtie/tophat truncate the rest of the qname.
         If qual strings of trimmed portions of reads are to be put in qnames,
@@ -254,19 +254,27 @@ def get_nongenomic_length(mapping):
 def set_nongenomic_length(mapping, nongenomic_length):
     mapping.setTag('ZN', nongenomic_length)
 
-
-def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir):
+def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_lengths, max_read_length):
     ''' Remove all consecutive Q30+ mismatches from the beginning of alignments,
         under the assumption that these represent untemplated additions during
         reverse transcription.
+        Characterize the mismatches.
     '''
+    type_shape = (len(relevant_lengths),
+                  max_read_length,
+                  fastq.MAX_EXPECTED_QUAL + 1,
+                  6,
+                  6,
+                 )
+    type_counts = np.zeros(type_shape, int)
+    length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
+    
     bam_file = pysam.Samfile(bam_fn)
     region_fetcher = genomes.build_region_fetcher(genome_dir,
                                                   load_references=True,
                                                   sam_file=bam_file,
                                                  )
 
-    q30 = fastq.encode_sanger([30])
     with pysam.Samfile(trimmed_bam_fn, 'wb', template=bam_file) as trimmed_bam_file:
         for mapping in bam_file:
             if sam.contains_indel_pysam(mapping):
@@ -277,20 +285,45 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir):
 
             if mapping.is_reverse:
                 aligned_pairs = mapping.aligned_pairs[::-1]
+                index_lookup = utilities.base_to_complement_index
             else:
                 aligned_pairs = mapping.aligned_pairs
+                index_lookup = utilities.base_to_index
+
+            decoded_qual = fastq.decode_sanger(mapping.qual)
+            length_index = length_to_index.get(mapping.qlen, None)
             
             bases_to_trim = 0
+            found_trim_point = False
             for read_index, ref_index in aligned_pairs:
                 if read_index == None:
+                    # This shouldn't be able to be triggered since alignments
+                    # containing indels are ruled out above.
                     continue
 
-                ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
-                if mapping.seq[read_index] != ref_base and mapping.qual[read_index] >= q30:
-                    bases_to_trim += 1
+                if mapping.is_reverse:
+                    corrected_read_index = mapping.qlen - 1 - read_index
                 else:
-                    first_ref_index = ref_index
-                    break
+                    corrected_read_index = read_index
+
+                ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+                read_base = mapping.seq[read_index]
+                read_qual = decoded_qual[read_index]
+                if length_index != None:
+                    coords = (length_index,
+                              corrected_read_index,
+                              read_qual,
+                              index_lookup[ref_base],
+                              index_lookup[read_base],
+                             )
+                    type_counts[coords] += 1
+
+                if not found_trim_point:
+                    if read_base != ref_base and read_qual >= 30:
+                        bases_to_trim += 1
+                    else:
+                        first_ref_index = ref_index
+                        found_trim_point = True
 
             if bases_to_trim == 0:
                 trimmed_mapping = mapping
@@ -337,3 +370,5 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir):
                 trimmed_mapping.cigar = trimmed_cigar
 
             trimmed_bam_file.write(trimmed_mapping)
+
+    return type_counts
