@@ -247,10 +247,15 @@ def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn, lengths_slice=slice
             normalized_counts = np.true_divide(all_lengths, total_reads)
             axs[rname].plot(normalized_counts, color=color, label=experiment_name)
             axs[rname].axhline(threshold, linestyle='--', color='black', alpha=0.5)
-            legends[rname] = axs[rname].legend(loc='upper right', framealpha=0.5)
+            # If there is only one dataset being plotted, don't draw a legend.
+            if len(coverage_data) > 1:
+                legends[rname] = axs[rname].legend(loc='upper right', framealpha=0.5)
             axs[rname].figure.canvas.draw()
 
-    bboxes = {rname: [legends[rname].get_window_extent()] for rname in rnames}
+    if len(coverage_data) > 1:
+        bboxes = {rname: [legends[rname].get_window_extent()] for rname in rnames}
+    else:
+        bboxes = {rname: [] for rname in rnames}
     
     for oligo_name, color in izip(sorted(oligo_mappings), colors):
         for rname, start, end in oligo_mappings[oligo_name]:
