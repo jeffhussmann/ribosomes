@@ -137,7 +137,7 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
     
     def get_CDSs(self):
         if self.transcripts_file_name == None:
-            CDSs = gtf.get_simple_CDSs(self.file_names['genes'])
+            CDSs = gtf.get_CDSs(self.file_names['genes'])
         else:
             all_CDSs = gtf.get_CDSs(self.file_names['genes'])
             transcripts = {line.strip() for line in open(self.transcripts_file_name)}
