@@ -500,7 +500,7 @@ def normalized_codon_density_distribution(codon_counts, offset_key='relaxed'):
 
     return np.asarray(all_normalized_densities)
 
-def compute_metacodon_counts(read_positions, gtf_fn, genome_dir):
+def compute_metacodon_counts(read_positions, gtf_fn, genome_dir, codon_table=1):
     left_buffer = 50
     right_buffer = 50
 
@@ -516,7 +516,7 @@ def compute_metacodon_counts(read_positions, gtf_fn, genome_dir):
                                       }
                         for features_key in features_keys}
 
-    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir)
+    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir, codon_table)
 
     for name, read_counts in read_positions.iteritems():
         coding_sequence = coding_sequence_fetcher(name)

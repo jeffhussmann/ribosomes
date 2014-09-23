@@ -232,6 +232,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         # Which mapping of length to A-site offset to use. Varies by experiment
         # because of different digestion and library preparation strategies.
         self.offset_type = kwargs['offset_type']
+
+        # Which codon table to use when checking that claimed coding sequences
+        # are valid. E. coli should have this set to 11.
+        self.codon_table = kwargs.get('codon_table', 1)
         
         self.max_read_length = kwargs.get('max_read_length', None)
         length_range = kwargs.get('relevant_lengths', None)
@@ -820,6 +824,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         metacodon_counts = positions.compute_metacodon_counts(read_positions,
                                                               self.file_names['genes'],
                                                               self.file_names['genome'],
+                                                              self.codon_table,
                                                              )
         self.write_file('metacodon_counts', metacodon_counts)
 
