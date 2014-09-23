@@ -7,16 +7,16 @@ import pysam
 import numpy as np
 from collections import Counter
 
-from Circles import fastq
-from Circles import annotation
-from Circles import utilities
-from Circles import sam
-from Circles import Visualize
-from Circles import mapping_tools
-from Circles import genomes
-from Circles.annotation import Annotation_factory
-from Circles.Parallel import map_reduce
-from Circles.Parallel import split_file
+from Sequencing import fastq
+from Sequencing import annotation
+from Sequencing import utilities
+from Sequencing import sam
+from Sequencing import Visualize
+from Sequencing import mapping_tools
+from Sequencing import genomes
+from Sequencing.annotation import Annotation_factory
+from Sequencing.Parallel import map_reduce
+from Sequencing.Parallel import split_file
 
 import trim
 import ribosomes

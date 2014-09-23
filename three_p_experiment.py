@@ -10,7 +10,7 @@ from Sequencing.Parallel import map_reduce
 from Serialize import read_positions
 from Sequencing.Serialize import array_1d
 import rna_experiment
-from Circles.annotation import Annotation_factory
+from Sequencing.annotation import Annotation_factory
 from collections import Counter
 
 class ThreePExperiment(rna_experiment.RNAExperiment):

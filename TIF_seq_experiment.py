@@ -8,7 +8,7 @@ import glob
 from collections import Counter
 from itertools import izip, chain
 from Sequencing import fastq, utilities, mapping_tools, sam, genomes
-from Circles.annotation import Annotation_factory
+from Sequencing.annotation import Annotation_factory
 from Sequencing.Parallel import map_reduce, split_file
 from Sequencing.Serialize import array_1d, array_2d, counts, sparse_joint_counts
 from Serialize import read_positions

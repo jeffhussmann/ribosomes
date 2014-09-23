@@ -39,7 +39,7 @@ B                                                                              B
 
 from Sequencing.adapters_cython import *
 from Sequencing import utilities, fastq
-from Circles.annotation import Annotation_factory
+from Sequencing.annotation import Annotation_factory
 import find_polyA_cython
 import trim
 
