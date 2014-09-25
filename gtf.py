@@ -181,6 +181,19 @@ class Transcript(object):
             self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
             # By convention, CDS_length includes no bases of the stop codon.
             self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
+        elif self.stop_codons:
+            # E. coli genes that aren't initiated with AUG don't have a start
+            # codon listed in the gtf file.
+            if self.strand == '+':
+                genomic_start_codon = self.start
+                genomic_stop_codon = min(sc.start for sc in self.stop_codons)
+            elif self.strand == '-':
+                genomic_start_codon = self.end
+                genomic_stop_codon = max(sc.end for sc in self.stop_codons)
+            self.transcript_start_codon = self.genomic_to_transcript[genomic_start_codon]
+            self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
+            # By convention, CDS_length includes no bases of the stop codon.
+            self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
 
     def is_spliced_out(self, position):
         ''' Returns True if the genomic position is between the start and end of
@@ -213,7 +226,7 @@ class Transcript(object):
 
         return sequence
 
-def make_coding_sequence_fetcher(gtf_fn, genome_dir):
+def make_coding_sequence_fetcher(gtf_fn, genome_dir, codon_table=1):
     CDSs = get_CDSs(gtf_fn)
     gtf_dict = {t.name: t for t in CDSs}
 
@@ -240,7 +253,7 @@ def make_coding_sequence_fetcher(gtf_fn, genome_dir):
                      for stop_codon in transcript.stop_codons[::-1]]
             seq = ''.join(seqs)
         try:
-            Bio.Seq.translate(seq, cds=True)
+            Bio.Seq.translate(seq, cds=True, table=codon_table)
         except Bio.Seq.CodonTable.TranslationError as error:
             return None
 
