@@ -81,7 +81,7 @@ def find_boundary_sequences(R1, R2, counters):
 
     if len(R1_contained) + len(R2_contained) > 1:
         # Only one of occurence of common_right_reverse should exist between R1
-        #and R2.
+        # and R2.
         return None, None
     elif len(R1_contained) + len(R2_contained) == 0:
         possiblities = [(len(common_right_reverse) - R1_prefix, 'R1_prefix'),
