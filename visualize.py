@@ -4,8 +4,7 @@ import matplotlib.pyplot as plt
 import positions
 import numpy as np
 import brewer2mpl
-from Circles.Visualize.utilities import optional_ax
-from Sequencing.Visualize import igv_colors
+from Sequencing.Visualize import igv_colors, optional_ax
 from Sequencing import utilities
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
@@ -26,7 +25,7 @@ def smoothed(position_counts, window_size):
         smoothed_array[i] = position_counts[i:].sum() / float(smoothed_array.extent_length - i)
     return smoothed_array
 
-def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False):
+def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False, title=None):
     fig, axs = plt.subplots(2, 2, figsize=(24, 16))
 
     if zoomed_out:
@@ -71,6 +70,9 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False)
         ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
         start_ax.set_ylim(0, ymax)
         end_ax.set_ylim(0, ymax)
+
+    if title:
+        fig.suptitle(title)
     
     fig.savefig(figure_fn)
     plt.close(fig)
