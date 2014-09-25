@@ -163,6 +163,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'more_rRNA_bam',
          'tRNA_bam_sorted',
          'other_ncRNA_bam_sorted',
+         'mismatches',
         ],
         ['read_positions',
          'buffered_codon_counts',
@@ -173,7 +174,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'from_starts_and_ends_remapped',
          'read_counts',
          'read_counts_exclude_edges',
-         'mismatches',
         ],
     ]
     
@@ -196,7 +196,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'compute_total_read_counts',
          'compute_codon_occupancy_counts',
          #'compute_metacodon_counts',
-         'get_error_profile',
         ],
     ]
 
@@ -206,13 +205,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'plot_lengths',
          'plot_rRNA_coverage',
          'plot_oligo_hit_lengths',
+         'plot_mismatches',
         ],
         ['compute_RPKMs',
          'compute_mean_densities',
          'plot_starts_and_ends',
          'plot_frames',
-         'plot_mismatch_positions',
-         'plot_mismatch_types',
          #'plot_metacodon_counts',
         ],
     ]
@@ -404,13 +402,16 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
     def trim_untemplated_additions(self):
         unsorted_fn = self.file_names['clean_trimmed_bam'] + '.unsorted'
-        trim.trim_mismatches_from_start(self.file_names['clean_bam'],
-                                        unsorted_fn,
-                                        self.file_names['genome'],
-                                       )
+        type_counts = trim.trim_mismatches_from_start(self.file_names['clean_bam'],
+                                                      unsorted_fn,
+                                                      self.file_names['genome'],
+                                                      self.relevant_lengths,
+                                                      self.max_read_length,
+                                                     )
+        self.write_file('mismatches', type_counts)
         sam.sort_bam(unsorted_fn, self.file_names['clean_trimmed_bam'])
         os.remove(unsorted_fn)
-        
+
         clean_trimmed_length_counts = sam.get_length_counts(self.file_names['clean_trimmed_bam'])
         clean_trimmed_lengths = self.zero_padded_array(clean_trimmed_length_counts)
         self.write_file('clean_trimmed_lengths', clean_trimmed_lengths)
@@ -653,64 +654,11 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
 
-    def plot_mismatch_positions(self):
-        fig, (short_ax, long_ax) = plt.subplots(2, 1, figsize=(16, 24))
-        length_to_index = {length: i for i, length in enumerate(self.relevant_lengths)}
-        short_lengths = set(range(20, 24))
-        long_lengths = set(range(27, 32))
-        #short_lengths = set(range(17, 21))
-        #long_lengths = set(range(24, 29))
+    def plot_mismatches(self):
         type_counts = self.read_file('mismatches')
-        for length in sorted(short_lengths & set(self.relevant_lengths)):
-            Visualize.mismatches.plot_read_positions(type_counts[length_to_index[length]][:length],
-                                                     str(length),
-                                                     ax=short_ax,
-                                                     min_q=30,
-                                                    )
-        for length in sorted(long_lengths & set(self.relevant_lengths)):
-            Visualize.mismatches.plot_read_positions(type_counts[length_to_index[length]][:length],
-                                                     str(length),
-                                                     ax=long_ax,
-                                                     min_q=30,
-                                                    )
-        for ax in (short_ax, long_ax):
-            ax.set_xlim(-1, max(long_lengths))
-            ax.legend(loc='upper right', framealpha=0.5)
-        fig.savefig(self.figure_file_names['mismatch_positions'])
-
-    def plot_mismatch_types(self):
-        #first_data_sets = []
-        #last_data_sets = []
-        type_counts = self.read_file('mismatches')
-        #length_to_index = {length: i for i, length in enumerate(self.relevant_lengths)}
-        #short_lengths = set(range(20, 24))
-        #long_lengths = set(range(27, 32))
-        ##short_lengths = set(range(17, 21))
-        ##long_lengths = set(range(24, 29))
-        #for length in sorted(set(self.relevant_lengths) & (short_lengths | long_lengths)):
-        #    first_counts = type_counts[length_to_index[length]][0]
-        #    last_counts = type_counts[length_to_index[length]][length - 1]
-        #    first_data_set = (str(length),
-        #                      first_counts,
-        #                      (30, fastq.MAX_EXPECTED_QUAL),
-        #                     )
-        #    first_data_sets.append(first_data_set)
-        #    last_data_set = (str(length),
-        #                     last_counts,
-        #                     (30, fastq.MAX_EXPECTED_QUAL),
-        #                    )
-        #    last_data_sets.append(last_data_set)
-        #
-        #Visualize.mismatches.plot_rates(first_data_sets,
-        #                                save_as=self.figure_file_names['first_mismatch_types'],
-        #                               )
-
-        #Visualize.mismatches.plot_rates(last_data_sets,
-        #                                save_as=self.figure_file_names['last_mismatch_types'],
-        #                               )
         visualize.plot_mismatch_type_by_position(type_counts,
                                                  self.relevant_lengths,
-                                                 self.figure_file_names['first_mismatch_types'],
+                                                 self.figure_file_names['mismatches'],
                                                 )
             
     def zero_padded_array(self, counts):
@@ -767,15 +715,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
             self.write_file('unambiguous_from_starts', from_starts_and_ends)
         
-    def get_error_profile(self):
-        piece_CDSs, _ = self.get_CDSs()
-        type_counts = ribosomes.error_profile(self.merged_file_names['clean_bam'],
-                                              piece_CDSs,
-                                              self.relevant_lengths,
-                                              self.max_read_length,
-                                             )
-        self.write_file('mismatches', type_counts)
-
     def get_recycling_ratios(self):
         piece_simple_CDSs, _ = self.get_CDSs()
         rpf_positions_dict = self.read_file('rpf_positions')
