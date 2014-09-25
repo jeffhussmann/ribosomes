@@ -246,7 +246,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
             self.relevant_lengths = range(start, stop + 1)
         
         self.min_length = 12
-        self.max_interesting_length = int(kwargs.get('max_interesting_length', 50))
+        self.max_interesting_length = int(kwargs.get('max_interesting_length', 51))
         
         #if self.adapter_type == 'polyA':
         #    specific_outputs[0].extend(['unambiguous_lengths',
