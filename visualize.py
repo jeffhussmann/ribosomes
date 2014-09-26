@@ -256,6 +256,8 @@ def plot_joint_positions_scatter(joint_position_counts, transcript, name, ax=Non
     ax.set_ylim(y_lims)
     ax.set_aspect(1.)
     ax.set_title(name)
+    ax.set_xlabel('5\' end of transcript relative to start codon')
+    ax.set_ylabel('3\' end of transcript relative to stop codon')
 
 def plot_frames(from_starts, figure_fn):
     ''' Plots bar graphs of the distribution of reading frame that the 5' end of
