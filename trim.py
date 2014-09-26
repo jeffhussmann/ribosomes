@@ -254,9 +254,7 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
 
             set_nongenomic_length(mapping, nongenomic_length)
 
-            mapping.qname = '{0}_{1}'.format(payload_annotation['original_name'],
-                                             payload_annotation['barcode'],
-                                            )
+            mapping.qname = new_qname
             extended_bam_file.write(mapping)
 
 def get_nongenomic_length(mapping):
