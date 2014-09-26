@@ -110,7 +110,11 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
     def trim_barcodes(self, read_pairs):
         num_to_trim = len(TIF_seq_structure.barcodes['mp1'])
         def trim_read(read):
-            return fastq.Read(read.name, read.seq[num_to_trim:], read.qual[num_to_trim:])
+            trimmed = fastq.Read(read.name,
+                                 read.seq[num_to_trim:],
+                                 read.qual[num_to_trim:],
+                                )
+            return trimmed
         for R1, R2 in read_pairs:
             yield trim_read(R1), trim_read(R2)
 
