@@ -102,7 +102,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('unmapped_trimmed_fastq', 'fastq', '{name}_unmapped_trimmed.fastq'),
         ('tophat_remapped_polyA_dir', 'dir', 'tophat_remapped_polyA'),
         ('remapped_accepted_hits', 'bam', 'tophat_remapped_polyA/accepted_hits.bam'),
-        ('remapped_clean_bam', 'bam', '{name}_remapped_clean.bam'),
+        ('remapped_extended', 'bam', '{name}_remapped_extended.bam'),
+        ('remapped_extended_sorted', 'bam', '{name}_remapped_extended_sorted.bam'),
     
         ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
 
@@ -350,9 +351,20 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                  self.file_names['transcriptome_index'],
                                  self.file_names['tophat_remapped_polyA_dir'],
                                 )
-        os.rename(self.file_names['remapped_accepted_hits'],
-                  self.file_names['remapped_clean_bam'],
-                 )
+
+        # Add back any genomic A's that were trimmed as part of mappings and
+        # any remaining A's from the first non-genomic onward as soft clipped
+        # bases for visualization in IGV.
+        trim.extend_polyA_ends(self.file_names['remapped_accepted_hits'],
+                               self.file_names['remapped_extended'],
+                               self.file_names['genome'],
+                               trimmed_twice=True,
+                              )
+        # Adding bases to the end of minus strand mappings produces a file
+        # that is not necessarily sorted, so resort. 
+        sam.sort_bam(self.file_names['remapped_extended'],
+                     self.file_names['remapped_extended_sorted'],
+                    )
 
     def post_filter_contaminants(self):
         contaminants.post_filter(self.file_names['accepted_hits'],

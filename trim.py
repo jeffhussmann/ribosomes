@@ -158,7 +158,7 @@ def trim_polyA_from_unmapped(unmapped_bam_file_name,
          second_time=second_time,
         )
 
-def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir):
+def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
     bam_file = pysam.Samfile(bam_fn)
     region_fetcher = genomes.build_region_fetcher(genome_dir,
                                                   load_references=True,
@@ -170,8 +170,21 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir):
                 extended_bam_file.write(mapping)
                 continue
 
-            payload_annotation = PayloadAnnotation.from_identifier(mapping.qname)
-            num_trimmed = len(payload_annotation['trimmed_seq'])
+            if trimmed_twice:
+                # Trailing poly-As were removed by the second trimming step. 
+                annotation = TrimmedTwiceAnnotation.from_identifier(mapping.qname)
+                polyA_seq = annotation['retrimmed_seq']
+                polyA_qual = annotation['retrimmed_qual']
+                new_qname = PayloadAnnotation.from_prefix_identifier(mapping.qname).identifier
+            else:
+                annotation = PayloadAnnotation.from_identifier(mapping.qname)
+                polyA_seq = annotation['trimmed_seq']
+                polyA_qual = annotation['polyA_qual']
+                new_qname = '{0}_{1}'.format(annotation['original_name'],
+                                             annotation['barcode'],
+                                            )
+
+            num_trimmed = len(polyA_seq)
             
             if mapping.is_reverse:
                 after = region_fetcher(mapping.tid, mapping.pos - num_trimmed, mapping.pos)
@@ -194,10 +207,10 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir):
                 # Note: 'aend points to one past the last aligned residue'
                 nongenomic_start = mapping.aend + extra_genomic_As
 
-            extra_genomic_seq = payload_annotation['trimmed_seq'][:extra_genomic_As]
-            soft_clipped_seq = payload_annotation['trimmed_seq'][extra_genomic_As:]
-            extra_genomic_qual = payload_annotation['trimmed_qual'][:extra_genomic_As]
-            soft_clipped_qual = payload_annotation['trimmed_qual'][extra_genomic_As:]
+            extra_genomic_seq = polyA_seq[:extra_genomic_As]
+            soft_clipped_seq = polyA_seq[extra_genomic_As:]
+            extra_genomic_qual = polyA_qual[:extra_genomic_As]
+            soft_clipped_qual = polyA_qual[extra_genomic_As:]
 
             extra_seq = extra_genomic_seq + soft_clipped_seq
             extra_qual = extra_genomic_qual + soft_clipped_qual
