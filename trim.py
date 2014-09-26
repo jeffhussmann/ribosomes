@@ -23,19 +23,21 @@ retrimmed_fields = [('retrimmed_seq', 's'),
 trimmed_twice_annotation_fields = payload_annotation_fields + retrimmed_fields
 TrimmedTwiceAnnotation = Annotation_factory(trimmed_twice_annotation_fields)
 
-_sanitize_table = string.maketrans('/', chr(ord('/') - 1))
+_sanitize_table = string.maketrans('/_', chr(ord('/') - 1) + chr(ord('_') - 1))
 def sanitize_qual(qual):
     ''' If '/' is in a qname, bowtie/tophat truncate the rest of the qname.
         If qual strings of trimmed portions of reads are to be put in qnames,
         '/' needs to be downgraded to chr(ord('/') - 1) = '.'
+        '_' is used as a field separator in annotations, so similarly needs to 
+        downgraded to chr(ord('_') - 1).
     '''
     sanitized = qual.translate(_sanitize_table)
     return sanitized
 
 def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end, second_time=False):
     ''' Wrapper that handles the logistics of trimming reads given functions
-        find_start and find_end that take a sequence and
-        returns a positions that trimming should occur at.
+        find_start and find_end that take a sequence and returns a positions
+        that trimming should occur at.
     '''
     trimmed_lengths = np.zeros(max_read_length + 1, int)
     too_short_lengths = np.zeros(max_read_length + 1, int)
