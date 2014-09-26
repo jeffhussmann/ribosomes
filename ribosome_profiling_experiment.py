@@ -221,10 +221,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.adapter_type = kwargs['adapter_type']
         self.possibly_misannotated_file_name = kwargs.get('possibly_misannotated_file_name', None)
         
-        # A bowtie2 index of synthetic sequences (markers, adapters) that need
-        # to be filtered out can be provided. 
-        self.synthetic_index_prefix = kwargs.get('synthetic_index_prefix', None)
-        
+        # A fasta file of synthetic sequences (markers, adapters) that need to
+        # be filtered out can be provided. 
         self.synthetic_fasta = kwargs.get('synthetic_fasta', None)
         
         # Which mapping of length to A-site offset to use. Varies by experiment
@@ -312,23 +310,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                 self.file_names['bowtie_error'],
                                )
 
-        if self.synthetic_index_prefix:
-            contaminants.pre_filter(self.synthetic_index_prefix,
-                                    self.file_names['rRNA_filtered_reads'],
-                                    self.file_names['synthetic_filtered_reads'],
-                                    self.file_names['synthetic_sam'],
-                                    self.file_names['synthetic_bam'],
-                                    self.file_names['bowtie_error'],
-                                   )
-            synthetic_length_counts = sam.get_length_counts(self.file_names['synthetic_bam'])
-            synthetic_lengths = self.zero_padded_array(synthetic_length_counts)
-            self.file_names['filtered_reads'] = self.file_names['synthetic_filtered_reads']
-        elif self.synthetic_fasta:
-            synthetic_lengths = contaminants.filter_synthetic_suffixes(self.file_names['rRNA_filtered_reads'],
-                                                                       self.file_names['synthetic_filtered_reads'],
-                                                                       self.synthetic_fasta,
-                                                                       self.max_read_length,
-                                                                      )
+        if self.synthetic_fasta:
+            synthetic_lengths = contaminants.filter_synthetic_sequences(self.file_names['rRNA_filtered_reads'],
+                                                                        self.file_names['synthetic_filtered_reads'],
+                                                                        self.synthetic_fasta,
+                                                                        self.max_read_length,
+                                                                       )
             self.file_names['filtered_reads'] = self.file_names['synthetic_filtered_reads']
         else:
             synthetic_lengths = np.zeros(self.max_read_length + 1, int)

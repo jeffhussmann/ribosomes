@@ -62,11 +62,11 @@ def pre_filter_paired(R1_trimmed_reads_fn,
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
     os.remove(sam_fn)
 
-def filter_synthetic_suffixes(trimmed_reads_fn,
-                              filtered_reads_fn,
-                              synthetic_fn,
-                              max_read_length,
-                             ):
+def filter_synthetic_sequences(trimmed_reads_fn,
+                               filtered_reads_fn,
+                               synthetic_fn,
+                               max_read_length,
+                              ):
     def prefix_or_suffix(target, query):
         return target.startswith(query) or target.endswith(query)
 
