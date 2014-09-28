@@ -31,7 +31,6 @@ from Serialize import (read_positions,
                        expression,
                        RPKMs,
                       )
-from Circles import Visualize
 
 class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     num_stages = 2
@@ -72,17 +71,16 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
         ('clean_trimmed_bam', 'bam', '{name}_clean_trimmed.bam'),
+        ('merged_mappings', 'bam', '{name}_merged_mappings.bam'),
 
         ('common_unmapped', counts, '{name}_common_unmapped.txt'),
 
         ('mismatches', mismatches, '{name}_mismatches.npy'),
 
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
-        ('read_positions_remapped', read_positions, '{name}_read_positions_remapped.hdf5'),
         ('unambiguous_read_positions', read_positions, '{name}_unambiguous_read_positions.hdf5'),
         ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
         ('unambiguous_from_starts', read_positions, '{name}_unambiguous_from_starts.hdf5'),
-        ('from_starts_and_ends_remapped', read_positions, '{name}_from_starts_and_ends_remapped.hdf5'),
         ('codon_counts', codon_counts, '{name}_codon_counts.txt'),
         ('codon_counts_anisomycin', codon_counts, '{name}_codon_counts_anisomycin.txt'),
         ('codon_counts_stringent', codon_counts, '{name}_codon_counts_stringent.txt'),
@@ -125,13 +123,9 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
         ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
         ('starts_and_ends_heatmap_zoomed_out', '{name}_starts_and_ends_heatmap_zoomed_out.pdf'),
-        ('starts_and_ends_remapped', '{name}_starts_and_ends_remapped.pdf'),
-        ('starts_and_ends_remapped_zoomed_out', '{name}_starts_and_ends_remapped_zoomed_out.pdf'),
         ('mean_densities', '{name}_mean_densities.pdf'),
         ('mean_densities_anisomycin', '{name}_mean_densities_anisomycin.pdf'),
-        ('mismatch_positions', '{name}_mismatch_positions.png'),
-        ('first_mismatch_types', '{name}_first_mismatch_types.pdf'),
-        ('last_mismatch_types', '{name}_last_mismatch_types.png'),
+        ('mismatches', '{name}_mismatches.pdf'),
         ('frames', '{name}_frames.pdf'),
         ('unambiguous_frames', '{name}_unambiguous_frames.pdf'),
         ('metacodon_counts', '{name}_metacodon_counts.pdf'),
@@ -156,10 +150,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'unmapped_lengths',
          'rRNA_coverage',
          'oligo_hit_lengths',
-         'clean_bam',
          'common_unmapped',
-         'clean_trimmed_bam',
-         #'remapped_clean_bam',
+         'merged_mappings',
          'rRNA_bam',
          'more_rRNA_bam',
          'tRNA_bam_sorted',
@@ -169,23 +161,23 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ['read_positions',
          'buffered_codon_counts',
          'codon_counts',
-         'codon_counts_anisomycin',
+         #'codon_counts_anisomycin',
          #'metacodon_counts',
          'from_starts_and_ends',
-         'from_starts_and_ends_remapped',
          'read_counts',
          'read_counts_exclude_edges',
         ],
     ]
     
     specific_work = [
-        [#'trim_reads',
-         #'pre_filter_contaminants',
-         #'map_tophat',
-         #'identify_common_unmapped',
-         #'remap_trimmed',
+        ['trim_reads',
+         'pre_filter_contaminants',
+         'map_tophat',
+         'trim_untemplated_additions_and_nongenomic_polyA',
+         'identify_common_unmapped',
+         'remap_trimmed',
+         'merge_mapping_pathways',
          'post_filter_contaminants',
-         'trim_untemplated_additions',
          'compute_base_composition',
          'quality_distribution',
          'find_unambiguous_lengths',
@@ -351,11 +343,18 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                  self.file_names['transcriptome_index'],
                                  self.file_names['tophat_remapped_polyA_dir'],
                                 )
+        trim_start_fn = self.file_names['remapped_accepted_hits'] + '.trim_start'
+        trim.trim_mismatches_from_start(self.file_names['remapped_accepted_hits'],
+                                        trim_start_fn,
+                                        self.file_names['genome'],
+                                        self.relevant_lengths,
+                                        self.max_read_length,
+                                       )
 
         # Add back any genomic A's that were trimmed as part of mappings and
         # any remaining A's from the first non-genomic onward as soft clipped
         # bases for visualization in IGV.
-        trim.extend_polyA_ends(self.file_names['remapped_accepted_hits'],
+        trim.extend_polyA_ends(trim_start_fn,
                                self.file_names['remapped_extended'],
                                self.file_names['genome'],
                                trimmed_twice=True,
@@ -365,6 +364,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         sam.sort_bam(self.file_names['remapped_extended'],
                      self.file_names['remapped_extended_sorted'],
                     )
+
+    def merge_mapping_pathways(self):
+        sam.merge_sorted_bam_files([self.file_names['clean_trimmed_bam'],
+                                    self.file_names['remapped_extended_sorted'],
+                                   ],
+                                   self.file_names['merged_mappings'],
+                                  )
 
     def post_filter_contaminants(self):
         contaminants.post_filter(self.file_names['accepted_hits'],
@@ -399,17 +405,25 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         clean_lengths = self.zero_padded_array(clean_length_counts)
         self.write_file('clean_lengths', clean_lengths)
 
-    def trim_untemplated_additions(self):
-        unsorted_fn = self.file_names['clean_trimmed_bam'] + '.unsorted'
+    def trim_untemplated_additions_and_nongenomic_polyA(self):
+        trim_start_fn = self.file_names['clean_bam'] + '.trim_start'
         type_counts = trim.trim_mismatches_from_start(self.file_names['clean_bam'],
-                                                      unsorted_fn,
+                                                      trim_start_fn,
                                                       self.file_names['genome'],
                                                       self.relevant_lengths,
                                                       self.max_read_length,
                                                      )
         self.write_file('mismatches', type_counts)
-        sam.sort_bam(unsorted_fn, self.file_names['clean_trimmed_bam'])
-        os.remove(unsorted_fn)
+        trim_end_fn = trim_start_fn + '.trim_end'
+        trim.trim_nongenomic_polyA_from_end(trim_start_fn,
+                                            trim_end_fn,
+                                            self.file_names['genome'],
+                                           )
+        
+        sam.sort_bam(trim_end_fn, self.file_names['clean_trimmed_bam'])
+
+        os.remove(trim_start_fn)
+        os.remove(trim_end_fn)
 
         clean_trimmed_length_counts = sam.get_length_counts(self.file_names['clean_trimmed_bam'])
         clean_trimmed_lengths = self.zero_padded_array(clean_trimmed_length_counts)
@@ -569,14 +583,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
                                           from_starts_and_ends['from_ends'],
                                           self.figure_file_names['starts_and_ends'],
+                                          title='{0}\n{1}'.format(self.group, self.name),
                                          )
-        visualize.plot_metagene_positions_heatmap(from_starts_and_ends['from_starts'],
-                                                  from_starts_and_ends['from_ends'],
-                                                  self.figure_file_names['starts_and_ends_heatmap'],
-                                                  #normalize_to_max_in=(range(19, 25), 'from_end', ('stop_codon', range(-100, 0))),
-                                                  #normalize_to_max_in=(range(19, 25), 'from_start', ('start_codon', range(0, 100))),
-                                                 )
-        
         visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
                                           from_starts_and_ends['from_ends'],
                                           self.figure_file_names['starts_and_ends_zoomed_out'],
@@ -584,23 +592,19 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                          )
         visualize.plot_metagene_positions_heatmap(from_starts_and_ends['from_starts'],
                                                   from_starts_and_ends['from_ends'],
+                                                  self.figure_file_names['starts_and_ends_heatmap'],
+                                                 )
+        visualize.plot_metagene_positions_heatmap(from_starts_and_ends['from_starts'],
+                                                  from_starts_and_ends['from_ends'],
                                                   self.figure_file_names['starts_and_ends_heatmap_zoomed_out'],
                                                   zoomed_out=True,
-                                                  #normalize_to_max_in=(range(19, 25), 'from_end', ('stop_codon', range(-100, 0))),
                                                  )
-
-        from_starts_and_ends_remapped = self.read_file('from_starts_and_ends_remapped')
-
-        visualize.plot_metagene_positions(from_starts_and_ends_remapped['from_starts'],
-                                          from_starts_and_ends_remapped['from_ends'],
-                                          self.figure_file_names['starts_and_ends_remapped'],
-                                         )
-        
-        visualize.plot_metagene_positions(from_starts_and_ends_remapped['from_starts'],
-                                          from_starts_and_ends_remapped['from_ends'],
-                                          self.figure_file_names['starts_and_ends_remapped_zoomed_out'],
-                                          zoomed_out=True,
-                                         )
+        #visualize.plot_metagene_positions_heatmap(from_starts_and_ends['from_starts'],
+        #                                          from_starts_and_ends['from_ends'],
+        #                                          self.figure_file_names['starts_and_ends_heatmap_small'],
+        #                                          normalize_to_max_in=(range(19, 25), 'from_start', ('start_codon', range(0, 100))),
+        #                                         )
+        #
 
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'), 0)],
                                                 self.figure_file_names['mean_densities'],
@@ -609,12 +613,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                 smooth=False,
                                                )
         
-        visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
-                                                self.figure_file_names['mean_densities_anisomycin'],
-                                                past_edge=10,
-                                                plot_up_to=100,
-                                                smooth=False,
-                                               )
+        #visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
+        #                                        self.figure_file_names['mean_densities_anisomycin'],
+        #                                        past_edge=10,
+        #                                        plot_up_to=100,
+        #                                        smooth=False,
+        #                                       )
 
     def plot_frames(self):
         from_starts_and_ends = self.read_file('from_starts_and_ends')
@@ -671,7 +675,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
     def get_read_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['clean_trimmed_bam'],
+        gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['merged_mappings'],
                                                               piece_CDSs,
                                                               relevant_lengths=self.relevant_lengths,
                                                              )
@@ -681,14 +685,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.write_file('read_positions', self.read_positions)
         
-        remapped_gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['remapped_clean_bam'],
-                                                                       piece_CDSs,
-                                                                       relevant_lengths=self.relevant_lengths,
-                                                                      )
-
-        self.remapped_read_positions = {name: info['position_counts']
-                                        for name, info in remapped_gene_infos.iteritems()}
-
         if self.adapter_type == 'polyA':
             gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
                                                                   piece_CDSs,
@@ -702,11 +698,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         piece_CDSs, max_gene_length = self.get_CDSs()
         read_positions = self.load_read_positions()
         from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
-        remapped_read_positions = self.load_read_positions(modifier='remapped')
-        from_starts_and_ends_remapped = positions.compute_metagene_positions(remapped_read_positions, max_gene_length)
 
         self.write_file('from_starts_and_ends', from_starts_and_ends)
-        self.write_file('from_starts_and_ends_remapped', from_starts_and_ends_remapped)
         
         if self.adapter_type == 'polyA':
             read_positions = self.load_read_positions(modifier='unambiguous')

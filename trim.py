@@ -240,7 +240,7 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
             updated_cigar = mapping.cigar
             updated_cigar[final_cigar_block_index] = (op, length)
             if len(soft_clipped_seq) > 0:
-                soft_clipped_block = [(4, len(soft_clipped_seq))]
+                soft_clipped_block = [(sam.BAM_CSOFT_CLIP, len(soft_clipped_seq))]
                 if final_cigar_block_index == 0:
                     updated_cigar = soft_clipped_block + updated_cigar
                 elif final_cigar_block_index == -1:
@@ -265,7 +265,8 @@ def get_nongenomic_length(mapping):
     return nongenomic_length
 
 def set_nongenomic_length(mapping, nongenomic_length):
-    mapping.setTag('ZN', nongenomic_length)
+    # setTag throws a fit if it is is given a long, so coerce to int
+    mapping.setTag('ZN', int(nongenomic_length))
 
 def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_lengths, max_read_length):
     ''' Remove all consecutive Q30+ mismatches from the beginning of alignments,
@@ -290,9 +291,7 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_leng
 
     with pysam.Samfile(trimmed_bam_fn, 'wb', template=bam_file) as trimmed_bam_file:
         for mapping in bam_file:
-            if sam.contains_indel_pysam(mapping):
-                continue
-            if mapping.is_unmapped:
+            if sam.contains_indel_pysam(mapping) or mapping.is_unmapped:
                 trimmed_bam_file.write(mapping)
                 continue
 
@@ -385,3 +384,84 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_leng
             trimmed_bam_file.write(trimmed_mapping)
 
     return type_counts
+
+def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
+    ''' If a mapping ends a polyA stretch, soft clip from the first nongenomic A
+        onward.
+    '''
+    bam_file = pysam.Samfile(bam_fn)
+    region_fetcher = genomes.build_region_fetcher(genome_dir,
+                                                  load_references=True,
+                                                  sam_file=bam_file,
+                                                 )
+
+    with pysam.Samfile(trimmed_bam_fn, 'wb', template=bam_file) as trimmed_bam_file:
+        for mapping in bam_file:
+            if sam.contains_indel_pysam(mapping):
+                continue
+            if mapping.is_unmapped:
+                trimmed_bam_file.write(mapping)
+                continue
+
+            if mapping.is_reverse:
+                bases_to_trim = 0
+                poly_T_end = find_poly_T(mapping.seq)
+                for read_index, ref_index in mapping.aligned_pairs[::-1]:
+                    if read_index == None:
+                        # indels are filtered out above, so this can only be 
+                        # a skip from splicing
+                        continue
+                    if read_index > poly_T_end:
+                        continue
+                    ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+                    if ref_base != 'T':
+                        bases_to_trim = read_index + 1
+                        break
+                    # first_ref_index needs to be set to the last position
+                    # that passed that 'are you non-genomic?' test
+                    first_ref_index = ref_index
+            else:
+                bases_to_trim = 0
+                poly_A_start = find_poly_A(mapping.seq)
+                for read_index, ref_index in mapping.aligned_pairs:
+                    if read_index < poly_A_start:
+                        continue
+                    ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+                    if ref_base != 'A':
+                        bases_to_trim = len(mapping.seq) - read_index
+                        break
+
+            if bases_to_trim > 0:
+                # If the mapping is reverse, first_ref_index has been set above
+                # to be the index of the reference base aligned to the first
+                # non-trimmed base in the mapping, which will be the new pos.
+                # If the mapping is forward, the pos won't change.
+                if not mapping.is_reverse:
+                    first_ref_index = mapping.pos
+                mapping.pos = first_ref_index
+
+                trimmed_length = len(mapping.seq) - bases_to_trim
+                soft_clipped_block = [(sam.BAM_CSOFT_CLIP, bases_to_trim)]
+                if mapping.is_reverse:
+                    # We want to remove from the beginning, so flip the blocks,
+                    # remove from the end, then flip back.
+                    flipped_cigar = mapping.cigar[::-1]
+                    trimmed_cigar = sam.truncate_cigar_blocks(flipped_cigar, trimmed_length)
+                    updated_cigar = soft_clipped_block + trimmed_cigar[::-1]
+                else:
+                    # truncate_cigar_blocks removes bases from the end, which is
+                    # what we want for forward reads
+                    trimmed_cigar = sam.truncate_cigar_blocks(mapping.cigar, trimmed_length)
+                    updated_cigar = trimmed_cigar + soft_clipped_block
+                
+                mapping.cigar = updated_cigar
+            
+            if mapping.tags:
+                # Clear the MD tag since the possible addition of bases to the
+                # alignment may have made it inaccurate. 
+                filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
+                mapping.tags = filtered_tags
+
+            set_nongenomic_length(mapping, bases_to_trim)
+
+            trimmed_bam_file.write(mapping)
