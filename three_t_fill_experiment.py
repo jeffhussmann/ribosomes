@@ -193,6 +193,7 @@ class ThreeTFillExperiment(rna_experiment.RNAExperiment):
         num_R2_unmapped = 0
         num_nonunique = 0
         num_discordant = 0
+        num_disoriented = 0
         num_concordant = 0
 
         tlens = Counter()
