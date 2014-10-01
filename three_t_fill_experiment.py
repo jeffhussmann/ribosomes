@@ -262,12 +262,17 @@ class ThreeTFillExperiment(rna_experiment.RNAExperiment):
                         gap = R1_m.pos - last_ref - 1
                         if gap < 0:
                             raise ValueError
-                        gap_cigar = [(3, gap)]
+                        gap_cigar = [(sam.BAM_CREF_SKIP, gap)]
 
                     combined_read = pysam.AlignedRead()
                     combined_read.qname = fastq.get_pair_name(R1_m.qname)
                     combined_read.tid = R1_m.tid
                     combined_read.pos = R2_m.pos
+                    
+                    if R1_m.pos < R2_m.pos:
+                        num_disoriented += 1
+                        continue
+
                     combined_read.is_reverse = False
                     combined_read.mapq = min(R1_m.mapq, R2_m.mapq)
                     combined_read.rnext = -1
@@ -295,6 +300,11 @@ class ThreeTFillExperiment(rna_experiment.RNAExperiment):
                     combined_read.qname = fastq.get_pair_name(R1_m.qname)
                     combined_read.tid = R1_m.tid
                     combined_read.pos = R1_m.pos
+                    
+                    if R2_m.pos < R1_m.pos:
+                        num_disoriented += 1
+                        continue
+
                     combined_read.is_reverse = True
                     combined_read.mapq = min(R1_m.mapq, R2_m.mapq)
                     combined_read.rnext = -1
@@ -315,6 +325,7 @@ class ThreeTFillExperiment(rna_experiment.RNAExperiment):
              ('R2 unmapped', num_R2_unmapped),
              ('Nonunique', num_nonunique),
              ('Discordant', num_discordant),
+             ('Unexpected orientation', num_disoriented),
              ('Concordant', num_concordant),
             ],
         )
