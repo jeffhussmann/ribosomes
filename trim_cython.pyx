@@ -15,7 +15,7 @@ def find_poly_T(char *seq):
     cdef int seq_length = len(seq)
     cdef int start
 
-    for start in range(-1, seq_length):
+    for start in range(-1, seq_length - 1):
         if seq[start + 1] != 'T' and seq[start + 1] != 'N':
             return start
     return seq_length - 1
