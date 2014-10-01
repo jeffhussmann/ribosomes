@@ -120,6 +120,13 @@ class PositionCounts(object):
     def sum(self):
         return self.data.sum()
 
+    def argmax_over_slice(self, landmark, key):
+        if isinstance(key, (list, np.ndarray)):
+            counts = self.__getitem__((landmark, key))
+            return key[counts.argmax()]
+        else:
+            raise NotImplementedError
+
     @property
     def CDS_length(self):
         return self.landmarks['stop_codon'] - self.landmarks['start_codon']
