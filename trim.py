@@ -307,6 +307,7 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_leng
             
             bases_to_trim = 0
             found_trim_point = False
+            first_ref_index = None
             for read_index, ref_index in aligned_pairs:
                 if read_index == None:
                     # This shouldn't be able to be triggered since alignments
@@ -336,6 +337,9 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_leng
                     else:
                         first_ref_index = ref_index
                         found_trim_point = True
+
+            if first_ref_index == None:
+                raise ValueError('first_ref_index not set')
 
             if bases_to_trim == 0:
                 trimmed_mapping = mapping
@@ -403,6 +407,7 @@ def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
                 trimmed_bam_file.write(mapping)
                 continue
 
+            first_ref_index = None
             if mapping.is_reverse:
                 bases_to_trim = 0
                 poly_T_end = find_poly_T(mapping.seq)
@@ -412,15 +417,18 @@ def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
                         # a skip from splicing
                         continue
                     if read_index > poly_T_end:
+                        first_ref_index = ref_index
                         continue
                     ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
                     if ref_base != 'T':
                         bases_to_trim = read_index + 1
                         break
-                    # first_ref_index needs to be set to the last position
-                    # that passed that 'are you non-genomic?' test
-                    first_ref_index = ref_index
+                    else:
+                        # first_ref_index needs to be set to the last position
+                        # that passed that 'are you genomic?' test
+                        first_ref_index = ref_index
             else:
+                first_ref_index = mapping.pos
                 bases_to_trim = 0
                 poly_A_start = find_poly_A(mapping.seq)
                 for read_index, ref_index in mapping.aligned_pairs:
@@ -430,14 +438,12 @@ def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
                     if ref_base != 'A':
                         bases_to_trim = len(mapping.seq) - read_index
                         break
+            
+            if first_ref_index == None:
+                print mapping
+                raise ValueError('first_ref_index not set')
 
             if bases_to_trim > 0:
-                # If the mapping is reverse, first_ref_index has been set above
-                # to be the index of the reference base aligned to the first
-                # non-trimmed base in the mapping, which will be the new pos.
-                # If the mapping is forward, the pos won't change.
-                if not mapping.is_reverse:
-                    first_ref_index = mapping.pos
                 mapping.pos = first_ref_index
 
                 trimmed_length = len(mapping.seq) - bases_to_trim
