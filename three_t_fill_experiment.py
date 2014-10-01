@@ -339,7 +339,7 @@ class ThreeTFillExperiment(rna_experiment.RNAExperiment):
         piece_CDSs, max_gene_length = self.get_CDSs()
         gene_infos = positions.get_Transcript_polyA_position_counts(self.merged_file_names['combined_sorted'],
                                                                     piece_CDSs,
-                                                                    max_relevant_length=-1,
+                                                                    max_nongenomic_length=-1,
                                                                     left_buffer=500,
                                                                     right_buffer=500,
                                                                    )

@@ -251,7 +251,12 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, 
 
     return gene_infos
 
-def get_Transcript_polyA_position_counts(extended_bam_fn, transcripts, max_relevant_length, left_buffer=left_buffer, right_buffer=right_buffer):
+def get_Transcript_polyA_position_counts(extended_bam_fn,
+                                         transcripts,
+                                         max_nongenomic_length,
+                                         left_buffer=left_buffer,
+                                         right_buffer=right_buffer,
+                                        ):
     gene_infos = {}
     bam_file = pysam.Samfile(extended_bam_fn)
     for transcript in transcripts:
@@ -263,7 +268,7 @@ def get_Transcript_polyA_position_counts(extended_bam_fn, transcripts, max_relev
                      'end': transcript.transcript_length,
                     }
         transcript_position_counts = {l: PositionCounts(landmarks, left_buffer, right_buffer)
-                                      for l in range(max_relevant_length + 1) + ['all']}
+                                      for l in range(max_nongenomic_length + 1) + ['all']}
         
         # fetch raises a ValueError if given a negative start, but it doesn't 
         # care if the end is valid.
@@ -290,7 +295,7 @@ def get_Transcript_polyA_position_counts(extended_bam_fn, transcripts, max_relev
                 transcript_coord = transcript.genomic_to_transcript[three_prime_position]
                 transcript_position_counts['all']['start', transcript_coord] += 1
                 nongenomic_length = trim.get_nongenomic_length(read)
-                if nongenomic_length <= max_relevant_length:
+                if nongenomic_length <= max_nongenomic_length:
                     transcript_position_counts[nongenomic_length]['start', transcript_coord] += 1
 
         gene_infos[transcript.name] = {'CDS_length': transcript.CDS_length,
