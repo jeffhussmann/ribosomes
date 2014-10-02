@@ -334,9 +334,9 @@ def feature_list_to_dict(features):
     return feature_dict
 
 def make_yeast_list():
-    weinberg_fn = '/home/jah/projects/arlen/experiments/weinberg/most_weinberg_transcripts.txt'
-    yeast_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcript_list.txt'
-    gtf_fn = '/home/jah/projects/arlen/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gtf'
+    weinberg_fn = '/home/jah/projects/ribosomes/experiments/weinberg/most_weinberg_transcripts.txt'
+    yeast_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcript_list.txt'
+    gtf_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gtf'
     
     all_features = get_all_features(gtf_fn)
     transcripts = get_transcripts(all_features)

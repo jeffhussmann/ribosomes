@@ -27,7 +27,7 @@ def build_all_experiments(verbose=True):
         if verbose:
             print family
         experiments[family] = {}
-        prefix = '/home/jah/projects/arlen/experiments/{0}/'.format(family)
+        prefix = '/home/jah/projects/ribosomes/experiments/{0}/'.format(family)
         dirs = [path for path in glob.glob('{}*'.format(prefix)) if os.path.isdir(path)]
         for d in sorted(dirs):
             _, name = os.path.split(d)
@@ -48,7 +48,7 @@ def read_counts_and_RPKMS():
             experiments[family][name].compute_RPKMs()
 
 def package_files(key):
-    prefix = '/home/jah/projects/arlen/'
+    prefix = '/home/jah/projects/ribosomes/'
     os.chdir(prefix)
     full_file_names = []
     package_file_name = 'all_{}.tar.gz'.format(key)
@@ -70,7 +70,7 @@ def package_files(key):
     subprocess.check_call(tar_command)
 
 def make_counts_array_file(exclude_edges=False):
-    prefix = '/home/jah/projects/arlen/'
+    prefix = '/home/jah/projects/ribosomes/'
     os.chdir(prefix)
     if exclude_edges:
         fn = 'all_read_counts_exclude_edges.txt'
@@ -132,23 +132,25 @@ def make_mismatch_position_plots():
     all_experiments = build_all_experiments(verbose=False)
 
     for group in all_experiments:
+        if 'belgium' not in group:
+            continue
+        print group
         for name in all_experiments[group]:
-            if group == 'dunn_elife':
+            if 'jeff' in name:
                 continue
-            print name
+            print '\t', name
             experiment = all_experiments[group][name]
-            #experiment.plot_mismatch_positions()
-            #experiment.plot_starts_and_ends()
-            experiment.plot_lengths()
+            #experiment.plot_mismatches()
+            experiment.plot_starts_and_ends()
 
 def make_multipage_pdf(figure_name):
     all_experiments = build_all_experiments(verbose=False)
-    all_fn = '/home/jah/projects/arlen/results/guydosh_{0}.pdf'.format(figure_name)
+    all_fn = '/home/jah/projects/ribosomes/results/everything_{0}.pdf'.format(figure_name)
     fns = []
     for group in sorted(all_experiments):
-        if 'guydosh' not in group:
-            continue
         for name in sorted(all_experiments[group]):
+            if 'jeff' in name:
+                continue
             fns.append(all_experiments[group][name].figure_file_names[figure_name])
 
     pdftk_command = ['pdftk'] + fns + ['cat', 'output', all_fn]
