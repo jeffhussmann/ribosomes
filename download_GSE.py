@@ -125,10 +125,6 @@ def download_samples(paper_dir, samples):
                     print run, info['size']
                 run_url = '{0}/{1}/{1}.sra'.format(sample_URL, run)
                 parsed_run_url = urlparse.urlparse(run_url)
-                wget_command = ['wget',
-                                '-P', sample_dir,
-                                run_url,
-                               ]
                 ascp_command = ['ascp',
                                 '-i', os.environ['ASCP_KEY'],
                                 '-QT',
@@ -142,31 +138,30 @@ def download_samples(paper_dir, samples):
 
     return sra_fns
 
-def dump_fastqs(sra_fns):
+def dump_fastqs(sra_fns, gzip=False):
     '''Dumps fastq files from sra files, then deletes the sra files. ''' 
     for sra_fn, layout in sra_fns:
         print "fastq-dump'ing {0}".format(sra_fn) 
         head, tail = os.path.split(sra_fn)
         root, ext = os.path.splitext(sra_fn)
+        fastq_dump_command = ['fastq-dump']
+        if gzip:
+            fastq_dump_command.append('--gzip')
         if layout == 'paired':
             # Split into two files and include read number (out of pair) in the
             # seq name line.
-            fastq_dump_command = ['fastq-dump',
-                                  '--split-3',
-                                  '--defline-seq', '@$ac.$si.$ri',
-                                  '--defline-qual', '+',
-                                  '-O', head,
-                                  sra_fn,
-                                 ]
+            fastq_dump_command.extend(['--split-3',
+                                       '--defline-seq', '@$ac.$si.$ri',
+                                      ])
         elif layout == 'single':
-            fastq_dump_command = ['fastq-dump',
-                                  '--defline-seq', '@$ac.$si',
-                                  '--defline-qual', '+',
-                                  '-O', head,
-                                  sra_fn,
-                                 ]
+            fastq_dump_command.extend(['--defline-seq', '@$ac.$si'])
         else:
             raise ValueError('layout not known')
+
+        fastq_dump_command.extend(['--defline-qual', '+',
+                                   '--outdir', head,
+                                   sra_fn,
+                                  ])
         
         subprocess.check_call(fastq_dump_command)
         os.remove(sra_fn)
