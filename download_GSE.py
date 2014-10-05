@@ -28,6 +28,7 @@ def get_xml(paper_dir, accession):
     tar_command = ['tar', 'xzf', tgz_fn, '-C', paper_dir]
     subprocess.check_call(tar_command)
     os.remove(tgz_fn)
+    os.remove(xml_fn)
 
     return xml_fn
 
