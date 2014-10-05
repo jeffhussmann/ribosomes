@@ -100,7 +100,7 @@ def download_samples(paper_dir, samples):
                                 '-P', sample_dir,
                                 run_url,
                                ]
-                ascp_command = [ascp_bin,
+                ascp_command = ['ascp',
                                 '-i', os.environ['ASCP_KEY'],
                                 '-QT',
                                 '-l', '300m',
