@@ -71,12 +71,36 @@ def extract_samples_from_xml(xml_fn, condition=lambda x: True):
                 samples.append((sample_name, sample_URLs))
     return samples
 
+def get_run_info(run, paper_dir):
+    url = 'http://www.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?retmode=xml&run={}'.format(run)
+    xml_fn = '{0}/{1}.xml'.format(paper_dir, run)
+
+    wget_command = ['wget', '--quiet', url, '-O', xml_fn]
+    subprocess.check_call(wget_command)
+
+    tree = etree.parse(xml_fn)
+    root = tree.getroot()
+
+    info = {}
+    info['size'] = int(root.find('RUN').attrib['size'])
+
+    layout = root.find('EXPERIMENT').find('DESIGN').find('LIBRARY_DESCRIPTOR').find('LIBRARY_LAYOUT')
+    if layout.find('SINGLE') is not None:
+        info['layout'] = 'single'
+    elif layout.find('PAIRED') is not None:
+        info['layout'] = 'paired'
+        info['nominal_length'] = layout.find('PAIRED').get('NOMINAL_LENGTH')
+    else:
+        info['layout'] = 'unknown'
+    
+    os.remove(xml_fn)
+    return info
+
 def download_samples(paper_dir, samples):
     '''Downloads samples using ascp.
 
     Requires the environment variable ASCP_KEY to be set to a path to the key.
     '''
-
     sra_fns = []
     for sample_name, sample_URLs in samples:
         sample_dir = '{0}/{1}/data'.format(paper_dir, sample_name)
@@ -91,9 +115,14 @@ def download_samples(paper_dir, samples):
             ls = []
             f.dir(ls.append)
             f.quit()
-
+            
             for line in ls:
                 run = line.split()[-1]
+                info = get_run_info(run, paper_dir)
+                if info['size'] > 15e9:
+                    continue
+                else:
+                    print run, info['size']
                 run_url = '{0}/{1}/{1}.sra'.format(sample_URL, run)
                 parsed_run_url = urlparse.urlparse(run_url)
                 wget_command = ['wget',
@@ -109,17 +138,17 @@ def download_samples(paper_dir, samples):
                                ]
                 subprocess.check_call(ascp_command)
                 sra_fn = '{0}/{1}.sra'.format(sample_dir, run)
-                sra_fns.append(sra_fn)
+                sra_fns.append((sra_fn, info['layout']))
 
     return sra_fns
 
-def dump_fastqs(sra_fns, paired=False):
+def dump_fastqs(sra_fns):
     '''Dumps fastq files from sra files, then deletes the sra files. ''' 
-    for sra_fn in sra_fns:
+    for sra_fn, layout in sra_fns:
         print "fastq-dump'ing {0}".format(sra_fn) 
         head, tail = os.path.split(sra_fn)
         root, ext = os.path.splitext(sra_fn)
-        if paired:
+        if layout == 'paired':
             # Split into two files and include read number (out of pair) in the
             # seq name line.
             fastq_dump_command = ['fastq-dump',
@@ -129,13 +158,16 @@ def dump_fastqs(sra_fns, paired=False):
                                   '-O', head,
                                   sra_fn,
                                  ]
-        else:
+        elif layout == 'single':
             fastq_dump_command = ['fastq-dump',
                                   '--defline-seq', '@$ac.$si',
                                   '--defline-qual', '+',
                                   '-O', head,
                                   sra_fn,
                                  ]
+        else:
+            raise ValueError('layout not known')
+        
         subprocess.check_call(fastq_dump_command)
         os.remove(sra_fn)
 
@@ -177,6 +209,8 @@ experiments = {
 non_GSE_experiments = {
     'geisler_mc': [('WT_plus', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByExp/sra/SRX/SRX106/SRX106067']),
                   ],
+    'CHM1htert': [('resequencing', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByStudy/sra/SRP/SRP017/SRP017546']),
+                 ],
 }
 
 if __name__ == '__main__':
@@ -200,4 +234,4 @@ if __name__ == '__main__':
 
     if not args.list:
         sra_fns = download_samples(paper_dir, samples)
-        dump_fastqs(sra_fns, paired=args.paired)
+        dump_fastqs(sra_fns)
