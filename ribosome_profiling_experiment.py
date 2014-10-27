@@ -153,7 +153,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'common_unmapped',
          'merged_mappings',
          'rRNA_bam',
-         'more_rRNA_bam',
+         'more_rRNA_bam_sorted',
          'tRNA_bam_sorted',
          'other_ncRNA_bam_sorted',
          'mismatches',
