@@ -89,7 +89,7 @@ def get_run_info(run, paper_dir):
         info['layout'] = 'single'
     elif layout.find('PAIRED') is not None:
         info['layout'] = 'paired'
-        info['nominal_length'] = layout.find('PAIRED').get('NOMINAL_LENGTH')
+        info['nominal_length'] = int(layout.find('PAIRED').get('NOMINAL_LENGTH'))
     else:
         info['layout'] = 'unknown'
     
@@ -118,12 +118,10 @@ def download_samples(paper_dir, samples):
             
             for line in ls:
                 run = line.split()[-1]
+                sra_id, _ = os.path.splitext(run)
                 info = get_run_info(run, paper_dir)
-                if info['size'] > 15e9:
-                    continue
-                else:
-                    print run, info['size']
-                run_url = '{0}/{1}/{1}.sra'.format(sample_URL, run)
+                print run, info
+                run_url = '{0}/{1}/{1}.sra'.format(sample_URL, sra_id)
                 parsed_run_url = urlparse.urlparse(run_url)
                 ascp_command = ['ascp',
                                 '-i', os.environ['ASCP_KEY'],
@@ -133,7 +131,7 @@ def download_samples(paper_dir, samples):
                                 sample_dir,
                                ]
                 subprocess.check_call(ascp_command)
-                sra_fn = '{0}/{1}.sra'.format(sample_dir, run)
+                sra_fn = '{0}/{1}.sra'.format(sample_dir, sra_id)
                 sra_fns.append((sra_fn, info['layout']))
 
     return sra_fns
@@ -164,7 +162,7 @@ def dump_fastqs(sra_fns, gzip=False):
                                   ])
         
         subprocess.check_call(fastq_dump_command)
-        os.remove(sra_fn)
+        #os.remove(sra_fn)
 
 experiments = {
     # Yeast
@@ -206,13 +204,14 @@ non_GSE_experiments = {
                   ],
     'CHM1htert': [('resequencing', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByStudy/sra/SRP/SRP017/SRP017546']),
                  ],
+    'artieri_gr_2': [('non_multiplexed', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByStudy/sra/SRP/SRP033/SRP033885']),
+                    ],
 }
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('paper_name')
     parser.add_argument('papers_dir', help='base directory')
-    parser.add_argument('--paired', help='data is paired-end reads', action='store_true')
     parser.add_argument('--list', help='only list samples, don\'t download', action='store_true')
     args = parser.parse_args()
     paper_dir = '{0}/{1}'.format(args.papers_dir, args.paper_name)
@@ -229,4 +228,4 @@ if __name__ == '__main__':
 
     if not args.list:
         sra_fns = download_samples(paper_dir, samples)
-        dump_fastqs(sra_fns)
+        dump_fastqs(sra_fns, gzip=False)
