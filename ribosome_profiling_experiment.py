@@ -17,7 +17,7 @@ import gtf
 import codons
 import visualize
 import rna_experiment
-from Sequencing import mapping_tools, fastq, sam, utilities
+from Sequencing import mapping_tools, fastq, sam, utilities, fasta
 from Sequencing.Parallel import map_reduce, piece_of_list, split_file
 from Sequencing.Serialize import (array_1d,
                                   array_2d,
@@ -42,17 +42,18 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         ('bowtie_error', '', '{name}_bowtie_error.txt'),
         ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
-        ('rRNA_filtered_reads', 'fastq', '{name}_rRNA_filtered.fastq'), 
-        ('synthetic_filtered_reads', 'fastq', '{name}_synthetic_filtered.fastq'), 
 
         ('too_short_lengths', array_1d, '{name}_too_short_lengths.txt'),
         ('trimmed_lengths', array_1d, '{name}_trimmed_lengths.txt'),
         ('tRNA_lengths', array_1d, '{name}_tRNA_lengths.txt'),
         ('rRNA_lengths', array_1d, '{name}_rRNA_lengths.txt'),
+        ('phiX_lengths', array_1d, '{name}_phiX_lengths.txt'),
         ('synthetic_lengths', array_1d, '{name}_synthetic_lengths.txt'),
         ('other_ncRNA_lengths', array_1d, '{name}_ncRNA_lengths.txt'),
         ('clean_lengths', array_1d, '{name}_clean_lengths.txt'),
         ('clean_trimmed_lengths', array_1d, '{name}_clean_trimmed_lengths.txt'),
+        ('remapped_lengths', array_1d, '{name}_remapped_lengths.txt'),
+        ('merged_mapping_lengths', array_1d, '{name}_merged_mapping_lengths.txt'),
         ('unmapped_lengths', array_1d, '{name}_unmapped_lengths.txt'),
         ('unambiguous_lengths', array_1d, '{name}_unambiguous_lengths.txt'),
         ('oligo_hit_lengths', array_2d, '{name}_oligo_hit_lengths.txt'),
@@ -70,6 +71,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('other_ncRNA_bam_sorted', 'bam', '{name}_other_ncRNA_sorted.bam'),
         ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
+        ('phiX_bam', 'bam', '{name}_phiX.bam'),
+
         ('clean_trimmed_bam', 'bam', '{name}_clean_trimmed.bam'),
         ('merged_mappings', 'bam', '{name}_merged_mappings.bam'),
 
@@ -78,6 +81,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('mismatches', mismatches, '{name}_mismatches.npy'),
 
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
+        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
         ('unambiguous_read_positions', read_positions, '{name}_unambiguous_read_positions.hdf5'),
         ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
         ('unambiguous_from_starts', read_positions, '{name}_unambiguous_from_starts.hdf5'),
@@ -100,6 +104,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('unmapped_trimmed_fastq', 'fastq', '{name}_unmapped_trimmed.fastq'),
         ('tophat_remapped_polyA_dir', 'dir', 'tophat_remapped_polyA'),
         ('remapped_accepted_hits', 'bam', 'tophat_remapped_polyA/accepted_hits.bam'),
+        ('remapped_unmapped_bam', 'bam', 'tophat_remapped_polyA/unmapped.bam'),
         ('remapped_extended', 'bam', '{name}_remapped_extended.bam'),
         ('remapped_extended_sorted', 'bam', '{name}_remapped_extended_sorted.bam'),
     
@@ -138,15 +143,18 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     specific_outputs = [
         ['clean_composition',
          'clean_composition_perfect',
-         'quality',
+         #'quality',
          'too_short_lengths',
          'trimmed_lengths',
          'tRNA_lengths',
          'rRNA_lengths',
+         'phiX_lengths',
          'synthetic_lengths',
          'other_ncRNA_lengths',
          'clean_lengths',
          'clean_trimmed_lengths',
+         'remapped_lengths',
+         'merged_mapping_lengths',
          'unmapped_lengths',
          'rRNA_coverage',
          'oligo_hit_lengths',
@@ -159,6 +167,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'mismatches',
         ],
         ['read_positions',
+         'three_prime_read_positions',
          'buffered_codon_counts',
          'codon_counts',
          #'codon_counts_anisomycin',
@@ -170,21 +179,19 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
     
     specific_work = [
-        ['trim_reads',
-         'pre_filter_contaminants',
-         'map_tophat',
-         'trim_untemplated_additions_and_nongenomic_polyA',
-         'identify_common_unmapped',
-         'remap_trimmed',
+        ['preprocess',
+         'map_full_lengths',
+         'process_initially_unmapped',
          'merge_mapping_pathways',
-         'post_filter_contaminants',
+         'process_remapped_unmapped',
          'compute_base_composition',
-         'quality_distribution',
+         ##'quality_distribution',
          'find_unambiguous_lengths',
          'get_rRNA_coverage',
          'get_oligo_hit_lengths',
         ],
         ['get_read_positions',
+         'get_three_prime_read_positions',
          'get_metagene_positions',
          'compute_total_read_counts',
          'compute_codon_occupancy_counts',
@@ -213,6 +220,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.adapter_type = kwargs['adapter_type']
         self.possibly_misannotated_file_name = kwargs.get('possibly_misannotated_file_name', None)
+        
+        self.phiX_bowtie2_index_prefix = kwargs['phiX_bowtie2_index_prefix']
         
         # A fasta file of synthetic sequences (markers, adapters) that need to
         # be filtered out can be provided. 
@@ -285,56 +294,101 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                            self.figure_file_names['clean_composition_perfect'],
                                           )
 
-    def trim_reads(self):
-        trimmed_lengths, too_short_lengths, barcode_counts = self.trim_function(self.get_reads(),
-                                                                                self.file_names['trimmed_reads'],
-                                                                                self.min_length,
-                                                                                self.max_read_length,
-                                                                               )
+    def trim_reads(self, reads):
+        trimmed_lengths = np.zeros(self.max_read_length + 1, int)
+        too_short_lengths = np.zeros(self.max_read_length + 1, int)
+    
+        for trimmed_read in self.trim_function(reads):
+            length = len(trimmed_read.seq)
+            if length < self.min_length:
+                too_short_lengths[length] += 1
+            else:
+                trimmed_lengths[length] += 1
+                yield trimmed_read
+
         self.write_file('trimmed_lengths', trimmed_lengths)
         self.write_file('too_short_lengths', too_short_lengths)
 
-    def pre_filter_contaminants(self):
-        contaminants.pre_filter(self.file_names['rRNA_index'],
-                                self.file_names['trimmed_reads'],
-                                self.file_names['rRNA_filtered_reads'],
-                                self.file_names['rRNA_sam'],
-                                self.file_names['rRNA_bam'],
-                                self.file_names['bowtie_error'],
-                               )
+    def preprocess(self):
+        reads = self.get_reads()
+        trimmed_reads = self.trim_reads(reads)
 
+        rRNA_filtered_reads = contaminants.pre_filter(self.file_names['rRNA_index'],
+                                                      trimmed_reads,
+                                                      self.file_names['rRNA_bam'],
+                                                      self.file_names['bowtie_error'],
+                                                     )
+
+        synthetic_filtered_reads = self.filter_synthetic_sequences(rRNA_filtered_reads)
+
+        with open(self.file_names['preprocessed_reads'], 'w') as preprocessed_fh:
+            for read in synthetic_filtered_reads:
+                preprocessed_fh.write(str(read))
+
+    def filter_synthetic_sequences(self, reads):
         if self.synthetic_fasta:
-            synthetic_lengths = contaminants.filter_synthetic_sequences(self.file_names['rRNA_filtered_reads'],
-                                                                        self.file_names['synthetic_filtered_reads'],
-                                                                        self.synthetic_fasta,
-                                                                        self.max_read_length,
-                                                                       )
-            self.file_names['filtered_reads'] = self.file_names['synthetic_filtered_reads']
+            synthetic_sequences = [read.seq for read in fasta.reads(self.synthetic_fasta)]
         else:
-            synthetic_lengths = np.zeros(self.max_read_length + 1, int)
-            self.file_names['filtered_reads'] = self.file_names['rRNA_filtered_reads']
+            synthetic_sequences = []
+
+        synthetic_lengths = np.zeros(self.max_read_length + 1)
+        for read in reads:
+            if contaminants.is_synthetic(read, synthetic_sequences):
+                synthetic_lengths[len(read.seq)] += 1
+            else:
+                yield read
 
         self.write_file('synthetic_lengths', synthetic_lengths)
 
+    def map_full_lengths(self):
+        self.map_tophat()
+        self.post_filter_contaminants()
+        self.trim_untemplated_additions_and_nongenomic_polyA()
+
+    def process_initially_unmapped(self):
+        unmapped_reads = sam.bam_to_fastq(self.file_names['unmapped_bam'])
+        no_phiX_reads = self.filter_phiX(unmapped_reads)
+        self.remap_polyA_trimmed(no_phiX_reads)
+    
+    def filter_phiX(self, reads):
+        filtered_reads = contaminants.pre_filter(self.phiX_bowtie2_index_prefix,
+                                                 reads,
+                                                 self.file_names['phiX_bam'],
+                                                )
+
+        phiX_length_counts = sam.get_length_counts(self.file_names['phiX_bam'])
+        phiX_lengths = self.zero_padded_array(phiX_length_counts)
+        self.write_file('phiX_lengths', phiX_lengths)
+        return filtered_reads
+
     def map_tophat(self):
-        mapping_tools.map_tophat([self.file_names['filtered_reads']],
+        mapping_tools.map_tophat([self.file_names['preprocessed_reads']],
                                  self.file_names['bowtie2_index_prefix'],
                                  self.file_names['genes'],
                                  self.file_names['transcriptome_index'],
                                  self.file_names['tophat_dir'],
                                 )
-        pysam.index(self.file_names['accepted_hits'])
+        sam.index_bam(self.file_names['accepted_hits'])
 
-    def identify_common_unmapped(self):
-        unmapped_counts = Counter(r.seq for r in pysam.Samfile(self.file_names['unmapped_bam']))
-        common_unmapped = Counter(dict(unmapped_counts.most_common(100)))
+    def process_remapped_unmapped(self):
+        unmapped_lengths = np.zeros(self.max_read_length + 1)
+        unmapped_seq_counts = Counter()
+
+        unmapped_reads = sam.bam_to_fastq(self.file_names['remapped_unmapped_bam'])
+        for read in unmapped_reads:
+            annotation = trim.TrimmedTwiceAnnotation.from_identifier(read.name)
+            reconstituted_seq = read.seq + annotation['retrimmed_seq']
+            unmapped_lengths[len(reconstituted_seq)] += 1
+            unmapped_seq_counts[reconstituted_seq] += 1
+            
+        self.write_file('unmapped_lengths', unmapped_lengths)
+        
+        common_unmapped = Counter(dict(unmapped_seq_counts.most_common(100)))
         self.write_file('common_unmapped', common_unmapped)
 
-    def remap_trimmed(self):
-        trim.trim_polyA_from_unmapped(self.file_names['unmapped_bam'],
+    def remap_polyA_trimmed(self, reads):
+        trim.trim_polyA_from_unmapped(reads,
                                       self.file_names['unmapped_trimmed_fastq'],
-                                      self.min_length,
-                                      self.max_read_length,
                                       second_time=True,
                                      )
         mapping_tools.map_tophat([self.file_names['unmapped_trimmed_fastq']],
@@ -365,12 +419,19 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                      self.file_names['remapped_extended_sorted'],
                     )
 
+        remapped_length_counts = sam.get_length_counts(self.file_names['remapped_extended_sorted'])
+        remapped_lengths = self.zero_padded_array(remapped_length_counts)
+        self.write_file('remapped_lengths', remapped_lengths)
+
     def merge_mapping_pathways(self):
         sam.merge_sorted_bam_files([self.file_names['clean_trimmed_bam'],
                                     self.file_names['remapped_extended_sorted'],
                                    ],
                                    self.file_names['merged_mappings'],
                                   )
+
+        merged_mapping_lengths = self.read_file('clean_trimmed_lengths') + self.read_file('remapped_lengths')
+        self.write_file('merged_mapping_lengths', merged_mapping_lengths)
 
     def post_filter_contaminants(self):
         contaminants.post_filter(self.file_names['accepted_hits'],
@@ -397,10 +458,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         rRNA_lengths = self.zero_padded_array(rRNA_length_counts)
         self.write_file('rRNA_lengths', rRNA_lengths)
         
-        unmapped_length_counts = sam.get_length_counts(self.file_names['unmapped_bam'], only_primary=False)
-        unmapped_lengths = self.zero_padded_array(unmapped_length_counts)
-        self.write_file('unmapped_lengths', unmapped_lengths)
-
         clean_length_counts = sam.get_length_counts(self.file_names['clean_bam'])
         clean_lengths = self.zero_padded_array(clean_length_counts)
         self.write_file('clean_lengths', clean_lengths)
@@ -421,9 +478,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                            )
         
         sam.sort_bam(trim_end_fn, self.file_names['clean_trimmed_bam'])
-
-        os.remove(trim_start_fn)
-        os.remove(trim_end_fn)
 
         clean_trimmed_length_counts = sam.get_length_counts(self.file_names['clean_trimmed_bam'])
         clean_trimmed_lengths = self.zero_padded_array(clean_trimmed_length_counts)
@@ -456,6 +510,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
     def compute_yield(self):
         trimmed_lengths = self.read_file('trimmed_lengths', merged=True)
+        phiX_lengths = self.read_file('phiX_lengths', merged=True)
         too_short_lengths = self.read_file('too_short_lengths', merged=True)
         rRNA_lengths = self.read_file('rRNA_lengths', merged=True)
         synthetic_lengths = self.read_file('synthetic_lengths', merged=True)
@@ -463,8 +518,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         other_ncRNA_lengths = self.read_file('other_ncRNA_lengths', merged=True)
         unmapped_lengths = self.read_file('unmapped_lengths', merged=True)
         clean_lengths = self.read_file('clean_lengths', merged=True)
+        remapped_lengths = self.read_file('remapped_lengths', merged=True)
 
         total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
+        phiX_reads = phiX_lengths.sum()
         long_enough_reads = trimmed_lengths.sum()
         rRNA_reads = rRNA_lengths.sum()
         synthetic_reads = synthetic_lengths.sum()
@@ -472,6 +529,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         other_ncRNA_reads = other_ncRNA_lengths.sum()
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
+        remapped_reads = remapped_lengths.sum()
 
         dominant_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage', merged=True),
                                                                               total_reads,
@@ -489,13 +547,15 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         with open(self.file_names['yield'], 'w') as yield_file:
             yield_file.write('Total reads: {0:,}\n'.format(total_reads))
             for category, count in [('Long enough reads', long_enough_reads),
+                                    ('phiX reads', phiX_reads),
                                     ('rRNA reads', rRNA_reads),
                                     ('(rRNA reads from non-dominant stetches)', other_reads),
                                     ('synthetic reads', synthetic_reads),
                                     ('tRNA reads', tRNA_reads),
                                     ('Other ncRNA reads', other_ncRNA_reads),
-                                    ('Unmapped reads', unmapped_reads),
                                     ('Clean reads', clean_reads),
+                                    ('Reads mapped after polyA trimming', remapped_reads),
+                                    ('Unaccounted-for reads', unmapped_reads),
                                    ]:
                 fraction = float(count) / total_reads
                 line = '{0}: {1:,} ({2:.2%})\n'.format(category,
@@ -507,6 +567,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     def plot_lengths(self):
         lengths = {'too short': (self.read_file('too_short_lengths'), 'purple'),
                    'rRNA': (self.read_file('rRNA_lengths'), 'red'),
+                   'phiX': (self.read_file('phiX_lengths'), 'brown'),
                    'synthetic': (self.read_file('synthetic_lengths'), 'orange'),
                    'tRNA': (self.read_file('tRNA_lengths'), 'blue'),
                    'other ncRNA': (self.read_file('other_ncRNA_lengths'), 'black'),
@@ -535,11 +596,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         
         fig_clean, ax_clean = plt.subplots(figsize=(12, 8))
         
-        lengths['clean_trimmed'] = (self.read_file('clean_trimmed_lengths'), 'orange')
-        if self.adapter_type == 'polyA':
-            lengths['unambiguous'] = (self.read_file('unambiguous_lengths'), 'blue')
+        lengths['clean_trimmed'] = (self.read_file('clean_trimmed_lengths'), 'blue')
+        lengths['remapped'] = (self.read_file('remapped_lengths'), 'red')
 
-        for key in ('clean', 'unambiguous', 'clean_trimmed'):
+        for key in ('clean', 'clean_trimmed', 'remapped'):
             if key in lengths:
                 counts, color = lengths[key]
                 normalized_counts = np.true_divide(counts, counts.sum())
@@ -627,12 +687,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                               self.figure_file_names['frames'],
                              )
 
-        if self.adapter_type == 'polyA':
-            from_starts = self.read_file('unambiguous_from_starts')
+        #if self.adapter_type == 'polyA':
+        #    from_starts = self.read_file('unambiguous_from_starts')
 
-            visualize.plot_frames(from_starts['from_starts'],
-                                  self.figure_file_names['unambiguous_frames'],
-                                 )
+        #    visualize.plot_frames(from_starts['from_starts'],
+        #                          self.figure_file_names['unambiguous_frames'],
+        #                         )
 
     def plot_metacodon_counts(self):
         metacodon_counts = self.read_file('metacodon_counts', merged=True)
@@ -685,14 +745,26 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.write_file('read_positions', self.read_positions)
         
-        if self.adapter_type == 'polyA':
-            gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
-                                                                  piece_CDSs,
-                                                                  relevant_lengths=self.relevant_lengths,
-                                                                 )
-            self.unambiguous_read_positions = {name: info['position_counts']
-                                               for name, info in gene_infos.iteritems()}
-            self.write_file('unambiguous_read_positions', self.unambiguous_read_positions)
+        #if self.adapter_type == 'polyA':
+        #    gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
+        #                                                          piece_CDSs,
+        #                                                          relevant_lengths=self.relevant_lengths,
+        #                                                         )
+        #    self.unambiguous_read_positions = {name: info['position_counts']
+        #                                       for name, info in gene_infos.iteritems()}
+        #    self.write_file('unambiguous_read_positions', self.unambiguous_read_positions)
+
+    def get_three_prime_read_positions(self):
+        piece_CDSs, max_gene_length = self.get_CDSs()
+        gene_infos = positions.get_Transcript_polyA_position_counts(self.merged_file_names['merged_mappings'],
+                                                                    piece_CDSs,
+                                                                    5,
+                                                                   )
+
+        self.three_prime_read_positions = {name: info['position_counts']
+                                           for name, info in gene_infos.iteritems()}
+
+        self.write_file('three_prime_read_positions', self.three_prime_read_positions)
 
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
@@ -701,11 +773,11 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.write_file('from_starts_and_ends', from_starts_and_ends)
         
-        if self.adapter_type == 'polyA':
-            read_positions = self.load_read_positions(modifier='unambiguous')
-            from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
+        #if self.adapter_type == 'polyA':
+        #    read_positions = self.load_read_positions(modifier='unambiguous')
+        #    from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
 
-            self.write_file('unambiguous_from_starts', from_starts_and_ends)
+        #    self.write_file('unambiguous_from_starts', from_starts_and_ends)
         
     def get_recycling_ratios(self):
         piece_simple_CDSs, _ = self.get_CDSs()

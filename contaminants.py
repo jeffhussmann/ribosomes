@@ -8,34 +8,29 @@ from matplotlib.backends.backend_pdf import PdfPages
 import pysam
 from collections import defaultdict
 from itertools import chain, izip, cycle
-from Sequencing import mapping_tools, fasta, fastq, sam
+from Sequencing import mapping_tools, fasta, fastq, sam, sw
 import gtf
 
 colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
 
-def pre_filter(contaminant_index,
-               trimmed_reads_fn,
-               filtered_reads_fn,
-               sam_fn,
-               bam_fn,
-               error_fn,
-              ):
-    ''' Maps reads in trimmed_reads_fn to contaminant_index. Records reads that
-        don't map in filtered_reads_fn. 
+def pre_filter(contaminant_index, reads, bam_fn, error_fn='/dev/null'):
+    ''' Maps reads to contaminant_index. Return an iterator over reads that
+        don't map. 
     '''
-    mapping_tools.map_bowtie2(trimmed_reads_fn,
-                              contaminant_index,
-                              sam_fn,
-                              unaligned_reads_file_name=filtered_reads_fn,
-                              threads=1,
-                              report_all=True,
-                              omit_secondary_seq=True,
-                              suppress_unaligned_SAM=True,
-                              error_file_name=error_fn,
-                             )
-    sam.make_sorted_indexed_bam(sam_fn, bam_fn)
-    os.remove(sam_fn)
-    
+    unmapped_reads = mapping_tools.map_bowtie2_yield_unaligned(contaminant_index,
+                                                               None,
+                                                               None,
+                                                               bam_fn,
+                                                               unpaired_Reads=reads,
+                                                               threads=1,
+                                                               bam_output=True,
+                                                               report_all=True,
+                                                               omit_secondary_seq=True,
+                                                               suppress_unaligned_SAM=True,
+                                                               error_file_name=error_fn,
+                                                              )
+    return unmapped_reads
+
 def pre_filter_paired(R1_trimmed_reads_fn,
                       R2_trimmed_reads_fn,
                       R1_noncontaminant_fn,
@@ -47,7 +42,7 @@ def pre_filter_paired(R1_trimmed_reads_fn,
     # Bowtie2 will expaned the '%' symbol into 1 and 2 to get the file
     # names it will write to.
     non_contaminant_template = R1_noncontaminant_fn.replace('R1', 'R%')
-    
+
     mapping_tools.map_bowtie2_paired(R1_trimmed_reads_fn,
                                      R2_trimmed_reads_fn,
                                      contaminant_index,
@@ -62,23 +57,19 @@ def pre_filter_paired(R1_trimmed_reads_fn,
     sam.make_sorted_indexed_bam(sam_fn, bam_fn)
     os.remove(sam_fn)
 
-def filter_synthetic_sequences(trimmed_reads_fn,
-                               filtered_reads_fn,
-                               synthetic_fn,
-                               max_read_length,
-                              ):
-    def prefix_or_suffix(target, query):
-        return target.startswith(query) or target.endswith(query)
+def is_synthetic_old(read, synthetic_sequences):
+    for synthetic_seq in synthetic_sequences:
+        if synthetic_seq.startswith(read.seq) or synthetic_seq.endswith(read.seq):
+            return True
+    return False
 
-    synthetic_sequences = [read.seq for read in fasta.reads(synthetic_fn)]
-    length_counts = np.zeros(max_read_length + 1)
-    with open(filtered_reads_fn, 'w') as filtered_reads_fh:
-        for read in fastq.reads(trimmed_reads_fn):
-            if any(prefix_or_suffix(synthetic_seq, read.seq) for synthetic_seq in synthetic_sequences):
-                length_counts[len(read.seq)] += 1
-            else:
-                filtered_reads_fh.write(fastq.make_record(*read))
-    return length_counts
+def is_synthetic(read, synthetic_sequences):
+    for synthetic_seq in synthetic_sequences:
+        alignment = sw.overlap_alignment(read.seq, synthetic_seq, 2, -1, -5)
+        score_diff = 2 * len(alignment['path']) - alignment['score']
+        if len(alignment['path']) > 10 and score_diff <= 7:
+            return True
+    return False
 
 def post_filter(input_bam_fn,
                 gtf_fn,
@@ -374,3 +365,22 @@ def extract_rRNA_sequences(genome, rRNA_genes, rRNA_sequences_fn):
             seq = genome[gene.seqname][gene.start:gene.end + 1]
             record = fasta.make_record(name, seq)
             rRNA_sequences_fh.write(record)
+
+def test_new_synth():
+    import trim
+    from Sequencing import fasta
+    sfn = '/home/jah/projects/ribosomes/data/stephanie_markers/stephanie_markers.fa'
+    synthetics = [read.seq for read in fasta.reads(sfn)] 
+
+    reads = fastq.reads('/home/jah/projects/ribosomes/experiments/belgium_2014_08_07/WT_1_FP/data/WT_1_FP.140731.MiSeq.FCA.lane1.R1.fastq')
+    for read in reads:
+        trim_at = trim.trim_by_local_alignment(read.seq)
+        trimmed_seq = read.seq[:trim_at]
+        trimmed_read = fasta.Read(read.name, trimmed_seq)
+        old = is_synthetic(trimmed_read, synthetics)
+        new = is_synthetic_new(trimmed_read, synthetics)
+        if old and not new and trimmed_seq != '':
+            print 'old is', old
+            print 'new is', new
+            print trimmed_seq
+            raw_input()

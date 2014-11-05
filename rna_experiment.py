@@ -117,24 +117,6 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
 
         return all_read_pairs
 
-    def preprocess(self):
-        ''' Needs to exist to make files to feed to mapping programs. Would be
-            better off as named pipes.
-        '''
-        reads = self.get_reads()
-        total_reads = 0
-
-        with open(self.file_names['preprocessed_reads'], 'w') as preprocessed_file:
-            for read in reads:
-                total_reads += 1
-                record = fastq.make_record(*read)
-                preprocessed_file.write(record)
-
-        self.log.extend(
-            [('Total reads', total_reads),
-            ],
-        )
-    
     def get_CDSs(self):
         if self.transcripts_file_name == None:
             CDSs = gtf.get_CDSs(self.file_names['genes'])

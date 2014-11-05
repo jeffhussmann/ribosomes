@@ -8,6 +8,7 @@ from Sequencing import genomes, utilities, fastq, sam
 from Sequencing.annotation import Annotation_factory
 from trim_cython import *
 from Sequencing.adapters_cython import *
+from Sequencing import sw
 
 payload_annotation_fields = [
     ('original_name', 's'),
@@ -153,21 +154,17 @@ def unambiguously_trimmed(bam_fn, unambiguous_bam_fn, genome_dir):
 
     pysam.index(unambiguous_bam_fn)
 
-def trim_polyA_from_unmapped(unmapped_bam_file_name,
+def trim_polyA_from_unmapped(unmapped_reads,
                              trimmed_fastq_file_name,
-                             min_length,
-                             max_read_length,
                              second_time=False,
                             ):
-    reads = (fastq.Read(read.qname, read.seq, read.qual) for read in pysam.Samfile(unmapped_bam_file_name))
-    trim(reads,
-         trimmed_fastq_file_name,
-         min_length,
-         max_read_length,
-         lambda seq: 0,
-         find_poly_A,
-         second_time=second_time,
-        )
+    trimmed_reads = trim(unmapped_reads,
+                         find_end=find_poly_A,
+                         second_time=second_time,
+                        )
+    with open(trimmed_fastq_file_name, 'w') as trimmed_fh:
+        for trimmed_read in trimmed_reads:
+            trimmed_fh.write(str(trimmed_read))
 
 def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
     bam_file = pysam.Samfile(bam_fn)
