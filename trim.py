@@ -29,78 +29,87 @@ def sanitize_qual(qual):
         If qual strings of trimmed portions of reads are to be put in qnames,
         '/' needs to be downgraded to chr(ord('/') - 1) = '.'
         '_' is used as a field separator in annotations, so similarly needs to 
-        downgraded to chr(ord('_') - 1).
+        be downgraded to chr(ord('_') - 1).
     '''
     sanitized = qual.translate(_sanitize_table)
     return sanitized
 
-def trim(reads, trimmed_fn, min_length, max_read_length, find_start, find_end, second_time=False):
+def trim(reads, find_start=None, find_end=None, second_time=False):
     ''' Wrapper that handles the logistics of trimming reads given functions
-        find_start and find_end that take a sequence and returns a positions
+        find_start and find_end that take a sequence and returns positions
         that trimming should occur at.
     '''
-    trimmed_lengths = np.zeros(max_read_length + 1, int)
-    too_short_lengths = np.zeros(max_read_length + 1, int)
-    barcode_counts = Counter()
-    
-    with open(trimmed_fn, 'w') as trimmed_fh:
-        for read in reads:
-            start = find_start(read.seq)
-            end = find_end(read.seq) 
-            length = end - start
+    if find_start == None:
+        find_start = lambda seq: 0
+    if find_end == None:
+        find_end = len
 
-            if length < min_length:
-                too_short_lengths[length] += 1
-            else:
-                trimmed_lengths[length] += 1
-                barcode = read.seq[:start]
-                trimmed_seq = read.seq[end:]
-                trimmed_qual = sanitize_qual(read.qual[end:])
-                barcode_counts[barcode] += 1
-                if second_time:
-                    payload_annotation = PayloadAnnotation.from_identifier(read.name)
-                    annotation = TrimmedTwiceAnnotation(retrimmed_seq=trimmed_seq,
-                                                        retrimmed_qual=trimmed_qual,
-                                                        **payload_annotation)
-                else:
-                    annotation = PayloadAnnotation(original_name=read.name,
-                                                   barcode=barcode,
-                                                   trimmed_seq=trimmed_seq,
-                                                   trimmed_qual=trimmed_qual,
-                                                  )
-                trimmed_record = fastq.make_record(annotation.identifier,
-                                                   read.seq[start:end],
-                                                   read.qual[start:end],
-                                                  )
-                trimmed_fh.write(trimmed_record)
+    for read in reads:
+        start = find_start(read.seq)
+        end = find_end(read.seq) 
 
-    return trimmed_lengths, too_short_lengths, barcode_counts
+        barcode = read.seq[:start]
+        trimmed_seq = read.seq[end:]
+        trimmed_qual = sanitize_qual(read.qual[end:])
+        if second_time:
+            payload_annotation = PayloadAnnotation.from_identifier(read.name)
+            annotation = TrimmedTwiceAnnotation(retrimmed_seq=trimmed_seq,
+                                                retrimmed_qual=trimmed_qual,
+                                                **payload_annotation)
+        else:
+            annotation = PayloadAnnotation(original_name=read.name,
+                                           barcode=barcode,
+                                           trimmed_seq=trimmed_seq,
+                                           trimmed_qual=trimmed_qual,
+                                          )
+        trimmed_read = fastq.Read(annotation.identifier,
+                                  read.seq[start:end],
+                                  read.qual[start:end],
+                                 )
+        yield trimmed_read
 
 truseq_R2_rc = 'AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC'
 smRNA_linker = 'CTGTAGGCACCATCAAT'
 bartel_linker = 'TCGTATGCCGTCTTCTGCTTG'
 smRNA_15_linker = 'TGGAATTCTCGGGTGCCAAGG'
 
+full_linker = smRNA_linker + truseq_R2_rc
+
 adapter_prefix_length = 10
 max_distance = 1
 
-finders = {'truseq':        (lambda seq: 0,
+def trim_by_local_alignment(seq):
+    _, simple_finder = finders['linker']
+    
+    alignment = sw.unpaired_adapter_alignment(full_linker, seq, 2, -1, -5)
+    score_diff = 2 * len(alignment['path']) - alignment['score']
+    adapter_start_in_seq = sw.first_target_index(alignment['path'])
+    if score_diff <= 10. / 22 * len(alignment['path']):
+        trim_at = adapter_start_in_seq
+    else:
+        trim_at = simple_finder(seq)
+    return trim_at
+
+finders = {'truseq':        (None,
                              partial(find_adapter, truseq_R2_rc[:adapter_prefix_length], max_distance),
                             ),
-           'linker':        (lambda seq: 0,
+           'linker':        (None,
                              partial(find_adapter, smRNA_linker[:adapter_prefix_length], max_distance),
                             ),
-           'linker_15':     (lambda seq: 0,
+           'linker_local':  (None,
+                             trim_by_local_alignment,
+                            ),
+           'linker_15':     (None,
                              partial(find_adapter, smRNA_15_linker[:adapter_prefix_length], max_distance),
                             ),
-           'polyA':         (lambda seq: 0,
+           'polyA':         (None,
                              find_poly_A,
                             ),
-           'weinberg':      (lambda seq: 8,
+           'weinberg':      (None,
                              partial(find_adapter, bartel_linker[:adapter_prefix_length], max_distance),
                             ),
-           'nothing':       (lambda seq: 0,
-                             len,
+           'nothing':       (None,
+                             None,
                             ),
            'jeff':          (find_jeff_start,
                              partial(find_adapter, smRNA_linker[:adapter_prefix_length], max_distance),
