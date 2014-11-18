@@ -65,7 +65,7 @@ def is_synthetic_old(read, synthetic_sequences):
 
 def is_synthetic(read, synthetic_sequences):
     for synthetic_seq in synthetic_sequences:
-        alignment = sw.overlap_alignment(read.seq, synthetic_seq, 2, -1, -5)
+        alignment, = sw.generate_alignments(read.seq, synthetic_seq, 'overlap')
         score_diff = 2 * len(alignment['path']) - alignment['score']
         if len(alignment['path']) > 10 and score_diff <= 7:
             return True

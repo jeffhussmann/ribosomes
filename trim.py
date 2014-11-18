@@ -82,13 +82,19 @@ max_distance = 1
 def trim_by_local_alignment(seq):
     _, simple_finder = finders['linker']
     
-    alignment = sw.unpaired_adapter_alignment(full_linker, seq, 2, -1, -5)
+    alignment, = sw.generate_alignments(full_linker,
+                                        seq,
+                                        'unpaired_adapter',
+                                        max_alignments=1,
+                                       )
+
     score_diff = 2 * len(alignment['path']) - alignment['score']
     adapter_start_in_seq = sw.first_target_index(alignment['path'])
     if score_diff <= 10. / 22 * len(alignment['path']):
         trim_at = adapter_start_in_seq
     else:
         trim_at = simple_finder(seq)
+
     return trim_at
 
 finders = {'truseq':        (None,
