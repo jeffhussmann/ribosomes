@@ -2,11 +2,9 @@ import matplotlib
 matplotlib.use('Agg', warn=False)
 import matplotlib.pyplot as plt
 import numpy as np
-import glob
 import os
-import sys
 import pysam
-from itertools import chain, product
+from itertools import product
 from collections import Counter
 import trim
 import ribosomes
@@ -349,17 +347,18 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         unmapped_reads = sam.bam_to_fastq(self.file_names['unmapped_bam'])
         no_phiX_reads = self.filter_phiX(unmapped_reads)
         self.remap_polyA_trimmed(no_phiX_reads)
-    
+
     def filter_phiX(self, reads):
         filtered_reads = contaminants.pre_filter(self.phiX_bowtie2_index_prefix,
                                                  reads,
                                                  self.file_names['phiX_bam'],
                                                 )
+        for read in filtered_reads:
+            yield read
 
         phiX_length_counts = sam.get_length_counts(self.file_names['phiX_bam'])
         phiX_lengths = self.zero_padded_array(phiX_length_counts)
         self.write_file('phiX_lengths', phiX_lengths)
-        return filtered_reads
 
     def map_tophat(self):
         mapping_tools.map_tophat([self.file_names['preprocessed_reads']],
@@ -368,12 +367,11 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                  self.file_names['transcriptome_index'],
                                  self.file_names['tophat_dir'],
                                 )
-        sam.index_bam(self.file_names['accepted_hits'])
 
     def process_remapped_unmapped(self):
         unmapped_lengths = np.zeros(self.max_read_length + 1)
         unmapped_seq_counts = Counter()
-
+        
         unmapped_reads = sam.bam_to_fastq(self.file_names['remapped_unmapped_bam'])
         for read in unmapped_reads:
             annotation = trim.TrimmedTwiceAnnotation.from_identifier(read.name)
@@ -391,12 +389,24 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                       self.file_names['unmapped_trimmed_fastq'],
                                       second_time=True,
                                      )
-        mapping_tools.map_tophat([self.file_names['unmapped_trimmed_fastq']],
-                                 self.file_names['bowtie2_index_prefix'],
-                                 self.file_names['genes'],
-                                 self.file_names['transcriptome_index'],
-                                 self.file_names['tophat_remapped_polyA_dir'],
-                                )
+        if os.path.getsize(self.file_names['unmapped_trimmed_fastq']) == 0:
+            # tophat crashes on an empty file, so create empty files of all the
+            # output of tophat that we need to exist.
+            if not os.path.isdir(self.file_names['tophat_remapped_polyA_dir']):
+                os.mkdir(self.file_names['tophat_remapped_polyA_dir'])
+            template = pysam.Samfile(self.file_names['accepted_hits'], 'rb')
+            empty_accepted_hits = pysam.Samfile(self.file_names['remapped_accepted_hits'], 'wb', template=template)
+            empty_accepted_hits.close()
+            empty_unmapped = pysam.Samfile(self.file_names['remapped_unmapped_bam'], 'wb', template=template)
+            empty_unmapped.close()
+        else:
+            mapping_tools.map_tophat([self.file_names['unmapped_trimmed_fastq']],
+                                     self.file_names['bowtie2_index_prefix'],
+                                     self.file_names['genes'],
+                                     self.file_names['transcriptome_index'],
+                                     self.file_names['tophat_remapped_polyA_dir'],
+                                    )
+        
         trim_start_fn = self.file_names['remapped_accepted_hits'] + '.trim_start'
         trim.trim_mismatches_from_start(self.file_names['remapped_accepted_hits'],
                                         trim_start_fn,
@@ -418,7 +428,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         sam.sort_bam(self.file_names['remapped_extended'],
                      self.file_names['remapped_extended_sorted'],
                     )
-
+        
         remapped_length_counts = sam.get_length_counts(self.file_names['remapped_extended_sorted'])
         remapped_lengths = self.zero_padded_array(remapped_length_counts)
         self.write_file('remapped_lengths', remapped_lengths)
