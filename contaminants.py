@@ -17,18 +17,16 @@ def pre_filter(contaminant_index, reads, bam_fn, error_fn='/dev/null'):
     ''' Maps reads to contaminant_index. Return an iterator over reads that
         don't map. 
     '''
-    unmapped_reads = mapping_tools.map_bowtie2_yield_unaligned(contaminant_index,
-                                                               None,
-                                                               None,
-                                                               bam_fn,
-                                                               unpaired_Reads=reads,
-                                                               threads=1,
-                                                               bam_output=True,
-                                                               report_all=True,
-                                                               omit_secondary_seq=True,
-                                                               suppress_unaligned_SAM=True,
-                                                               error_file_name=error_fn,
-                                                              )
+    unmapped_reads = mapping_tools.map_bowtie2(contaminant_index,
+                                               output_file_name=bam_fn,
+                                               reads=reads,
+                                               bam_output=True,
+                                               report_all=True,
+                                               omit_secondary_seq=True,
+                                               suppress_unaligned_SAM=True,
+                                               error_file_name=error_fn,
+                                               yield_unaligned=True,
+                                              )
     return unmapped_reads
 
 def pre_filter_paired(R1_trimmed_reads_fn,
