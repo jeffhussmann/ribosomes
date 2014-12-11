@@ -24,17 +24,6 @@ retrimmed_fields = [('retrimmed_seq', 's'),
 trimmed_twice_annotation_fields = payload_annotation_fields + retrimmed_fields
 TrimmedTwiceAnnotation = Annotation_factory(trimmed_twice_annotation_fields)
 
-_sanitize_table = string.maketrans('/_', chr(ord('/') - 1) + chr(ord('_') - 1))
-def sanitize_qual(qual):
-    ''' If '/' is in a qname, bowtie/tophat truncate the rest of the qname.
-        If qual strings of trimmed portions of reads are to be put in qnames,
-        '/' needs to be downgraded to chr(ord('/') - 1) = '.'
-        '_' is used as a field separator in annotations, so similarly needs to 
-        be downgraded to chr(ord('_') - 1).
-    '''
-    sanitized = qual.translate(_sanitize_table)
-    return sanitized
-
 def trim(reads, find_start=None, find_end=None, second_time=False):
     ''' Wrapper that handles the logistics of trimming reads given functions
         find_start and find_end that take a sequence and returns positions
@@ -51,7 +40,7 @@ def trim(reads, find_start=None, find_end=None, second_time=False):
 
         barcode = read.seq[:start]
         trimmed_seq = read.seq[end:]
-        trimmed_qual = sanitize_qual(read.qual[end:])
+        trimmed_qual = fastq.sanitize_qual(read.qual[end:])
         if second_time:
             payload_annotation = PayloadAnnotation.from_identifier(read.name)
             annotation = TrimmedTwiceAnnotation(retrimmed_seq=trimmed_seq,
