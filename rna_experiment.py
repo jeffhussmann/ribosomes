@@ -6,6 +6,7 @@ from itertools import chain
 import gtf
 import os
 from collections import defaultdict
+import logging
 
 class RNAExperiment(map_reduce.MapReduceExperiment):
     specific_results_files = [ 
@@ -74,20 +75,32 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         return getattr(self, attribute_name)
 
     def get_reads(self):
-        ''' Returns a generator over the reads in a piece of each data file.
+        ''' A generator over the reads in a piece of each data file.
             Can handle a mixture of different fastq encodings across (but not
             within) files.
         '''
-        file_pieces = [split_file.piece(file_name,
-                                        self.num_pieces,
-                                        self.which_piece,
-                                        'fastq',
-                                       )
-                       for file_name in self.data_fns]
-        read_pieces = [fastq.reads(piece, standardize_names=True, ensure_sanger_encoding=True)
-                       for piece in file_pieces]
-        reads = chain.from_iterable(read_pieces)
-        return reads
+        total_reads = 0
+        for file_name in self.data_fns:
+            total_reads_from_file = 0
+            file_piece = split_file.piece(file_name,
+                                          self.num_pieces,
+                                          self.which_piece,
+                                          'fastq',
+                                         )
+            for read in fastq.reads(file_piece, standardize_names=True, ensure_sanger_encoding=True):
+                yield read
+                
+                total_reads += 1
+                total_reads_from_file += 1
+                if total_reads % 10000 == 0:
+                    logging.info('{0:,} reads processed'.format(total_reads))
+
+            head, tail = os.path.split(file_name)
+            self.summary.append(('Total reads in {0}'.format(tail), total_reads_from_file))
+
+        logging.info('{0:,} total reads processed'.format(total_reads))
+        
+        self.summary.append(('Total read pairs', total_reads))
     
     def get_read_pairs(self):
         data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
