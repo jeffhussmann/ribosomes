@@ -29,6 +29,7 @@ from Serialize import (read_positions,
                        expression,
                        RPKMs,
                       )
+from find_polyA_cython import predominantly_A
 
 class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     num_stages = 2
@@ -53,6 +54,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('remapped_lengths', array_1d, '{name}_remapped_lengths.txt'),
         ('merged_mapping_lengths', array_1d, '{name}_merged_mapping_lengths.txt'),
         ('unmapped_lengths', array_1d, '{name}_unmapped_lengths.txt'),
+        ('long_polyA_lengths', array_1d, '{name}_long_polyA_lengths.txt'),
         ('unambiguous_lengths', array_1d, '{name}_unambiguous_lengths.txt'),
         ('oligo_hit_lengths', array_2d, '{name}_oligo_hit_lengths.txt'),
 
@@ -68,7 +70,9 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('clean_trimmed_bam', 'bam', '{name}_clean_trimmed.bam'),
         ('merged_mappings', 'bam', '{name}_merged_mappings.bam'),
 
+        ('unmapped_structures', None, '{name}_unmapped_structures.txt'),
         ('common_unmapped', counts, '{name}_common_unmapped.txt'),
+        ('common_long_polyA', counts, '{name}_common_long_polyA.txt'),
 
         ('mismatches', mismatches, '{name}_mismatches.npy'),
 
@@ -363,18 +367,55 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     def process_remapped_unmapped(self):
         unmapped_lengths = np.zeros(self.max_read_length + 1)
         unmapped_seq_counts = Counter()
+
+        long_polyA_lengths = np.zeros(self.max_read_length + 1)
+        long_polyA_counts = Counter()
         
         unmapped_reads = sam.bam_to_fastq(self.file_names['remapped_unmapped_bam'])
         for read in unmapped_reads:
-            annotation = trim.TrimmedTwiceAnnotation.from_identifier(read.name)
-            reconstituted_seq = read.seq + annotation['retrimmed_seq']
-            unmapped_lengths[len(reconstituted_seq)] += 1
-            unmapped_seq_counts[reconstituted_seq] += 1
-            
+            retrimmed_annotation = trim.TrimmedTwiceAnnotation.from_identifier(read.name)
+            unretrimmed_seq = read.seq + retrimmed_annotation['retrimmed_seq']
+
+            if predominantly_A(unretrimmed_seq):
+                long_polyA_lengths[len(unretrimmed_seq)] += 1
+                long_polyA_counts[unretrimmed_seq] += 1
+            else:
+                unmapped_lengths[len(unretrimmed_seq)] += 1
+                unmapped_seq_counts[unretrimmed_seq] += 1
+
         self.write_file('unmapped_lengths', unmapped_lengths)
+        self.write_file('long_polyA_lengths', long_polyA_lengths)
         
         common_unmapped = Counter(dict(unmapped_seq_counts.most_common(100)))
         self.write_file('common_unmapped', common_unmapped)
+        
+        common_long_polyA = Counter(dict(long_polyA_counts.most_common(100)))
+        self.write_file('common_long_polyA', common_long_polyA)
+
+
+    def visualize_unmapped(self):
+        bowtie2_targets = [(self.file_names['genome'], self.file_names['bowtie2_index_prefix'], 'C,20,0'),
+                          ]
+        sw_genome_dirs = ['/home/jah/genomes/truseq',
+                          '/home/jah/projects/ribosomes/data/stephanie_markers',
+                         ]
+        extra_targets = [fasta.Read('smRNA_linker', trim.smRNA_linker),
+                        ]
+        
+        def get_reads():
+            for i, (seq, count) in enumerate(self.read_file('common_unmapped').most_common()):
+                read = fastq.Read('{0}_{1}'.format(i, count),
+                                  seq,
+                                  fastq.encode_sanger([40]*len(seq)),
+                                 )
+                yield read
+
+        visualize_structure.visualize_unpaired_alignments(get_reads,
+                                                          sw_genome_dirs,
+                                                          extra_targets,
+                                                          bowtie2_targets,
+                                                          self.file_names['unmapped_structures'],
+                                                         )
 
     def remap_polyA_trimmed(self, reads):
         trim.trim_polyA_from_unmapped(reads,
@@ -511,6 +552,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         tRNA_lengths = self.read_file('tRNA_lengths', merged=True)
         other_ncRNA_lengths = self.read_file('other_ncRNA_lengths', merged=True)
         unmapped_lengths = self.read_file('unmapped_lengths', merged=True)
+        long_polyA_lengths = self.read_file('long_polyA_lengths', merged=True)
         clean_lengths = self.read_file('clean_lengths', merged=True)
         remapped_lengths = self.read_file('remapped_lengths', merged=True)
 
@@ -524,6 +566,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         unmapped_reads = unmapped_lengths.sum()
         clean_reads = clean_lengths.sum()
         remapped_reads = remapped_lengths.sum()
+        long_polyA_reads = long_polyA_lengths.sum()
 
         dominant_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage', merged=True),
                                                                               total_reads,
@@ -549,6 +592,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                     ('Other ncRNA reads', other_ncRNA_reads),
                                     ('Clean reads', clean_reads),
                                     ('Reads mapped after polyA trimming', remapped_reads),
+                                    ('Reads that start at least 20x A', long_polyA_reads),
                                     ('Unaccounted-for reads', unmapped_reads),
                                    ]:
                 fraction = float(count) / total_reads
@@ -566,6 +610,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                    'tRNA': (self.read_file('tRNA_lengths'), 'blue'),
                    'other ncRNA': (self.read_file('other_ncRNA_lengths'), 'black'),
                    'unmapped': (self.read_file('unmapped_lengths'), 'cyan'),
+                   'long_polyA': (self.read_file('long_polyA_lengths'), 'yellow'),
                    'clean': (self.read_file('clean_lengths'), 'green'),
                   }
 

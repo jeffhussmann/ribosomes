@@ -33,3 +33,27 @@ def find_polyA(char* seq, int min_length):
             longest_length = current_length
             longest_start = current_start
         return longest_start, longest_length
+
+def predominantly_A(char* seq):
+    ''' Returns True if at least 19 of the first first 20 bases in seq are A if
+    seq is at least 20 bases long, or if seq is all A's if it is less than 20
+    bases long.
+    '''
+    
+    cdef int max_i = min(20, len(seq))
+    cdef int A_count = 0
+
+    for i in range(max_i):
+        if seq[i] == 'A':
+            A_count += 1
+
+    if max_i < 20:
+        if A_count == max_i:
+            return True
+        else:
+            return False
+    else:
+        if A_count >= 19:
+            return True
+        else:
+            return False
