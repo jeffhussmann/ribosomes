@@ -56,17 +56,11 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('unambiguous_lengths', array_1d, '{name}_unambiguous_lengths.txt'),
         ('oligo_hit_lengths', array_2d, '{name}_oligo_hit_lengths.txt'),
 
-        ('rRNA_sam', 'sam', '{name}_rRNA.sam'),
         ('rRNA_bam', 'bam', '{name}_rRNA.bam'),
-        ('synthetic_sam', 'sam', '{name}_synthetic.sam'),
-        ('synthetic_bam', 'bam', '{name}_synthetic.bam'),
         ('clean_bam', 'bam', '{name}_clean.bam'),
         ('more_rRNA_bam', 'bam', '{name}_more_rRNA.bam'),
-        ('more_rRNA_bam_sorted', 'bam', '{name}_more_rRNA_sorted.bam'),
         ('tRNA_bam', 'bam', '{name}_tRNA.bam'),
-        ('tRNA_bam_sorted', 'bam', '{name}_tRNA_sorted.bam'),
         ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
-        ('other_ncRNA_bam_sorted', 'bam', '{name}_other_ncRNA_sorted.bam'),
         ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
         ('phiX_bam', 'bam', '{name}_phiX.bam'),
@@ -104,7 +98,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('remapped_accepted_hits', 'bam', 'tophat_remapped_polyA/accepted_hits.bam'),
         ('remapped_unmapped_bam', 'bam', 'tophat_remapped_polyA/unmapped.bam'),
         ('remapped_extended', 'bam', '{name}_remapped_extended.bam'),
-        ('remapped_extended_sorted', 'bam', '{name}_remapped_extended_sorted.bam'),
     
         ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
 
@@ -177,16 +170,15 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
     
     specific_work = [
-        ['preprocess',
-         'map_full_lengths',
-         'process_initially_unmapped',
-         'merge_mapping_pathways',
-         'process_remapped_unmapped',
-         'compute_base_composition',
+        [#'preprocess',
+         #'map_full_lengths',
+         #'process_initially_unmapped',
+         #'merge_mapping_pathways',
+         #'process_remapped_unmapped',
+         #'compute_base_composition',
          ##'quality_distribution',
-         'find_unambiguous_lengths',
-         'get_rRNA_coverage',
-         'get_oligo_hit_lengths',
+         #'find_unambiguous_lengths',
+         #'get_rRNA_coverage',
         ],
         ['get_read_positions',
          'get_three_prime_read_positions',
@@ -198,12 +190,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
 
     specific_cleanup = [
-        ['compute_yield',
-         'plot_base_composition',
-         'plot_lengths',
-         'plot_rRNA_coverage',
-         'plot_oligo_hit_lengths',
-         'plot_mismatches',
+        [#'compute_yield',
+         #'plot_base_composition',
+         #'plot_lengths',
+         #'plot_rRNA_coverage',
+         #'plot_mismatches',
+         'visualize_unmapped',
         ],
         ['compute_RPKMs',
          'compute_mean_densities',
@@ -423,19 +415,14 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                self.file_names['genome'],
                                trimmed_twice=True,
                               )
-        # Adding bases to the end of minus strand mappings produces a file
-        # that is not necessarily sorted, so resort. 
-        sam.sort_bam(self.file_names['remapped_extended'],
-                     self.file_names['remapped_extended_sorted'],
-                    )
         
-        remapped_length_counts = sam.get_length_counts(self.file_names['remapped_extended_sorted'])
+        remapped_length_counts = sam.get_length_counts(self.file_names['remapped_extended'])
         remapped_lengths = self.zero_padded_array(remapped_length_counts)
         self.write_file('remapped_lengths', remapped_lengths)
 
     def merge_mapping_pathways(self):
         sam.merge_sorted_bam_files([self.file_names['clean_trimmed_bam'],
-                                    self.file_names['remapped_extended_sorted'],
+                                    self.file_names['remapped_extended'],
                                    ],
                                    self.file_names['merged_mappings'],
                                   )
@@ -448,11 +435,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                  self.file_names['genes'],
                                  self.file_names['clean_bam'],
                                  self.file_names['more_rRNA_bam'],
-                                 self.file_names['more_rRNA_bam_sorted'],
                                  self.file_names['tRNA_bam'],
-                                 self.file_names['tRNA_bam_sorted'],
                                  self.file_names['other_ncRNA_bam'],
-                                 self.file_names['other_ncRNA_bam_sorted'],
                                 )
 
         tRNA_length_counts = sam.get_length_counts(self.file_names['tRNA_bam'])

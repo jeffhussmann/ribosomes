@@ -178,10 +178,18 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
                                                   load_references=True,
                                                   sam_file=bam_file,
                                                  )
-    with pysam.Samfile(extended_bam_fn, 'wb', template=bam_file) as extended_bam_file:
+
+    # Adding bases to the end of minus strand mappings produces a file
+    # that is not necessarily sorted, so resort. 
+    alignment_sorter = sam.AlignmentSorter(bam_file.references,
+                                           bam_file.lengths,
+                                           extended_bam_fn,
+                                          )
+
+    with alignment_sorter:
         for mapping in bam_file:
             if mapping.is_unmapped:
-                extended_bam_file.write(mapping)
+                alignment_sorter.write(mapping)
                 continue
 
             if trimmed_twice:
@@ -269,7 +277,8 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
             set_nongenomic_length(mapping, nongenomic_length)
 
             mapping.qname = new_qname
-            extended_bam_file.write(mapping)
+
+            alignment_sorter.write(mapping)
 
 def get_nongenomic_length(mapping):
     tags = {name: value for name, value in mapping.tags}
@@ -385,15 +394,11 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_leng
 
                 trimmed_length = len(mapping.seq) - bases_to_trim
                 if mapping.is_reverse:
-                    # truncate_cigar_blocks removes bases from the end, which is
-                    # what we want for reverse reads
-                    trimmed_cigar = sam.truncate_cigar_blocks(mapping.cigar, trimmed_length)
+                    # Remove blocks from the end
+                    trimmed_cigar = sam.truncate_cigar_blocks_up_to(mapping.cigar, trimmed_length)
                 else:
-                    # We want to remove from the beginning, so flip the blocks,
-                    # remove from the end, then flip back.
-                    flipped_cigar = mapping.cigar[::-1]
-                    trimmed_cigar = sam.truncate_cigar_blocks(flipped_cigar, trimmed_length)
-                    trimmed_cigar = trimmed_cigar[::-1]
+                    # Remove blocks from the beginning
+                    trimmed_cigar = sam.truncate_cigar_blocks_from_beginning(mapping.cigar, trimmed_length)
                 
                 trimmed_mapping.cigar = trimmed_cigar
 
@@ -461,22 +466,20 @@ def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
                 trimmed_length = len(mapping.seq) - bases_to_trim
                 soft_clipped_block = [(sam.BAM_CSOFT_CLIP, bases_to_trim)]
                 if mapping.is_reverse:
-                    # We want to remove from the beginning, so flip the blocks,
-                    # remove from the end, then flip back.
-                    flipped_cigar = mapping.cigar[::-1]
-                    trimmed_cigar = sam.truncate_cigar_blocks(flipped_cigar, trimmed_length)
-                    updated_cigar = soft_clipped_block + trimmed_cigar[::-1]
+                    # Remove blocks from the beginning.
+                    trimmed_cigar = sam.truncate_cigar_blocks_from_beginning(mapping.cigar, trimmed_length)
+                    updated_cigar = soft_clipped_block + trimmed_cigar
                 else:
-                    # truncate_cigar_blocks removes bases from the end, which is
-                    # what we want for forward reads
-                    trimmed_cigar = sam.truncate_cigar_blocks(mapping.cigar, trimmed_length)
+                    # Remove blocks from the end.
+                    trimmed_cigar = sam.truncate_cigar_blocks_up_to(mapping.cigar, trimmed_length)
                     updated_cigar = trimmed_cigar + soft_clipped_block
                 
                 mapping.cigar = updated_cigar
             
             if mapping.tags:
-                # Clear the MD tag since the possible addition of bases to the
+                # Clear the MD tag since the possible removal of bases to the
                 # alignment may have made it inaccurate. 
+                # TODO: now have machinery to make it accurate.
                 filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
                 mapping.tags = filtered_tags
 

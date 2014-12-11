@@ -73,11 +73,8 @@ def post_filter(input_bam_fn,
                 gtf_fn,
                 clean_bam_fn,
                 more_rRNA_bam_fn,
-                more_rRNA_bam_sorted_fn,
                 tRNA_bam_fn,
-                tRNA_bam_sorted_fn,
                 other_ncRNA_bam_fn,
-                other_ncRNA_bam_sorted_fn,
                ):
     ''' Removes any remaining mappings to rRNA transcripts and any mappings
         to tRNA or other noncoding RNA transcripts.
@@ -103,7 +100,11 @@ def post_filter(input_bam_fn,
                                 (tRNA_transcripts, tRNA_bam_fn),
                                 (other_ncRNA_transcripts, other_ncRNA_bam_fn),
                                ]:
-        with pysam.Samfile(bam_fn, 'wb', template=input_bam_file) as bam_file:
+        alignment_sorter = sam.AlignmentSorter(input_bam_file.references,
+                                               input_bam_file.lengths,
+                                               bam_fn,
+                                              )
+        with alignment_sorter:
             for transcript in transcripts:
                 transcript.build_coordinate_maps()
                 overlapping_mappings = input_bam_file.fetch(transcript.seqname,
@@ -117,6 +118,7 @@ def post_filter(input_bam_fn,
                     if any(p in transcript.genomic_to_transcript and
                            0 <= transcript.genomic_to_transcript[p] < transcript.transcript_length
                            for p in mapping.positions):
+
                         if mapping.qname not in contaminant_qnames:
                             # This is the first time seeing this qname, so flag
                             # it as primary.
@@ -126,14 +128,11 @@ def post_filter(input_bam_fn,
                             # This qname has already been seen, so flag it as
                             # secondary.
                             mapping.is_secondary = True
-                        bam_file.write(mapping)
+
+                        alignment_sorter.write(mapping)
 
     input_bam_file.close()
 
-    sam.sort_bam(more_rRNA_bam_fn, more_rRNA_bam_sorted_fn)
-    sam.sort_bam(tRNA_bam_fn, tRNA_bam_sorted_fn)
-    sam.sort_bam(other_ncRNA_bam_fn, other_ncRNA_bam_sorted_fn)
-         
     # Create a new clean bam file consisting of all mappings of each
     # read that wasn't flagged as a contaminant.
     input_bam_file = pysam.Samfile(input_bam_fn, 'rb')
