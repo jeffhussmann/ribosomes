@@ -10,7 +10,7 @@ def length_stratified_composition(seq_info_pairs, int max_seq_length):
     ''' Unnecessary code duplication. '''
     cdef int i, q, b, seq_length
     cdef char* seq_typed
-    cdef char* bases = fastq.base_order
+    cdef char* bases = fastq.base_order[:5]
 
     shape = (max_seq_length + 1, max_seq_length + 1, 256)
     cdef np.ndarray[DTYPEINT_t, ndim=3] all_array = np.zeros(shape, dtype=DTYPEINT)
