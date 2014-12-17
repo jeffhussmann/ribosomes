@@ -169,7 +169,7 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
                                                  )
 
     # Adding bases to the end of minus strand mappings produces a file
-    # that is not necessarily sorted, so resort. 
+    # that is not necessarily sorted, so re-sort. 
     alignment_sorter = sam.AlignmentSorter(bam_file.references,
                                            bam_file.lengths,
                                            extended_bam_fn,
@@ -177,97 +177,100 @@ def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
 
     with alignment_sorter:
         for mapping in bam_file:
-            if mapping.is_unmapped:
-                alignment_sorter.write(mapping)
-                continue
+            extended_mapping = extend_polyA_end(mapping, region_fetcher, trimmed_twice)
+            alignment_sorter.write(extended_mapping)
 
-            if trimmed_twice:
-                # Trailing poly-As were removed by the second trimming step. 
-                annotation = TrimmedTwiceAnnotation.from_identifier(mapping.qname)
-                polyA_seq = annotation['retrimmed_seq']
-                polyA_qual = annotation['retrimmed_qual']
-                new_qname = PayloadAnnotation.from_prefix_identifier(mapping.qname).identifier
-            else:
-                annotation = PayloadAnnotation.from_identifier(mapping.qname)
-                polyA_seq = annotation['trimmed_seq']
-                polyA_qual = annotation['polyA_qual']
-                new_qname = '{0}_{1}'.format(annotation['original_name'],
-                                             annotation['barcode'],
-                                            )
+def extend_polyA_end(mapping, region_fetcher, trimmed_twice=False):
+    if mapping.is_unmapped:
+        return mapping
 
-            num_trimmed = len(polyA_seq)
-            
-            if mapping.is_reverse:
-                after = region_fetcher(mapping.tid, mapping.pos - num_trimmed, mapping.pos)
-                after = utilities.reverse_complement(after)
-            else:
-                after = region_fetcher(mapping.tid, mapping.aend, mapping.aend + num_trimmed)
+    if trimmed_twice:
+        # Trailing poly-As were removed by the second trimming step. 
+        annotation = TrimmedTwiceAnnotation.from_identifier(mapping.qname)
+        polyA_seq = annotation['retrimmed_seq']
+        polyA_qual = annotation['retrimmed_qual']
+        new_qname = PayloadAnnotation.from_prefix_identifier(mapping.qname).identifier
+    else:
+        annotation = PayloadAnnotation.from_identifier(mapping.qname)
+        polyA_seq = annotation['trimmed_seq']
+        polyA_qual = annotation['trimmed_qual']
+        new_qname = '{0}_{1}'.format(annotation['original_name'],
+                                     annotation['barcode'],
+                                    )
 
-            extra_genomic_As = 0
-            for b in after:
-                if b == 'A':
-                    extra_genomic_As += 1
-                else:
-                    break
+    num_trimmed = len(polyA_seq)
+    
+    if mapping.is_reverse:
+        after = region_fetcher(mapping.tid, mapping.pos - num_trimmed, mapping.pos)
+        after = utilities.reverse_complement(after)
+    else:
+        after = region_fetcher(mapping.tid, mapping.aend, mapping.aend + num_trimmed)
 
-            nongenomic_length = num_trimmed - extra_genomic_As
+    extra_genomic_As = 0
+    for b in after:
+        if b == 'A':
+            extra_genomic_As += 1
+        else:
+            break
 
-            if mapping.is_reverse:
-                nongenomic_start = mapping.pos - 1 - extra_genomic_As
-            else:
-                # Note: 'aend points to one past the last aligned residue'
-                nongenomic_start = mapping.aend + extra_genomic_As
+    nongenomic_length = num_trimmed - extra_genomic_As
 
-            extra_genomic_seq = polyA_seq[:extra_genomic_As]
-            soft_clipped_seq = polyA_seq[extra_genomic_As:]
-            extra_genomic_qual = polyA_qual[:extra_genomic_As]
-            soft_clipped_qual = polyA_qual[extra_genomic_As:]
+    if mapping.is_reverse:
+        nongenomic_start = mapping.pos - 1 - extra_genomic_As
+    else:
+        # Note: 'aend points to one past the last aligned residue'
+        nongenomic_start = mapping.aend + extra_genomic_As
 
-            extra_seq = extra_genomic_seq + soft_clipped_seq
-            extra_qual = extra_genomic_qual + soft_clipped_qual
+    extra_genomic_seq = polyA_seq[:extra_genomic_As]
+    soft_clipped_seq = polyA_seq[extra_genomic_As:]
+    extra_genomic_qual = polyA_qual[:extra_genomic_As]
+    soft_clipped_qual = polyA_qual[extra_genomic_As:]
 
-            if mapping.is_reverse:
-                final_cigar_block_index = 0
-                extended_seq = utilities.reverse_complement(extra_seq) + mapping.seq
-                extended_qual = extra_qual[::-1] + mapping.qual
-                mapping.pos = mapping.pos - extra_genomic_As
-            else:
-                final_cigar_block_index = -1
-                extended_seq = mapping.seq + extra_seq
-                extended_qual = mapping.qual + extra_qual
+    extra_seq = extra_genomic_seq + soft_clipped_seq
+    extra_qual = extra_genomic_qual + soft_clipped_qual
 
-            # Note: writing to mapping.seq destroys mapping.qual, so
-            # mapping.qual needs to be retrieved above
-            mapping.seq = extended_seq
-            mapping.qual = extended_qual
+    if mapping.is_reverse:
+        final_cigar_block_index = 0
+        extended_seq = utilities.reverse_complement(extra_seq) + mapping.seq
+        extended_qual = extra_qual[::-1] + mapping.qual
+        mapping.pos = mapping.pos - extra_genomic_As
+    else:
+        final_cigar_block_index = -1
+        extended_seq = mapping.seq + extra_seq
+        extended_qual = mapping.qual + extra_qual
 
-            op, length = mapping.cigar[final_cigar_block_index]
-            if op != 0:
-                raise ValueError
-            length += extra_genomic_As
-            
-            updated_cigar = mapping.cigar
-            updated_cigar[final_cigar_block_index] = (op, length)
-            if len(soft_clipped_seq) > 0:
-                soft_clipped_block = [(sam.BAM_CSOFT_CLIP, len(soft_clipped_seq))]
-                if final_cigar_block_index == 0:
-                    updated_cigar = soft_clipped_block + updated_cigar
-                elif final_cigar_block_index == -1:
-                    updated_cigar = updated_cigar + soft_clipped_block
+    # Note: writing to mapping.seq destroys mapping.qual, so
+    # mapping.qual needs to be retrieved above
+    mapping.seq = extended_seq
+    mapping.qual = extended_qual
 
-            mapping.cigar = updated_cigar
+    op, length = mapping.cigar[final_cigar_block_index]
+    if op != 0:
+        raise ValueError
+    length += extra_genomic_As
+    
+    updated_cigar = mapping.cigar
+    updated_cigar[final_cigar_block_index] = (op, length)
+    if len(soft_clipped_seq) > 0:
+        soft_clipped_block = [(sam.BAM_CSOFT_CLIP, len(soft_clipped_seq))]
+        if final_cigar_block_index == 0:
+            updated_cigar = soft_clipped_block + updated_cigar
+        elif final_cigar_block_index == -1:
+            updated_cigar = updated_cigar + soft_clipped_block
 
-            if mapping.tags:
-                # Clear the MD tag since the possible addition of bases to the
-                # alignment may have made it inaccurate. 
-                filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
-                mapping.tags = filtered_tags
+    mapping.cigar = updated_cigar
 
-            set_nongenomic_length(mapping, nongenomic_length)
+    if mapping.tags:
+        # Clear the MD tag since the possible addition of bases to the
+        # alignment may have made it inaccurate. 
+        filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
+        mapping.tags = filtered_tags
 
-            mapping.qname = new_qname
+    set_nongenomic_length(mapping, nongenomic_length)
 
-            alignment_sorter.write(mapping)
+    mapping.qname = new_qname
+
+    return mapping
 
 def get_nongenomic_length(mapping):
     tags = {name: value for name, value in mapping.tags}
