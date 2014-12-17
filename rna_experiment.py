@@ -1,4 +1,5 @@
 import glob
+import numpy as np
 from Sequencing.Parallel import map_reduce, split_file, piece_of_list
 from Serialize import read_positions
 from Sequencing import fastq
@@ -136,6 +137,21 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         all_read_pairs = chain.from_iterable(read_pairs_list)
 
         return all_read_pairs
+
+    def trim_reads(self, reads):
+        trimmed_lengths = np.zeros(self.max_read_length + 1, int)
+        too_short_lengths = np.zeros(self.max_read_length + 1, int)
+    
+        for trimmed_read in self.trim_function(reads):
+            length = len(trimmed_read.seq)
+            if length < self.min_length:
+                too_short_lengths[length] += 1
+            else:
+                trimmed_lengths[length] += 1
+                yield trimmed_read
+
+        self.write_file('trimmed_lengths', trimmed_lengths)
+        self.write_file('too_short_lengths', too_short_lengths)
 
     def get_CDSs(self):
         all_CDSs = gtf.get_CDSs(self.file_names['genes'], self.file_names['genome'], '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/inferred_UTR_lengths.txt')

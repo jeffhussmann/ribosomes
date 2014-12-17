@@ -270,21 +270,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                            self.figure_file_names['clean_composition_perfect'],
                                           )
 
-    def trim_reads(self, reads):
-        trimmed_lengths = np.zeros(self.max_read_length + 1, int)
-        too_short_lengths = np.zeros(self.max_read_length + 1, int)
-    
-        for trimmed_read in self.trim_function(reads):
-            length = len(trimmed_read.seq)
-            if length < self.min_length:
-                too_short_lengths[length] += 1
-            else:
-                trimmed_lengths[length] += 1
-                yield trimmed_read
-
-        self.write_file('trimmed_lengths', trimmed_lengths)
-        self.write_file('too_short_lengths', too_short_lengths)
-
     def preprocess(self):
         reads = self.get_reads()
         trimmed_reads = self.trim_reads(reads)
