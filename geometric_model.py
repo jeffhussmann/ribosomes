@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from Sequencing import Serialize
+import Serialize
 import positions
 import brewer2mpl
 from scipy.optimize import leastsq

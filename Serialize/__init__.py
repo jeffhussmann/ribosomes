@@ -1,6 +1,5 @@
-from . import (codon_counts,
-               coverage,
-               expression,
-               read_positions,
-               RPKMs,
-              )
+import codon_counts
+import coverage
+import expression
+import read_positions
+import RPKMs
