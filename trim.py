@@ -9,6 +9,7 @@ from Sequencing.annotation import Annotation_factory
 from trim_cython import *
 from Sequencing.adapters_cython import *
 from Sequencing import sw
+from Sequencing import sam
 
 payload_annotation_fields = [
     ('original_name', 's'),
@@ -68,10 +69,8 @@ full_linker = smRNA_linker + truseq_R2_rc
 adapter_prefix_length = 10
 max_distance = 1
 
-def trim_by_local_alignment(seq):
-    _, simple_finder = finders['linker']
-    
-    alignment, = sw.generate_alignments(full_linker,
+def trim_by_local_alignment(adapter, seq):
+    alignment, = sw.generate_alignments(adapter,
                                         seq,
                                         'unpaired_adapter',
                                         max_alignments=1,
@@ -79,21 +78,24 @@ def trim_by_local_alignment(seq):
 
     score_diff = 2 * len(alignment['path']) - alignment['score']
     adapter_start_in_seq = sw.first_target_index(alignment['path'])
-    if score_diff <= 10. / 22 * len(alignment['path']):
+    if alignment['path'] and score_diff <= 10. / 22 * len(alignment['path']):
         trim_at = adapter_start_in_seq
     else:
-        trim_at = simple_finder(seq)
+        trim_at = find_adapter(adapter[:adapter_prefix_length], max_distance, seq)
 
     return trim_at
 
 finders = {'truseq':        (None,
                              partial(find_adapter, truseq_R2_rc[:adapter_prefix_length], max_distance),
                             ),
+           'truseq_local':  (None,
+                             partial(trim_by_local_alignment, truseq_R2_rc),
+                            ),
            'linker':        (None,
                              partial(find_adapter, smRNA_linker[:adapter_prefix_length], max_distance),
                             ),
            'linker_local':  (None,
-                             trim_by_local_alignment,
+                             partial(trim_by_local_alignment, full_linker),
                             ),
            'linker_15':     (None,
                              partial(find_adapter, smRNA_15_linker[:adapter_prefix_length], max_distance),
