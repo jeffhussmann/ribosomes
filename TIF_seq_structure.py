@@ -156,7 +156,7 @@ def find_boundary_sequences(R1, R2, counters):
     polyA_start, polyA_length = find_polyA_cython.find_polyA(forward_read.seq, 15)
     polyA_slice = slice(polyA_start, polyA_start + polyA_length)
     polyA_seq = forward_read.seq[polyA_slice]
-    polyA_qual = trim.sanitize_qual(forward_read.qual[polyA_slice])
+    polyA_qual = fastq.sanitize_qual(forward_read.qual[polyA_slice])
     three_payload_slice = slice(None, polyA_start)
     three_payload_seq = forward_read.seq[three_payload_slice]
     three_payload_qual = forward_read.qual[three_payload_slice]
