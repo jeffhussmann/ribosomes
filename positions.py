@@ -34,15 +34,12 @@ class PositionCounts(object):
         self.landmark_to_index = {name: left_buffer + (landmarks[name] - leftmost_value)
                                   for name in landmarks}
        
-        if isinstance(dtype, tuple):
-            # 2D array
-            first_dtype, second_dtype = dtype
-            self.data = [PositionCounts(landmarks, left_buffer, right_buffer) for i in range(length)]
-        elif data == None:
+        if data == None:
             self.data = np.zeros(length, dtype)
         else:
             if len(data) != length:
                 raise ValueError(len(data), length)
+
             self.data = data
 
     def adjust_relative_to_landmark(self, landmark, key):
@@ -83,29 +80,19 @@ class PositionCounts(object):
 
         return adjusted_key
     
-    def __getitem__(self, landmarks_and_keys):
-        if len(landmarks_and_keys) == 2:
-            # 1D
-            landmark, key = landmarks_and_keys
-            adjusted_key = self.adjust_relative_to_landmark(landmark, key)
+    def __getitem__(self, landmark_and_key):
+        landmark, key = landmark_and_key
+        adjusted_key = self.adjust_relative_to_landmark(landmark, key)
+        try:
             return self.data[adjusted_key]
-        elif len(landmarks_and_keys) == 4:
-            # 2D
-            first_landark, first_key, second_landmark, second_key = landmarks_and_keys
-            first_adjusted_key = self.adjust_relative_to_landmark(first_landark, first_key)
-            return self.data[first_adjusted_key][second_landmark, second_key]
+        except IndexError:
+            print len(self.data), adjusted_key
+            raise
 
-    def __setitem__(self, landmarks_and_keys, value):
-        if len(landmarks_and_keys) == 2:
-            # 1D
-            landmark, key = landmarks_and_keys
-            adjusted_key = self.adjust_relative_to_landmark(landmark, key)
-            self.data[adjusted_key] = value
-        elif len(landmarks_and_keys) == 4:
-            # 2D
-            first_landark, first_key, second_landmark, second_key = landmarks_and_keys
-            first_adjusted_key = self.adjust_relative_to_landmark(first_landark, first_key)
-            self.data[first_adjusted_key][second_landmark, second_key] = value
+    def __setitem__(self, landmark_and_key, value):
+        landmark, key = landmark_and_key
+        adjusted_key = self.adjust_relative_to_landmark(landmark, key)
+        self.data[adjusted_key] = value
 
     def __iadd__(self, other):
         if self.landmarks != other.landmarks:
