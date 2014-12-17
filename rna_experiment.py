@@ -138,10 +138,10 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         return all_read_pairs
 
     def get_CDSs(self):
+        all_CDSs = gtf.get_CDSs(self.file_names['genes'], self.file_names['genome'], '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/inferred_UTR_lengths.txt')
         if self.transcripts_file_name == None:
-            CDSs = gtf.get_CDSs(self.file_names['genes'])
+            CDSs = all_CDSs
         else:
-            all_CDSs = gtf.get_CDSs(self.file_names['genes'])
             transcripts = {line.strip() for line in open(self.transcripts_file_name)}
             CDSs = [t for t in all_CDSs if t.name in transcripts]
         

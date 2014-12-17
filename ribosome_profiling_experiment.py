@@ -248,17 +248,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.trim_function = trim.bound_trim[self.adapter_type]
 
-    def get_simple_CDSs(self):
-        all_simple_CDSs = gtf.get_simple_CDSs(self.file_names['genes'],
-                                              #exclude_from=(self.file_names['dubious_ORFs'],),
-                                             )
-        max_gene_length = max(abs(gene.end - gene.start) + 1 for gene in all_simple_CDSs)
-        piece_simple_CDSs = piece_of_list(all_simple_CDSs,
-                                          self.num_pieces,
-                                          self.which_piece,
-                                         )
-        return piece_simple_CDSs, max_gene_length
-
     def compute_base_composition(self):
         seq_info_pairs = composition.get_seq_info_pairs(self.file_names['clean_bam'])
         all_array, perfect_array = composition.length_stratified_composition(seq_info_pairs, self.max_read_length)
