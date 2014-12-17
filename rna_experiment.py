@@ -49,7 +49,14 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         
         for key, tail in self.organism_files:
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
-
+        
+        self.min_length = 12
+        self.max_read_length = kwargs.get('max_read_length', None)
+        if self.max_read_length == None:
+            self.max_read_length = self.get_max_read_length()
+        else:
+            self.max_read_length = int(self.max_read_length)
+        
     def get_max_read_length(self):
         def length_from_file_name(file_name):
             length = len(fastq.reads(file_name).next().seq)

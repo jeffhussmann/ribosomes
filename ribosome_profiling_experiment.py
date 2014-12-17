@@ -229,7 +229,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         # are valid. E. coli should have this set to 11.
         self.codon_table = kwargs.get('codon_table', 1)
         
-        self.max_read_length = kwargs.get('max_read_length', None)
         length_range = kwargs.get('relevant_lengths', None)
         if length_range == None:
             self.relevant_lengths = range(27, 32)
@@ -237,7 +236,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
             start, stop = map(int, length_range.split(','))
             self.relevant_lengths = range(start, stop + 1)
         
-        self.min_length = 12
         self.max_interesting_length = int(kwargs.get('max_interesting_length', 51))
         
         #if self.adapter_type == 'polyA':
@@ -248,11 +246,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                'unambiguous_from_starts'
         #                               ])
 
-        if self.max_read_length == None:
-            self.max_read_length = self.get_max_read_length()
-        else:
-            self.max_read_length = int(self.max_read_length)
-        
         self.trim_function = trim.bound_trim[self.adapter_type]
 
     def get_simple_CDSs(self):
