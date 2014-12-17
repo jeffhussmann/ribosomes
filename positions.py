@@ -183,6 +183,46 @@ right_buffer = 4 * edge_buffer
 # Number of codons to include on either side of counts of codon positions.
 codon_buffer = 10
 
+def get_Transcript_extent_position_counts(transcript,
+                                          clean_bam_fn,
+                                          relevant_lengths,
+                                          left_buffer=0,
+                                          right_buffer=0,
+                                         ):
+    bam_file = pysam.Samfile(clean_bam_fn)
+    landmarks = {'start': 0,
+                 'stop': transcript.extent_length,
+                }
+    position_counts = {l: PositionCounts(landmarks, left_buffer, right_buffer)
+                       for l in relevant_lengths + ['all']}
+    
+    # fetch raises a ValueError if given a negative start, but it doesn't 
+    # care if the end is valid.
+    left_edge = max(0, min(transcript.genomic_to_extent) - left_buffer)
+    right_edge = max(transcript.genomic_to_extent) + right_buffer
+    overlapping_reads = bam_file.fetch(transcript.seqname, left_edge, right_edge)
+    for read in overlapping_reads:
+        if read.mapq != 50:
+            continue
+
+        read_strand = '-' if read.is_reverse else '+'
+        if read_strand != transcript.strand:
+            continue
+
+        if read_strand == '+':
+            five_prime_position = read.pos
+        elif read_strand == '-':
+            five_prime_position = read.aend - 1
+
+        if five_prime_position in transcript.genomic_to_extent:
+            extent_coord = transcript.genomic_to_extent[five_prime_position]
+
+            position_counts['all']['start', extent_coord] += 1
+            if read.qlen in relevant_lengths:
+                position_counts[read.qlen]['start', extent_coord] += 1
+
+    return position_counts
+
 def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, left_buffer=left_buffer, right_buffer=right_buffer):
     gene_infos = {}
     bam_file = pysam.Samfile(clean_bam_fn)
@@ -194,7 +234,7 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, 
         expression = np.zeros(2, int)
         nonunique = 0
         alternatively_spliced = 0
-
+        
         landmarks = {'start': 0,
                      'start_codon': transcript.transcript_start_codon,
                      'stop_codon': transcript.transcript_stop_codon,
