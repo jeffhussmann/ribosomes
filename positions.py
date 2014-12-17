@@ -476,6 +476,61 @@ def compute_metagene_positions(position_counts, max_CDS_length):
                            }
     return from_starts_and_ends
 
+def compute_metagene_positions_by_base(position_counts, max_CDS_length):
+    ''' max_CDS_length needs to be passed in because it may reflect the max of
+        more than just the CDS being considered here.
+    '''
+    random_gene = position_counts.itervalues().next()
+    relevant_lengths = [l for l, counts in random_gene.items() if l != 'sequence']
+    random_length = relevant_lengths[0]
+    random_position_counts = random_gene[random_length]
+    left_buffer = random_position_counts.left_buffer
+    right_buffer = random_position_counts.right_buffer
+
+    landmarks = {'start_codon': 0,
+                 'stop_codon': max_CDS_length,
+                }
+
+    from_starts = {}
+    from_ends = {}
+    for b in 'TCAG':
+        from_starts[b] = {length: PositionCounts(landmarks, left_buffer, right_buffer)
+                          for length in relevant_lengths}
+        from_starts[b + '_uniform'] = {length: PositionCounts(landmarks, left_buffer, right_buffer, dtype=float)
+                                       for length in relevant_lengths}
+
+        from_ends[b] = {length: PositionCounts(landmarks, left_buffer, right_buffer)
+                        for length in relevant_lengths}
+        from_ends[b + '_uniform'] = {length: PositionCounts(landmarks, left_buffer, right_buffer, dtype=float)
+                        for length in relevant_lengths}
+
+    total = 0
+    for name, counts in position_counts.iteritems():
+        CDS_length = counts[random_length].CDS_length
+        start_slice = ('start_codon', slice(-left_buffer, CDS_length))
+        end_slice = ('stop_codon', slice(-CDS_length, right_buffer))
+
+        for b in 'TCAG':
+            base_mask_start = counts['sequence'][start_slice] == b
+            base_mask_end = counts['sequence'][end_slice] == b
+            for length in relevant_lengths:
+                
+                start_counts = counts[length][start_slice]
+                start_uniform = np.ones_like(start_counts) * start_counts.sum() / float(len(start_counts))
+                from_starts[b + '_uniform'][length][start_slice] += np.multiply(start_uniform, base_mask_start)
+                
+                end_counts = counts[length][end_slice]
+                end_uniform = np.ones_like(end_counts) * end_counts.sum() / float(len(end_counts))
+                from_ends[b + '_uniform'][length][end_slice] += np.multiply(end_uniform, base_mask_end)
+
+                start_base_counts = np.multiply(start_counts, base_mask_start)
+                end_base_counts = np.multiply(end_counts, base_mask_end)
+
+                from_starts[b][length][start_slice] += start_base_counts
+                from_ends[b][length][end_slice] += end_base_counts
+
+    return from_starts, from_ends
+
 def compute_averaged_codon_densities(codon_counts, offset_key='relaxed', names_to_skip=set()): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
     min_counts = 64
