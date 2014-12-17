@@ -37,7 +37,7 @@ def length_stratified_plot(base_counts, fig_file_name, lengths=[28, 29, 30, 'all
 
         for i, base in enumerate(bases):
             fractions = counts.T[i] / denominators
-            ax.plot(fractions, 'o-', color=igv_colors.normalized_rgbs[base], linewidth=0.5, label=base) 
+            ax.plot(fractions, '.-', color=igv_colors.normalized_rgbs[base], linewidth=0.5, label=base) 
 
         ax.set_ylim(ymin=0)
         ax.set_xlim(0, len(fractions) - 1)
