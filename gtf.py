@@ -279,7 +279,7 @@ class Transcript(object):
         
         self.genomic_to_extent = {g: e for e, g in self.extent_to_genomic.iteritems()}
 
-    def get_extent_sequence(self, genome_dir, left_buffer=0, right_buffer=0):
+    def get_extent_sequence(self, left_buffer=0, right_buffer=0):
         ''' Get the sequence of the extent. Useful for looking at gene with
         annotated frameshifts.
         '''
@@ -296,7 +296,7 @@ class Transcript(object):
         return positions.PositionCounts(extent_landmarks,
                                         left_buffer,
                                         right_buffer,
-                                        data=sequence,
+                                        data=np.asarray(sequence, 'c'),
                                        )
 
     def get_transcript_sequence(self, left_buffer=0, right_buffer=0):
