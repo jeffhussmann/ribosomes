@@ -401,8 +401,8 @@ def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_leng
     return type_counts
 
 def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
-    ''' If a mapping ends a polyA stretch, soft clip from the first nongenomic A
-        onward.
+    ''' If a mapping ends in a polyA stretch, soft clip from the first
+    nongenomic A onward.
     '''
     bam_file = pysam.Samfile(bam_fn)
     region_fetcher = genomes.build_region_fetcher(genome_dir,
