@@ -313,7 +313,7 @@ def plot_frames(from_starts, figure_fn):
 def plot_averaged_codon_densities(data_sets,
                                   figure_fn,
                                   show_end=True,
-                                  past_edge=positions.codon_buffer,
+                                  past_edge=10,
                                   smooth=False,
                                   plot_up_to=100,
                                  ):
@@ -482,71 +482,119 @@ def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, len
     fig.suptitle('Read counts around every occurence, {0}'.format(edge))
     fig.savefig(fig_fn, bbox_inches='tight')
 
-def plot_frameshifts(rpf_counts_list,
-                     position_ambiguity_list,
-                     edge_overlap,
-                     gene_name,
-                     gene_length,
-                     exp_name,
-                    ):
-    ambiguity_to_color = {0: 'red',
-                          1: 'green',
-                          2: 'black',
-                         }
+def plot_frameshifts(gtf_fn,
+                         bam_fns,
+                         gene_name,
+                         exp_name,
+                         genome_dir,
+                         show_fractions=False,
+                        ):
+    codon_buffer = 10 
+    start_codon = 'ATG'
+    stop_codons = {'TAA', 'TAG', 'TGA'}
+    A_site_offset = 5
 
-    length_data = zip([28, 29, 30], rpf_counts_list, position_ambiguity_list)
-    for fragment_length, rpf_counts, position_ambiguity in length_data:
-        start_at_codon = 0 
-        # codon_starts[i] is the index into a position array at which codon i
-        # starts.
-        codon_starts = np.arange(2 * edge_overlap + (start_at_codon * 3),
-                                 2 * edge_overlap + gene_length,
-                                 3,
-                                )
-        codon_numbers = start_at_codon + np.arange(len(codon_starts))
+    CDSs = {c.name: c for c in gtf.get_CDSs(gtf_fn, genome_dir, '/dev/null')}
+    lengths = [28]
+    
+    transcript = CDSs[gene_name]
+
+    left_buffer = 30 + codon_buffer * 3
+    right_buffer = (codon_buffer + 1) * 3
+    transcript.build_extent_maps(left_buffer, right_buffer)
+
+    
+    experiment_counts = []
+    for bam_fn in bam_fns:
+        counts = positions.get_Transcript_extent_position_counts(transcript,
+                                                                 bam_fn,
+                                                                 lengths,
+                                                                 left_buffer=left_buffer,
+                                                                 right_buffer=right_buffer,
+                                                                )
+        experiment_counts.append(counts)
+
+    # Get the sequence of the extent.
+    extent_sequence = transcript.get_extent_sequence(left_buffer=left_buffer,
+                                                     right_buffer=right_buffer,
+                                                    )
+
+    for length in lengths:
+        A_site_offset = positions.A_site_offsets['yeast'][length]
+
+        length_counts = reduce(operator.add, [counts[length] for counts in experiment_counts])
+        codon_numbers = np.arange(-codon_buffer, transcript.extent_length / 3 + codon_buffer)
         
         # frame_counts_list[i, j] will be the number of RPF's starting at frame i of
         # codon j
-        frame_counts_list = np.zeros((3, len(codon_starts)), int)
-        # frame_colors_list will be used to visualize the ambiguity of each position
-        frame_colors_list = [['']*len(codon_starts) for frame in range(3)]
+        frame_counts_list = np.zeros((3, len(codon_numbers)), int)
+        start_codon_locations = [[] for _ in range(3)]
+        stop_codon_locations = [[] for _ in range(3)]
 
-        for c, codon_start in enumerate(codon_starts):
+        for c, codon_number in enumerate(codon_numbers):
+            codon_start = 3 * codon_number
             for frame in range(3):
-                frame_counts_list[frame, c] = rpf_counts[codon_start + frame]
-                ambiguity = position_ambiguity[codon_start + frame]
-                frame_colors_list[frame][c] = ambiguity_to_color[ambiguity]
+                frame_counts_list[frame, c] = length_counts['start', codon_start + frame - A_site_offset]
+                codon = extent_sequence['start', codon_start + frame:codon_start + frame + 3]
+                codon = ''.join(codon) 
+                
+                if codon == start_codon:
+                    start_codon_locations[frame].append(codon_number)
+                
+                if codon in stop_codons:
+                    stop_codon_locations[frame].append(codon_number)
 
-        frames_so_far = frame_counts_list.cumsum(axis=1)
-        fraction_frames_so_far = np.true_divide(frames_so_far, frames_so_far.sum(axis=0))
+        if show_fractions:
+            fig, axs = plt.subplots(4, 1, sharex=True)
+            cumulative_ax = axs[0]
+            frame_axs = axs[1:]
+        else:
+            fig, frame_axs = plt.subplots(3, 1, sharex=True)
 
-        frames_remaining = np.fliplr(np.fliplr(frame_counts_list).cumsum(axis=1))
-        fraction_frames_remaining = np.true_divide(frames_remaining, frames_remaining.sum(axis=0))
-        
-        fig, axs = plt.subplots(4, 1, sharex=True)
-        cumulative_ax = axs[0]
-        frame_axs = axs[1:]
-
-        for frame, (ax, frame_counts, frame_colors) in enumerate(zip(frame_axs, frame_counts_list, frame_colors_list)):
-            ax.scatter(codon_numbers, frame_counts, s=20, c=frame_colors, linewidths=0)
-            ax.set_ylim(-1, frame_counts_list.max() + 1)
+        for frame, (ax, frame_counts) in enumerate(zip(frame_axs, frame_counts_list)):
+            nonzero_codon_numbers = [c_n for c_n, f_c in zip(codon_numbers, frame_counts) if f_c != 0]
+            nonzero_frame_counts = [f_c for c_n, f_c in zip(codon_numbers, frame_counts) if f_c != 0]
+            ax.plot(nonzero_codon_numbers, nonzero_frame_counts, '.')
+            ax.set_ylim(0, frame_counts_list.max() + 1)
             ax.set_xlim(codon_numbers[0], codon_numbers[-1])
             ax.set_title('Frame {0}'.format(frame))
+            ax.set_ylabel('Read counts')
 
-        for frame, so_far, remaining, color in zip([0, 1, 2], fraction_frames_so_far, fraction_frames_remaining, colors):
-            cumulative_ax.plot(codon_numbers, so_far, color=color, label='{0} so far'.format(frame))
-            cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--', label='{0} remaining'.format(frame))
-            #difference = so_far - remaining
-            #cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
-            #difference = remaining - so_far
-            #cumulative_ax.plot(codon_numbers, difference, color=color, linestyle=':')
-        cumulative_ax.set_xlim(codon_numbers[0])
-        cumulative_ax.set_ylim(-0.02, 1.02)
+            for x in start_codon_locations[frame]:
+                ax.axvspan(x - 0.5, x + 0.5, facecolor='green', edgecolor='none', alpha=0.2)
+
+            for x in stop_codon_locations[frame]:
+                ax.axvspan(x - 0.5, x + 0.5, facecolor='red', edgecolor='none', alpha=0.2)
+
+        frame_axs[-1].set_xlabel('Codons from start codon')
+
+        if show_fractions:
+            frames_so_far = frame_counts_list.cumsum(axis=1)
+            fraction_frames_so_far = np.true_divide(frames_so_far,
+                                                    np.maximum(1, frames_so_far.sum(axis=0)),
+                                                   )
+
+            frames_remaining = np.fliplr(np.fliplr(frame_counts_list).cumsum(axis=1))
+            fraction_frames_remaining = np.true_divide(frames_remaining,
+                                                       np.maximum(1, frames_remaining.sum(axis=0)),
+                                                      )
+            
+            for frame in [0, 1, 2]:
+                so_far = fraction_frames_so_far[frame]
+                remaining = fraction_frames_remaining[frame]
+                color = colors[frame]
+                cumulative_ax.plot(codon_numbers, so_far, color=color, label='{0} so far'.format(frame))
+                cumulative_ax.plot(codon_numbers, remaining, color=color, linestyle='--', label='{0} remaining'.format(frame))
+            
+            cumulative_ax.set_xlim(codon_numbers[0])
+            cumulative_ax.set_ylim(-0.02, 1.02)
+            cumulative_ax.set_ylabel('Fraction of reads in extent')
         
-        cumulative_ax.legend(loc='upper right', framealpha=0.5)
-        fig.suptitle('{0} - length {1} fragments\n{2}'.format(gene_name, fragment_length, exp_name))
+            cumulative_ax.legend(loc='upper right', framealpha=0.5)
+        
+        fig.suptitle('{2}\n{0}\nlength {1} fragments'.format(gene_name, length, exp_name))
 
-    return codon_numbers, frame_counts_list, fraction_frames_so_far, fraction_frames_remaining
+        return fig
 
 def plot_RPKMs():
     experiments = [
@@ -638,7 +686,54 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
     plt.close(fig)
 
 if __name__ == '__main__':
-    from Sequencing import Serialize
-    ps = Serialize.read_file('/home/jah/projects/arlen/experiments/lareau_elife/Cycloheximide_replicate_1/results/Cycloheximide_replicate_1_from_starts_and_ends.hdf5', 'read_positions')
+    from ribosome_profiling_experiment import RibosomeProfilingExperiment
+    import subprocess
 
-    plot_metagene_positions_heatmap(ps['from_starts'], ps['from_ends'], 'test.pdf', zoomed_out=False)
+    job_fns_groups = [['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/WT_1_FP/job/description.txt',
+                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/WT_1_FP/job/description.txt',
+                      ],
+                      ['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/WT_2_FP/job/description.txt',
+                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/WT_2_FP/job/description.txt',
+                      ],
+                      ['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/R98S_1_FP/job/description.txt',
+                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/R98S_1_FP/job/description.txt',
+                      ],
+                      ['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/R98S_2_FP/job/description.txt',
+                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/R98S_2_FP/job/description.txt',
+                      ],
+                      ['/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/WT_cDNA_sample/job/description.txt',
+                      ],
+                      #['/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/R98S_cDNA_sample/job/description.txt',
+                      #],
+                      #['/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/Suppressed_R98S_cDNA_sample/job/description.txt',
+                      #],
+                     ]
+
+    frameshift_genes = ['YIL009C-A',
+                        'YOR239W',
+                        'YPL052W',
+                        #'YAL038W',
+                       ]
+
+    gene_fns = {gene: [] for gene in frameshift_genes}
+
+    for job_fn_group in job_fns_groups:
+        experiments = [RibosomeProfilingExperiment.from_description_file_name(job_fn)
+                       for job_fn in job_fn_group]
+        for gene in frameshift_genes:
+            fig = plot_frameshifts(experiments[0].file_names['genes'],
+                                   [experiment.file_names['merged_mappings'] for experiment in experiments],
+                                   gene,
+                                   ' + '.join('{0}: {1}'.format(experiment.group, experiment.name) for experiment in experiments),
+                                   experiments[0].file_names['genome'],
+                                  )
+            fig.set_size_inches(16, 12)
+
+            fn = '{0}/{1}.pdf'.format(experiment.work_results_dir, gene)
+            fig.savefig(fn, bbox_inches='tight')
+            plt.close(fig)
+            gene_fns[gene].append(fn)
+    
+    for gene in frameshift_genes:
+        merged_fn = '/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/{0}.pdf'.format(gene)
+        subprocess.check_call(['pdftk'] + gene_fns[gene] + ['cat', 'output', merged_fn])
