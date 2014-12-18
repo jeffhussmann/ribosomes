@@ -29,31 +29,22 @@ def pre_filter(contaminant_index, reads, bam_fn, error_fn='/dev/null'):
                                               )
     return unmapped_reads
 
-def pre_filter_paired(R1_trimmed_reads_fn,
-                      R2_trimmed_reads_fn,
-                      R1_noncontaminant_fn,
-                      contaminant_index,
-                      sam_fn,
+def pre_filter_paired(contaminant_index,
+                      read_pairs,
                       bam_fn,
                       error_fn,
                      ):
-    # Bowtie2 will expaned the '%' symbol into 1 and 2 to get the file
-    # names it will write to.
-    non_contaminant_template = R1_noncontaminant_fn.replace('R1', 'R%')
-
-    mapping_tools.map_bowtie2_paired(R1_trimmed_reads_fn,
-                                     R2_trimmed_reads_fn,
-                                     contaminant_index,
-                                     sam_fn,
-                                     unaligned_pairs_file_name=non_contaminant_template,
-                                     threads=1,
-                                     max_insert_size=1500,
-                                     suppress_unaligned_SAM=True,
-                                     report_all=True,
-                                     error_file_name=error_fn,
-                                    )
-    sam.make_sorted_indexed_bam(sam_fn, bam_fn)
-    os.remove(sam_fn)
+    unmapped_pairs = mapping_tools.map_bowtie2(contaminant_index,
+                                               output_file_name=bam_fn,
+                                               bam_output=True,
+                                               read_pairs=read_pairs,
+                                               max_insert_size=1500,
+                                               suppress_unaligned_SAM=True,
+                                               report_all=True,
+                                               error_file_name=error_fn,
+                                               yield_unaligned=True,
+                                              )
+    return unmapped_pairs
 
 def is_synthetic_old(read, synthetic_sequences):
     for synthetic_seq in synthetic_sequences:
