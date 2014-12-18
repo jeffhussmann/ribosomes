@@ -137,6 +137,21 @@ class PositionCounts(object):
                                   data=np.true_divide(self.data, other),
                                  )
     
+    def __add__(self, other):
+        if isinstance(other, PositionCounts):
+            if self.landmarks != other.landmarks:
+                raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
+            if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
+                raise ValueError('Unequal buffer lengths')
+            else:
+                return PositionCounts(self.landmarks,
+                                      self.left_buffer,
+                                      self.right_buffer,
+                                      data=(self.data + other.data),
+                                     )
+        else:
+            raise ValueError('bad types in PositionCounts subtraction')
+    
     def __sub__(self, other):
         if isinstance(other, PositionCounts):
             if self.landmarks != other.landmarks:
