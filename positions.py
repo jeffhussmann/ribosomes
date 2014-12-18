@@ -242,6 +242,8 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, 
                     }
         transcript_position_counts = {l: PositionCounts(landmarks, left_buffer, right_buffer)
                                       for l in relevant_lengths + ['all']}
+
+        transcript_position_counts['sequence'] = transcript.get_transcript_sequence(left_buffer, right_buffer)
         
         # fetch raises a ValueError if given a negative start, but it doesn't 
         # care if the end is valid.
@@ -328,6 +330,7 @@ def get_Transcript_polyA_position_counts(extended_bam_fn,
             if three_prime_position in transcript.genomic_to_transcript:
                 transcript_coord = transcript.genomic_to_transcript[three_prime_position]
                 transcript_position_counts['all']['start', transcript_coord] += 1
+
                 nongenomic_length = trim.get_nongenomic_length(read)
                 if nongenomic_length <= max_nongenomic_length:
                     transcript_position_counts[nongenomic_length]['start', transcript_coord] += 1
@@ -449,7 +452,8 @@ def compute_metagene_positions(position_counts, max_CDS_length):
         more than just the CDS being considered here.
     '''
     random_gene = position_counts.itervalues().next()
-    relevant_lengths = random_gene.keys()
+    relevant_lengths = [l for l, counts in random_gene.items() if l != 'sequence']
+
     random_length = relevant_lengths[0]
     random_position_counts = random_gene[random_length]
     left_buffer = random_position_counts.left_buffer

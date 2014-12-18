@@ -41,13 +41,44 @@ def parse_gtf_line(line, attribute_parser=parse_gtf_attribute):
     feature = feature._replace(start=start, end=end, frame=frame)
     return feature
 
+def feature_to_line(feature):
+    feature = feature._replace(start=str(feature.start + 1),
+                               end=str(feature.end + 1),
+                               frame=str(feature.frame),
+                              )
+    return '\t'.join(feature[:-1]) + '\n'
+
 def get_all_features(gtf_fn):
     all_features = [parse_gtf_line(line) for line in open(gtf_fn)]
     return all_features
 
-def get_noncoding_RNA_transcripts(gtf_fn):
+def write_UTR_file(UTR_boundaries, UTR_fn):
+    def sort_key(name):
+        seqname, strand, five_pos, three_pos = UTR_boundaries[name]
+        return (seqname, min(five_pos, three_pos), max(five_pos, three_pos), strand)
+
+    with open(UTR_fn, 'w') as UTR_fh:
+        for name in sorted(UTR_boundaries, key=sort_key):
+            seqname, strand, five_pos, three_pos = UTR_boundaries[name]
+            line = '{0}\t{1}\t{2}\t{3}\t{4}\n'.format(name,
+                                                      seqname,
+                                                      strand,
+                                                      five_pos,
+                                                      three_pos,
+                                                     )
+            UTR_fh.write(line)
+
+def read_UTR_file(UTR_fn):
+    UTR_boundaries = {}
+    for line in open(UTR_fn):
+        name, seqname, strand, five_pos, three_pos = line.strip().split()
+        UTR_boundaries[name] = (seqname, strand, int(five_pos), int(three_pos))
+
+    return UTR_boundaries
+
+def get_noncoding_RNA_transcripts(gtf_fn, genome_dir):
     all_features = get_all_features(gtf_fn)
-    transcripts = get_transcripts(all_features)
+    transcripts = get_transcripts(all_features, genome_dir)
     rRNA_transcripts = []
     tRNA_transcripts = []
     other_ncRNA_transcripts = []
@@ -69,15 +100,13 @@ def get_all_exons(all_features):
     exons = [feature for feature in all_features if feature.feature == 'exon']
     return exons
 
-def sort_features(features, by_end=False):
-    if by_end:
-        def key(feature):
-            return feature.seqname, feature.end, feature.start, feature.feature
-    else:
-        def key(feature):
-            return feature.seqname, feature.start, feature.end, feature.feature
+def comparison_key(feature):
+    return feature.seqname, feature.start, feature.end, feature.feature, feature.strand
 
-    return sorted(features, key=key)
+def feature_lt(first, second):
+    return comparison_key(first) < comparison_key(second)
+
+Feature.__lt__ = feature_lt
 
 def sort_transcripts(transcripts, by_end=False):
     if by_end:
@@ -89,13 +118,18 @@ def sort_transcripts(transcripts, by_end=False):
 
     return sorted(transcripts, key=key)
 
-def get_transcripts(all_features):
+def get_transcripts(all_features, genome_dir, utr_fn):
+    region_fetcher = genomes.build_region_fetcher(genome_dir)
+
     feature_lists = defaultdict(list)
     for feature in all_features:
         transcript_name = feature.attribute['transcript_id']
         feature_lists[transcript_name].append(feature)
 
-    transcripts = [Transcript(name, features) for name, features in feature_lists.iteritems()]
+    UTR_boundaries = read_UTR_file(utr_fn)
+
+    transcripts = [Transcript(name, features, region_fetcher, UTR_boundaries.get(name))
+                   for name, features in feature_lists.iteritems()]
 
     return transcripts
 
@@ -105,14 +139,38 @@ def contained_in(exon, CDS):
            CDS.end <= exon.end
 
 class Transcript(object):
-    def __init__(self, name, features):
+    def __init__(self, name, features, region_fetcher, corrections):
         self.name = name
+        self.region_fetcher = region_fetcher
 
         # Further processing assumes that features is sorted by (start, end).
-        features = sort_features(features)
+        features = sorted(features)
+
+        strands = {feature.strand for feature in features}
+        if len(strands) > 1:
+            raise ValueError(self.name)
+        self.strand = strands.pop()
+
+        seqnames = {feature.seqname for feature in features}
+        if len(seqnames) > 1:
+            raise ValueError(self.name)
+        self.seqname = seqnames.pop()
 
         self.exons = [feature for feature in features if feature.feature == 'exon']
 
+        # Apply corrections
+        if corrections:
+            seqname, strand, five_pos, three_pos = corrections
+            if self.seqname != seqname or self.strand != strand:
+                raise ValueError
+
+            if self.strand == '+':
+                self.exons[0] = self.exons[0]._replace(start=five_pos)
+                self.exons[-1] = self.exons[-1]._replace(end=three_pos)
+            else:
+                self.exons[0] = self.exons[0]._replace(start=three_pos)
+                self.exons[-1] = self.exons[-1]._replace(end=five_pos)
+                
         # A transcript can have more than one start_codon or stop_codon feature
         # if the codon is split across multiple exons.
         self.start_codons = [feature for feature in features if feature.feature == 'start_codon']
@@ -128,15 +186,21 @@ class Transcript(object):
             else:
                 raise ValueError(CDS, self.exons)
 
-        strands = {feature.strand for feature in features}
-        if len(strands) > 1:
-            raise ValueError(self.name)
-        self.strand = strands.pop()
-
-        seqnames = {feature.seqname for feature in features}
-        if len(seqnames) > 1:
-            raise ValueError(self.name)
-        self.seqname = seqnames.pop()
+        if self.start_codons:
+            if self.strand == '+':
+                self.first_start_codon_position = min(sc.start for sc in self.start_codons)
+            elif self.strand == '-':
+                self.first_start_codon_position = max(sc.end for sc in self.start_codons)
+        else:
+            self.first_start_codon_position = None
+        
+        if self.stop_codons:
+            if self.strand == '+':
+                self.first_stop_codon_position = min(sc.start for sc in self.stop_codons)
+            elif self.strand == '-':
+                self.first_stop_codon_position = max(sc.end for sc in self.stop_codons)
+        else:
+            self.first_stop_codon_position = None
 
         self.start = min(exon.start for exon in self.exons)
         self.end = max(exon.end for exon in self.exons)
@@ -170,30 +234,98 @@ class Transcript(object):
 
         self.genomic_to_transcript = {g: t for t, g in self.transcript_to_genomic.iteritems()}
 
-        if self.start_codons and self.stop_codons:
-            if self.strand == '+':
-                genomic_start_codon = min(sc.start for sc in self.start_codons)
-                genomic_stop_codon = min(sc.start for sc in self.stop_codons)
-            elif self.strand == '-':
-                genomic_start_codon = max(sc.end for sc in self.start_codons)
-                genomic_stop_codon = max(sc.end for sc in self.stop_codons)
+        if self.first_stop_codon_position != None:
+            if self.first_start_codon_position != None:
+                genomic_start_codon = self.first_start_codon_position
+            else:
+                # E. coli genes that aren't initiated with AUG don't have a start
+                # codon listed in the gtf file.
+                if self.strand == '+':
+                    genomic_start_codon = self.start
+                elif self.strand == '-':
+                    genomic_start_codon = self.end
+
             self.transcript_start_codon = self.genomic_to_transcript[genomic_start_codon]
-            self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
+            self.transcript_stop_codon = self.genomic_to_transcript[self.first_stop_codon_position]
             # By convention, CDS_length includes no bases of the stop codon.
             self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
-        elif self.stop_codons:
-            # E. coli genes that aren't initiated with AUG don't have a start
-            # codon listed in the gtf file.
-            if self.strand == '+':
-                genomic_start_codon = self.start
-                genomic_stop_codon = min(sc.start for sc in self.stop_codons)
-            elif self.strand == '-':
-                genomic_start_codon = self.end
-                genomic_stop_codon = max(sc.end for sc in self.stop_codons)
-            self.transcript_start_codon = self.genomic_to_transcript[genomic_start_codon]
-            self.transcript_stop_codon = self.genomic_to_transcript[genomic_stop_codon]
-            # By convention, CDS_length includes no bases of the stop codon.
-            self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
+    
+    def build_extent_maps(self, left_buffer=0, right_buffer=0):
+        ''' Make dictionaries mapping from genomic coordinates to transcript
+            coordinates and vice-versa.
+        '''
+        start = self.first_start_codon_position
+        stop = self.first_stop_codon_position
+        if self.strand == '+':
+            extent_positions = np.arange(start, stop)
+        elif self.strand == '-':
+            extent_positions = np.arange(start, stop, -1)
+        
+        self.extent_length = abs(stop - start)
+        
+        # Add some upstream and downstream bases.
+        upstream_extent = np.arange(-left_buffer, 0)
+        downstream_extent = np.arange(self.extent_length, self.extent_length + right_buffer)
+        if self.strand == '+':
+            upstream_positions = np.arange(start - left_buffer, start)
+            downstream_positions = np.arange(stop, stop + right_buffer)
+        elif self.strand == '-':
+            upstream_positions = np.arange(start + left_buffer, start, -1)
+            downstream_positions = np.arange(stop, stop - right_buffer, -1)
+
+        self.extent_to_genomic = dict(enumerate(extent_positions))
+        self.extent_to_genomic.update(zip(upstream_extent, upstream_positions)) 
+        self.extent_to_genomic.update(zip(downstream_extent, downstream_positions)) 
+        
+        self.genomic_to_extent = {g: e for e, g in self.extent_to_genomic.iteritems()}
+
+    def get_extent_sequence(self, genome_dir, left_buffer=0, right_buffer=0):
+        ''' Get the sequence of the extent. Useful for looking at gene with
+        annotated frameshifts.
+        '''
+        sequence = self.region_fetcher(self.seqname,
+                                       min(self.genomic_to_extent),
+                                       max(self.genomic_to_extent) + 1,
+                                      )
+        if self.strand == '-':
+            sequence = utilities.reverse_complement(sequence)
+
+        extent_landmarks = {'start': 0,
+                            'end': self.extent_length,
+                           }
+        return positions.PositionCounts(extent_landmarks,
+                                        left_buffer,
+                                        right_buffer,
+                                        data=sequence,
+                                       )
+
+    def get_transcript_sequence(self, left_buffer=0, right_buffer=0):
+        ''' Get the sequence of the mature transcript.
+        '''
+        # Remake coordinate maps to guarantee buffer sizes
+        self.build_coordinate_maps(left_buffer, right_buffer)
+
+        transcript_positions = range(-left_buffer,
+                                     self.transcript_length + right_buffer,
+                                    )
+        genomic_positions = [self.transcript_to_genomic[t] for t in transcript_positions]
+
+        bases = [self.region_fetcher(self.seqname, p, p + 1) for p in genomic_positions]
+        if self.strand == '-':
+            bases = [utilities.complement(b) for b in bases]
+        sequence = ''.join(bases).upper()
+        
+        landmarks = {'start': 0,
+                     'start_codon': self.transcript_start_codon,
+                     'stop_codon': self.transcript_stop_codon,
+                     'end': self.transcript_length,
+                    }
+
+        return positions.PositionCounts(landmarks,
+                                        left_buffer,
+                                        right_buffer,
+                                        data=np.asarray(sequence, 'c'),
+                                       )
 
     def is_spliced_out(self, position):
         ''' Returns True if the genomic position is between the start and end of
@@ -263,22 +395,6 @@ def make_coding_sequence_fetcher(gtf_fn, genome_dir, codon_table=1):
 
     return coding_sequence_fetcher
 
-def get_extent_by_name(gtf_fn, name):
-    all_features = get_all_features(gtf_fn)
-    entries = [feature for feature in all_features if feature.attribute['gene_id'] == name]
-    start_codon = [entry for entry in entries if entry.feature == 'start_codon'][0]
-    stop_codon = [entry for entry in entries if entry.feature == 'stop_codon'][0]
-    if any(entry.strand == '-' for entry in entries):
-        start = stop_codon.end
-        end = start_codon.start + 2
-    else:
-        start = start_codon.start
-        # Haven't decided what the convention should be for which base is the end
-        end = stop_codon.end
-    seqname = start_codon.seqname
-    strand = start_codon.strand
-    return seqname, strand, start, end
-
 def get_nonoverlapping_transcripts(transcripts, edge_buffer=0, require_same_strand=False):
     def overlaps(first, second):
         first_left = first.start - edge_buffer
@@ -320,9 +436,9 @@ def get_translated_transcripts(transcripts):
     translated_transcripts = [transcript for transcript in transcripts if any(transcript.CDSs)]
     return translated_transcripts
 
-def get_CDSs(gtf_fn):
+def get_CDSs(gtf_fn, genome_dir, utr_fn):
     all_features = get_all_features(gtf_fn)
-    transcripts = get_transcripts(all_features)
+    transcripts = get_transcripts(all_features, genome_dir, utr_fn)
     translated_transcripts = get_translated_transcripts(transcripts)
 
     return sort_transcripts(translated_transcripts)
@@ -337,9 +453,10 @@ def make_yeast_list():
     weinberg_fn = '/home/jah/projects/ribosomes/experiments/weinberg/most_weinberg_transcripts.txt'
     yeast_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcript_list.txt'
     gtf_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gtf'
+    genome_dir = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/genome'
     
     all_features = get_all_features(gtf_fn)
-    transcripts = get_transcripts(all_features)
+    transcripts = get_transcripts(all_features, genome_dir)
     translated = get_translated_transcripts(transcripts)
     nonoverlapping, _ = get_nonoverlapping_transcripts(transcripts, require_same_strand=True)
     weinberg_names = {line.strip() for line in open(weinberg_fn)}

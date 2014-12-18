@@ -1,6 +1,18 @@
 import gtf
 import bisect
 
+class GFF_line(object):
+    def __init__(self, line):
+        self.feature = gtf.parse_gtf_line(line, parse_gff_attribute)
+        self.parent = None
+        self.children = set()
+
+    def populate_connections(self, name_to_object):
+        parent_name = self.feature.attribute.get('Parent')
+        if parent_name:
+            self.parent = name_to_object[parent_name]
+            self.parent.children.add(self)
+
 def parse_gff_attribute(attribute):
     fields = attribute.split(';')
     pairs = [field.split('=') for field in fields]
@@ -19,26 +31,14 @@ def get_all_features(gff_fn):
             else:
                 yield line
 
-    all_features = [gtf.parse_gtf_line(line, parse_gff_attribute) for line in relevant_lines(gff_fn)]
+    all_features = [GFF_line(line) for line in relevant_lines(gff_fn)]
+    name_to_object = {}
+    for f in all_features:
+        name = f.feature.attribute.get('Name')
+        if name:
+            name_to_object[name] = f
+
+    for f in all_features:
+        f.populate_connections(name_to_object)
+
     return all_features
-
-def make_starts_in_region_finder(gff_fn):
-    def get_complete_start(feature):
-        return (feature.seqname, feature.start)
-
-    all_features = get_all_features(gff_fn)
-    sorted_features = gtf.sort_features(all_features)
-    starts = [get_complete_start(f) for f in sorted_features]
-
-    def starts_in_region_finder(region_start, region_end):
-        ''' Finds all features that start betwen region_start and region_end.
-        '''
-        in_region = []
-        # Find the index of the first feature that starts after region start.
-        i = bisect.bisect_right(starts, region_start)
-        while i < len(starts) and get_complete_start(sorted_features[i]) < region_end:
-            in_region.append(sorted_features[i])
-            i += 1
-        return in_region
-
-    return starts_in_region_finder
