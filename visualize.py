@@ -6,6 +6,10 @@ import numpy as np
 import brewer2mpl
 from Sequencing.Visualize import igv_colors, optional_ax
 from Sequencing import utilities
+from Sequencing import genomes
+import h5py
+import gtf
+import operator
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
@@ -75,6 +79,60 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False,
         fig.suptitle(title)
     
     fig.savefig(figure_fn)
+    plt.close(fig)
+
+def plot_metagene_positions_all_lengths(from_starts, from_ends, figure_fn, zoomed_out=False, title=None):
+    lengths = sorted(from_starts['A'].keys())
+    
+    fig, axs = plt.subplots(len(lengths), 2, figsize=(24, 8 * len(lengths)))
+
+    if zoomed_out:
+        start_xs = np.arange(-190, 190)
+        end_xs = np.arange(-190, 190)
+        tick_interval = 30
+    else:
+        start_xs = np.arange(3, 91)
+        end_xs = np.arange(-91, 0)
+        tick_interval = 3
+    
+    for length, (start_ax, end_ax) in zip(lengths, axs):
+        for base in 'TCAG':
+            color = igv_colors.normalized_rgbs[base]
+            start_ys = from_starts[base][length]['start_codon', start_xs]
+            end_ys = from_ends[base][length]['stop_codon', end_xs]
+            start_ax.plot(start_xs, start_ys, '.-', label=base, color=color)
+            end_ax.plot(end_xs, end_ys, '.-', label=base, color=color)
+
+        start_ax.set_xlim(min(start_xs), max(start_xs))
+        start_xticks = [x for x in start_xs if x % tick_interval == 0]
+        start_ax.set_xticks(start_xticks)
+        for x in start_xticks:
+            start_ax.axvline(x, color='black', alpha=0.1)
+        start_ax.set_xlabel('Position of read relative to start of CDS')
+        start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+        
+        end_ax.set_xlim(min(end_xs), max(end_xs))
+        end_xticks = [x for x in end_xs if x % tick_interval == 0]
+        end_ax.set_xticks(end_xticks)
+        for x in end_xticks:
+            end_ax.axvline(x, color='black', alpha=0.1)
+        end_ax.set_xlabel('Position of read relative to stop codon')
+        end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+
+        start_ax.legend(loc='upper right', framealpha=0.5)
+        end_ax.legend(loc='upper right', framealpha=0.5)
+
+        start_ax.set_title('Length {0}'.format(length))
+        end_ax.set_title('Length {0}'.format(length))
+
+        ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
+        start_ax.set_ylim(0, ymax)
+        end_ax.set_ylim(0, ymax)
+
+    if title:
+        fig.suptitle(title)
+    
+    fig.savefig(figure_fn, bbox_inches='tight')
     plt.close(fig)
 
 def plot_metacodon_positions(position_counts, figure_fn, key='feature'):
