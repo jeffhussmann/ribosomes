@@ -39,13 +39,11 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
         ('five_prime_tophat_dir', 'dir', 'tophat_five_prime'),
         ('five_prime_accepted_hits', 'bam', 'tophat_five_prime/accepted_hits.bam'),
         ('five_prime_unmapped', 'bam', 'tophat_five_prime/unmapped.bam'),
-        ('five_prime_sorted_by_name', 'bam', '{name}_five_prime_by_name.bam'),
         ('five_prime_read_positions', read_positions, '{name}_five_prime_read_positions.hdf5'),
 
         ('three_prime_tophat_dir', 'dir', 'tophat_three_prime'),
         ('three_prime_accepted_hits', 'bam', 'tophat_three_prime/accepted_hits.bam'),
         ('three_prime_unmapped', 'bam', 'tophat_three_prime/unmapped.bam'),
-        ('three_prime_sorted_by_name', 'bam', '{name}_three_prime_by_name.bam'),
         ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
 
         ('combined_extended', 'bam', '{name}_combined_extended.bam'),
@@ -188,15 +186,15 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
         num_discordant = 0
         num_concordant = 0
 
-        five_prime_mappings = pysam.Samfile(self.file_names['five_prime_sorted_by_name'])
+        five_prime_mappings = pysam.Samfile(self.file_names['five_prime_accepted_hits'])
         five_prime_unmapped = pysam.Samfile(self.file_names['five_prime_unmapped'])
         all_five_prime = sam.merge_by_name(five_prime_mappings, five_prime_unmapped)
-        five_prime_grouped = utilities.group_by(five_prime_mappings, lambda m: m.qname)
+        five_prime_grouped = utilities.group_by(all_five_prime, lambda m: m.qname)
 
-        three_prime_mappings = pysam.Samfile(self.file_names['three_prime_sorted_by_name'])
+        three_prime_mappings = pysam.Samfile(self.file_names['three_prime_accepted_hits'])
         three_prime_unmapped = pysam.Samfile(self.file_names['three_prime_unmapped'])
         all_three_prime = sam.merge_by_name(three_prime_mappings, three_prime_unmapped)
-        three_prime_grouped = utilities.group_by(three_prime_mappings, lambda m: m.qname)
+        three_prime_grouped = utilities.group_by(all_three_prime, lambda m: m.qname)
 
         group_pairs = izip(five_prime_grouped, three_prime_grouped)
 
