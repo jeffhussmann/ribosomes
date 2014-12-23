@@ -1,80 +1,70 @@
-from collections import namedtuple, defaultdict, Counter
+from collections import defaultdict, Counter
 from Sequencing import genomes, utilities
-import numpy as np
-import Bio.Seq
 import positions
+import transcript
 
-gtf_fields = ['seqname',
-              'source',
-              'feature',
-              'start',
-              'end',
-              'score',
-              'strand',
-              'frame',
-              'attribute_string',
-              'attribute',
-             ]
-Feature = namedtuple('Feature', gtf_fields)
+class Feature(object):
+    def __init__(self, line):
+        fields = line.strip().split('\t')
+        
+        self.seqname = fields[0].strip('chr')
+        self.source = fields[1]
+        self.feature = fields[2]
+        self.start = int(fields[3]) - 1
+        self.end = int(fields[4]) - 1
+        self.score = fields[5]
+        self.strand = fields[6]
+        self.frame = fields[7]
+        if self.frame != '.':
+            self.frame = int(self.frame)
+        self.attribute_string = fields[8]
+        
+        self.attribute = self.parse_attribute_string()
+    
+    def parse_attribute_string(self):
+        fields = self.attribute_string.strip(';').split('; ')
+        pairs = [field.split() for field in fields]
+        parsed = {name: value.strip('"') for name, value in pairs}
+        return parsed
 
-# The attribute dictionary can't be hashed, but it is enough to hash the string
-# that it was parsed out of.
-Feature.__hash__ = lambda self: hash(self[:-1])
+    def __str__(self):
+        fields = (self.seqname,
+                  self.source,
+                  self.feature,
+                  str(self.start + 1),
+                  str(self.end + 1),
+                  self.score,
+                  self.strand,
+                  str(self.frame),
+                  #self.attribute_string,
+                 )
+        line = '\t'.join(fields)
+        return line
+    
+    def __hash__(self):
+        return hash(str(self))
 
-def parse_gtf_attribute(attribute):
-    fields = attribute.strip(';').split('; ')
-    pairs = [field.split() for field in fields]
-    parsed = {name: value.strip('"') for name, value in pairs}
-    return parsed
+    @property
+    def comparison_key(self):
+        key = (self.seqname,
+               self.start,
+               self.end,
+               self.feature,
+               self.strand,
+              )
+        return key
 
-def parse_gtf_line(line, attribute_parser=parse_gtf_attribute):
-    fields = line.strip().split('\t')
-    fields.append(attribute_parser(fields[-1]))
-    feature = Feature._make(fields)
-    start = int(feature.start) - 1
-    # Convert from 1-based indexing to 0-based
-    end = int(feature.end) - 1
-    if feature.frame != '.':
-        frame = int(feature.frame)
-    else:
-        frame = feature.frame
-    feature = feature._replace(start=start, end=end, frame=frame)
-    return feature
+    def __lt__(self, other):
+        return self.comparison_key < other.comparison_key
 
-def feature_to_line(feature):
-    feature = feature._replace(start=str(feature.start + 1),
-                               end=str(feature.end + 1),
-                               frame=str(feature.frame),
-                              )
-    return '\t'.join(feature[:-1]) + '\n'
+    def is_contained_in(self, other):
+        return self.seqname == other.seqname and \
+               self.start >= other.start and \
+               self.end <= other.end
 
 def get_all_features(gtf_fn):
-    all_features = [parse_gtf_line(line) for line in open(gtf_fn)]
+    all_features = [Feature(line) for line in open(gtf_fn)]
     return all_features
-
-def write_UTR_file(UTR_boundaries, UTR_fn):
-    def sort_key(name):
-        seqname, strand, five_pos, three_pos = UTR_boundaries[name]
-        return (seqname, min(five_pos, three_pos), max(five_pos, three_pos), strand)
-
-    with open(UTR_fn, 'w') as UTR_fh:
-        for name in sorted(UTR_boundaries, key=sort_key):
-            seqname, strand, five_pos, three_pos = UTR_boundaries[name]
-            line = '{0}\t{1}\t{2}\t{3}\t{4}\n'.format(name,
-                                                      seqname,
-                                                      strand,
-                                                      five_pos,
-                                                      three_pos,
-                                                     )
-            UTR_fh.write(line)
-
-def read_UTR_file(UTR_fn):
-    UTR_boundaries = {}
-    for line in open(UTR_fn):
-        name, seqname, strand, five_pos, three_pos = line.strip().split()
-        UTR_boundaries[name] = (seqname, strand, int(five_pos), int(three_pos))
-
-    return UTR_boundaries
 
 def get_noncoding_RNA_transcripts(gtf_fn, genome_dir):
     all_features = get_all_features(gtf_fn)
@@ -95,268 +85,6 @@ def get_all_sources(gtf_fn):
     all_features = get_all_features(gtf_fn)
     sources = Counter(feature.source for feature in all_features)
     return sources
-
-def get_all_exons(all_features):
-    exons = [feature for feature in all_features if feature.feature == 'exon']
-    return exons
-
-def comparison_key(feature):
-    return feature.seqname, feature.start, feature.end, feature.feature, feature.strand
-
-def feature_lt(first, second):
-    return comparison_key(first) < comparison_key(second)
-
-Feature.__lt__ = feature_lt
-
-def sort_transcripts(transcripts, by_end=False):
-    if by_end:
-        def key(transcript):
-            return transcript.seqname, transcript.end, transcript.start, transcript.strand
-    else:
-        def key(transcript):
-            return transcript.seqname, transcript.start, transcript.end, transcript.strand
-
-    return sorted(transcripts, key=key)
-
-def get_transcripts(all_features, genome_dir, utr_fn):
-    region_fetcher = genomes.build_region_fetcher(genome_dir)
-
-    feature_lists = defaultdict(list)
-    for feature in all_features:
-        transcript_name = feature.attribute['transcript_id']
-        feature_lists[transcript_name].append(feature)
-
-    UTR_boundaries = read_UTR_file(utr_fn)
-
-    transcripts = [Transcript(name, features, region_fetcher, UTR_boundaries.get(name))
-                   for name, features in feature_lists.iteritems()]
-
-    return transcripts
-
-def contained_in(exon, CDS):
-    return exon.seqname == CDS.seqname and \
-           CDS.start >= exon.start and \
-           CDS.end <= exon.end
-
-class Transcript(object):
-    def __init__(self, name, features, region_fetcher, corrections):
-        self.name = name
-        self.region_fetcher = region_fetcher
-
-        # Further processing assumes that features is sorted by (start, end).
-        features = sorted(features)
-
-        strands = {feature.strand for feature in features}
-        if len(strands) > 1:
-            raise ValueError(self.name)
-        self.strand = strands.pop()
-
-        seqnames = {feature.seqname for feature in features}
-        if len(seqnames) > 1:
-            raise ValueError(self.name)
-        self.seqname = seqnames.pop()
-
-        self.exons = [feature for feature in features if feature.feature == 'exon']
-
-        # Apply corrections
-        if corrections:
-            seqname, strand, five_pos, three_pos = corrections
-            if self.seqname != seqname or self.strand != strand:
-                raise ValueError
-
-            if self.strand == '+':
-                self.exons[0] = self.exons[0]._replace(start=five_pos)
-                self.exons[-1] = self.exons[-1]._replace(end=three_pos)
-            else:
-                self.exons[0] = self.exons[0]._replace(start=three_pos)
-                self.exons[-1] = self.exons[-1]._replace(end=five_pos)
-                
-        # A transcript can have more than one start_codon or stop_codon feature
-        # if the codon is split across multiple exons.
-        self.start_codons = [feature for feature in features if feature.feature == 'start_codon']
-        self.stop_codons = [feature for feature in features if feature.feature == 'stop_codon']
-        
-        self.CDSs = [None for exon in self.exons]
-        CDSs = [feature for feature in features if feature.feature == 'CDS']
-        for CDS in CDSs:
-            for e, exon in enumerate(self.exons):
-                if contained_in(exon, CDS):
-                    self.CDSs[e] = CDS
-                    break
-            else:
-                raise ValueError(CDS, self.exons)
-
-        if self.start_codons:
-            if self.strand == '+':
-                self.first_start_codon_position = min(sc.start for sc in self.start_codons)
-            elif self.strand == '-':
-                self.first_start_codon_position = max(sc.end for sc in self.start_codons)
-        else:
-            self.first_start_codon_position = None
-        
-        if self.stop_codons:
-            if self.strand == '+':
-                self.first_stop_codon_position = min(sc.start for sc in self.stop_codons)
-            elif self.strand == '-':
-                self.first_stop_codon_position = max(sc.end for sc in self.stop_codons)
-        else:
-            self.first_stop_codon_position = None
-
-        self.start = min(exon.start for exon in self.exons)
-        self.end = max(exon.end for exon in self.exons)
-
-    def build_coordinate_maps(self, left_buffer=0, right_buffer=0):
-        ''' Make dictionaries mapping from genomic coordinates to transcript
-            coordinates and vice-versa.
-        '''
-        if self.strand == '+':
-            exon_position_lists = [np.arange(exon.start, exon.end + 1) for exon in self.exons]
-        elif self.strand == '-':
-            exon_position_lists = [np.arange(exon.end, exon.start - 1, -1) for exon in self.exons[::-1]]
-        
-        exon_positions = np.concatenate(exon_position_lists)
-
-        self.transcript_length = len(exon_positions)
-        
-        # Add some upstream and downstream bases.
-        upstream_transcript = np.arange(-left_buffer, 0)
-        downstream_transcript = np.arange(self.transcript_length, self.transcript_length + right_buffer)
-        if self.strand == '+':
-            upstream_positions = np.arange(self.start - left_buffer, self.start)
-            downstream_positions = np.arange(self.end + 1, self.end + 1 + right_buffer)
-        elif self.strand == '-':
-            upstream_positions = np.arange(self.end + left_buffer, self.end, -1)
-            downstream_positions = np.arange(self.start - 1, self.start - 1 - right_buffer, -1)
-
-        self.transcript_to_genomic = dict(enumerate(exon_positions))
-        self.transcript_to_genomic.update(zip(upstream_transcript, upstream_positions)) 
-        self.transcript_to_genomic.update(zip(downstream_transcript, downstream_positions)) 
-
-        self.genomic_to_transcript = {g: t for t, g in self.transcript_to_genomic.iteritems()}
-
-        if self.first_stop_codon_position != None:
-            if self.first_start_codon_position != None:
-                genomic_start_codon = self.first_start_codon_position
-            else:
-                # E. coli genes that aren't initiated with AUG don't have a start
-                # codon listed in the gtf file.
-                if self.strand == '+':
-                    genomic_start_codon = self.start
-                elif self.strand == '-':
-                    genomic_start_codon = self.end
-
-            self.transcript_start_codon = self.genomic_to_transcript[genomic_start_codon]
-            self.transcript_stop_codon = self.genomic_to_transcript[self.first_stop_codon_position]
-            # By convention, CDS_length includes no bases of the stop codon.
-            self.CDS_length = self.transcript_stop_codon - self.transcript_start_codon
-    
-    def build_extent_maps(self, left_buffer=0, right_buffer=0):
-        ''' Make dictionaries mapping from genomic coordinates to transcript
-            coordinates and vice-versa.
-        '''
-        start = self.first_start_codon_position
-        stop = self.first_stop_codon_position
-        if self.strand == '+':
-            extent_positions = np.arange(start, stop)
-        elif self.strand == '-':
-            extent_positions = np.arange(start, stop, -1)
-        
-        self.extent_length = abs(stop - start)
-        
-        # Add some upstream and downstream bases.
-        upstream_extent = np.arange(-left_buffer, 0)
-        downstream_extent = np.arange(self.extent_length, self.extent_length + right_buffer)
-        if self.strand == '+':
-            upstream_positions = np.arange(start - left_buffer, start)
-            downstream_positions = np.arange(stop, stop + right_buffer)
-        elif self.strand == '-':
-            upstream_positions = np.arange(start + left_buffer, start, -1)
-            downstream_positions = np.arange(stop, stop - right_buffer, -1)
-
-        self.extent_to_genomic = dict(enumerate(extent_positions))
-        self.extent_to_genomic.update(zip(upstream_extent, upstream_positions)) 
-        self.extent_to_genomic.update(zip(downstream_extent, downstream_positions)) 
-        
-        self.genomic_to_extent = {g: e for e, g in self.extent_to_genomic.iteritems()}
-
-    def get_extent_sequence(self, left_buffer=0, right_buffer=0):
-        ''' Get the sequence of the extent. Useful for looking at gene with
-        annotated frameshifts.
-        '''
-        sequence = self.region_fetcher(self.seqname,
-                                       min(self.genomic_to_extent),
-                                       max(self.genomic_to_extent) + 1,
-                                      )
-        if self.strand == '-':
-            sequence = utilities.reverse_complement(sequence)
-
-        extent_landmarks = {'start': 0,
-                            'end': self.extent_length,
-                           }
-        return positions.PositionCounts(extent_landmarks,
-                                        left_buffer,
-                                        right_buffer,
-                                        data=np.asarray(sequence, 'c'),
-                                       )
-
-    def get_transcript_sequence(self, left_buffer=0, right_buffer=0):
-        ''' Get the sequence of the mature transcript.
-        '''
-        # Remake coordinate maps to guarantee buffer sizes
-        self.build_coordinate_maps(left_buffer, right_buffer)
-
-        transcript_positions = range(-left_buffer,
-                                     self.transcript_length + right_buffer,
-                                    )
-        genomic_positions = [self.transcript_to_genomic[t] for t in transcript_positions]
-
-        bases = [self.region_fetcher(self.seqname, p, p + 1) for p in genomic_positions]
-        if self.strand == '-':
-            bases = [utilities.complement(b) for b in bases]
-        sequence = ''.join(bases).upper()
-        
-        landmarks = {'start': 0,
-                     'start_codon': self.transcript_start_codon,
-                     'stop_codon': self.transcript_stop_codon,
-                     'end': self.transcript_length,
-                    }
-
-        return positions.PositionCounts(landmarks,
-                                        left_buffer,
-                                        right_buffer,
-                                        data=np.asarray(sequence, 'c'),
-                                       )
-
-    def is_spliced_out(self, position):
-        ''' Returns True if the genomic position is between the start and end of
-            this transcript but not part of it.
-        '''
-        is_within = self.start < position < self.end
-        not_part_of = position not in self.genomic_to_transcript
-        return is_within and not_part_of
-
-    def delete_coordinate_maps(self):
-        del self.transcript_to_genomic
-        del self.genomic_to_transcript
-
-    def __str__(self):
-        return '{0} {1}:{2}-{3}'.format(self.name, self.seqname, self.start, self.end)
-
-    def retrieve_sequence(self, region_fetcher, left_buffer=0, right_buffer=0):
-        # Remake coordinate maps to guarantee buffer sizes
-        self.build_coordinate_maps(left_buffer, right_buffer)
-
-        transcript_positions = range(self.transcript_start_codon - left_buffer,
-                                     self.transcript_stop_codon + right_buffer,
-                                    )
-        positions = [self.transcript_to_genomic[t] for t in transcript_positions]
-
-        bases = [region_fetcher(self.seqname, p, p + 1) for p in positions]
-        if self.strand == '-':
-            bases = [utilities.complement(b) for b in bases]
-        sequence = ''.join(bases).upper()
-
-        return sequence
 
 def make_coding_sequence_fetcher(gtf_fn, genome_dir, codon_table=1):
     CDSs = get_CDSs(gtf_fn)
@@ -438,10 +166,10 @@ def get_translated_transcripts(transcripts):
 
 def get_CDSs(gtf_fn, genome_dir, utr_fn):
     all_features = get_all_features(gtf_fn)
-    transcripts = get_transcripts(all_features, genome_dir, utr_fn)
+    transcripts = transcript.get_transcripts(all_features, genome_dir, utr_fn)
     translated_transcripts = get_translated_transcripts(transcripts)
 
-    return sort_transcripts(translated_transcripts)
+    return sorted(translated_transcripts)
 
 def feature_list_to_dict(features):
     feature_dict = defaultdict(list)
