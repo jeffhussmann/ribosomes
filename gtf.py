@@ -4,10 +4,15 @@ import positions
 import transcript
 
 class Feature(object):
-    def __init__(self, line):
+    def __init__(self, line=None):
+        if line == None:
+            # Allow __init__ to be called with no arguments to allow the
+            # @classmethod constructor below.
+            return
+
         fields = line.strip().split('\t')
         
-        self.seqname = fields[0].strip('chr')
+        self.seqname = fields[0]
         self.source = fields[1]
         self.feature = fields[2]
         self.start = int(fields[3]) - 1
@@ -20,6 +25,21 @@ class Feature(object):
         self.attribute_string = fields[8]
         
         self.attribute = self.parse_attribute_string()
+    
+    @classmethod
+    def from_fields(cls, seqname, source, feature, start, end, score, strand, frame, attribute_string):
+        obj = cls()
+        obj.seqname = seqname
+        obj.source = source
+        obj.feature = feature
+        obj.start = start
+        obj.end = end
+        obj.score = score
+        obj.strand = strand
+        obj.frame = frame
+        obj.attribute_string = attribute_string
+        obj.attribute = obj.parse_attribute_string()
+        return obj
     
     def parse_attribute_string(self):
         fields = self.attribute_string.strip(';').split('; ')
@@ -36,7 +56,7 @@ class Feature(object):
                   self.score,
                   self.strand,
                   str(self.frame),
-                  #self.attribute_string,
+                  self.attribute_string,
                  )
         line = '\t'.join(fields)
         return line
