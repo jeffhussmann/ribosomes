@@ -66,9 +66,9 @@ def get_all_features(gtf_fn):
     all_features = [Feature(line) for line in open(gtf_fn)]
     return all_features
 
-def get_noncoding_RNA_transcripts(gtf_fn, genome_dir):
+def get_noncoding_RNA_transcripts(gtf_fn):
     all_features = get_all_features(gtf_fn)
-    transcripts = get_transcripts(all_features, genome_dir)
+    transcripts = get_transcripts(all_features, '/dev/null')
     rRNA_transcripts = []
     tRNA_transcripts = []
     other_ncRNA_transcripts = []
