@@ -14,7 +14,7 @@ class Gene(transcript.Transcript):
         self.seqname = feature.seqname
         self.feature = feature
 
-        self.exons = sorted(c for c in feature.descendants if c.feature == 'exon')
+        self.exons = sorted(c for c in feature.descendants if 'exon' in c.feature)
 
         self.CDSs = sorted(c for c in feature.descendants if c.feature == 'CDS')
 
