@@ -22,10 +22,11 @@ class Feature(gtf.Feature):
             self.parent = id_to_object[parent_id]
             self.parent.children.add(self)
 
-    def get_descendants(self):
+    @property
+    def descendants(self):
         descendants = set(self.children)
         for child in self.children:
-            descendants.update(child.get_descendants())
+            descendants.update(child.descendants)
         return descendants
 
     def print_family(self, level=0):
@@ -34,12 +35,6 @@ class Feature(gtf.Feature):
             pprint.pprint(self.attribute)
         for child in self.children:
             child.print_family(level=level + 1)
-
-    def is_ancestor_of(self, possible_descendant):
-        if self == possible_descendant:
-            return True
-        else:
-            return any(child.is_ancestor_of(possible_descendant) for child in self.children)
 
 new_comments = '''\
 # seqnames replaced.
@@ -242,3 +237,17 @@ def get_CDSs(gff_fn, genome_dir, utr_fn):
     genes = gff_transcript.get_genes(gff_fn, genome_dir)
     translated_genes = [g for g in genes if g.CDSs]
     return translated_genes
+
+def get_noncoding_RNA_transcripts(gff_fn):
+    genes = gff_transcript.get_genes(gff_fn, '/dev/null')
+    rRNA_transcripts = []
+    tRNA_transcripts = []
+    other_ncRNA_transcripts = []
+    for gene in genes:
+        if gene.feature.feature == 'rRNA':
+            rRNA_transcripts.append(gene)
+        elif gene.feature.feature == 'tRNA':
+            tRNA_transcripts.append(gene)
+        elif 'RNA' in gene.feature.feature:
+            other_ncRNA_transcripts.append(gene)
+    return rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts

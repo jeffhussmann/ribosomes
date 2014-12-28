@@ -19,7 +19,7 @@ class Transcript(object):
         self.name = name
         self.region_fetcher = region_fetcher
         self.codon_table = codon_table
-        self.overlap_finder = overlap_finder.overlapping
+        #self.overlap_finder = overlap_finder.overlapping
 
         # Further processing assumes that features is sorted by (start, end).
         features = sorted(features)
@@ -264,11 +264,7 @@ def read_UTR_file(UTR_fn):
     return UTR_boundaries
 
 def get_transcripts(all_features, genome_dir, utr_fn):
-    import gff
     region_fetcher = genomes.build_region_fetcher(genome_dir, load_references=True)
-
-    gff_features = gff.get_all_features('/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/saccharomyces_cerevisiae.gff')
-    overlap_finder = interval_tree.NamedOverlapFinder(gff_features)
 
     feature_lists = defaultdict(list)
     for feature in all_features:
@@ -277,7 +273,7 @@ def get_transcripts(all_features, genome_dir, utr_fn):
 
     UTR_boundaries = read_UTR_file(utr_fn)
 
-    transcripts = [Transcript(name, features, overlap_finder, region_fetcher, UTR_boundaries.get(name))
+    transcripts = [Transcript(name, features, None, region_fetcher, UTR_boundaries.get(name))
                    for name, features in feature_lists.iteritems()]
 
     return transcripts
@@ -301,7 +297,7 @@ if __name__ == '__main__':
             return False
 
         same_gene = name_to_object[CDS.name]
-        if same_gene.is_ancestor_of(possible):
+        if possible in same_gene.descendants:
             return False
 
         if possible.parent:

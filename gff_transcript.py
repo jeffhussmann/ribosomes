@@ -14,11 +14,9 @@ class Gene(transcript.Transcript):
         self.seqname = feature.seqname
         self.feature = feature
 
-        descendants = feature.get_descendants()
+        self.exons = sorted(c for c in feature.descendants if c.feature == 'exon')
 
-        self.exons = sorted(c for c in descendants if c.feature == 'exon')
-
-        self.CDSs = sorted(c for c in descendants if c.feature == 'CDS')
+        self.CDSs = sorted(c for c in feature.descendants if c.feature == 'CDS')
 
         if self.CDSs:
             if self.strand == '+':
@@ -28,19 +26,27 @@ class Gene(transcript.Transcript):
                 self.first_start_codon_position = max(cds.end for cds in self.CDSs)
                 self.first_stop_codon_position = min(cds.start for cds in self.CDSs) + 2
         else:
-            print self.name
             self.first_start_codon_position = None
             self.first_stop_codon_position = None
 
-        self.start = min(exon.start for exon in self.exons)
-        self.end = max(exon.end for exon in self.exons)
+        self.start = self.feature.start
+        self.end = self.feature.end
+
+        if self.exons:
+            if self.start != min(exon.start for exon in self.exons):
+                raise ValueError
+            if self.end != max(exon.end for exon in self.exons):
+                raise ValueError
 
 def get_genes(gff_fn, genome_dir):
     all_features = gff.get_all_features(gff_fn)
     region_fetcher = genomes.build_region_fetcher(genome_dir)
     genes = []
     for feature in all_features:
-        if feature.feature in ['gene', 'transposable_element_gene']:
+        top_level = feature.parent == None
+        has_exon = any('exon' in c.feature for c in feature.descendants) 
+        
+        if top_level and has_exon:
             gene = Gene(feature, region_fetcher)
             genes.append(gene)
 

@@ -1,7 +1,7 @@
 from collections import defaultdict, Counter
 from Sequencing import genomes, utilities
 import positions
-import transcript
+import transcript as transcript_utils
 
 class Feature(object):
     def __init__(self, line=None):
@@ -88,7 +88,7 @@ def get_all_features(gtf_fn):
 
 def get_noncoding_RNA_transcripts(gtf_fn):
     all_features = get_all_features(gtf_fn)
-    transcripts = get_transcripts(all_features, '/dev/null')
+    transcripts = transcript_utils.get_transcripts(all_features, '/dev/null', '/dev/null')
     rRNA_transcripts = []
     tRNA_transcripts = []
     other_ncRNA_transcripts = []
