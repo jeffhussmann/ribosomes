@@ -32,12 +32,6 @@ class Gene(transcript.Transcript):
         self.start = self.feature.start
         self.end = self.feature.end
 
-        if self.exons:
-            if self.start != min(exon.start for exon in self.exons):
-                raise ValueError
-            if self.end != max(exon.end for exon in self.exons):
-                raise ValueError
-
 def get_genes(gff_fn, genome_dir):
     all_features = gff.get_all_features(gff_fn)
     region_fetcher = genomes.build_region_fetcher(genome_dir)
