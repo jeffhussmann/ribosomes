@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import positions
+import Sequencing.utilities as utilities
 
 def is_an_int(string):
     try:
@@ -34,10 +35,13 @@ def build_gene(group, specific_keys=None):
                                             )
     return gene
 
-def read_file(file_name, specific_keys=None):
+def read_file(file_name, specific_keys=None, show_progress=False):
     genes = {}
     with h5py.File(file_name, 'r') as hdf5_file:
-        for gene_name in hdf5_file:
+        gene_names = hdf5_file.keys()
+        if show_progress:
+            gene_names = utilities.progress_bar(len(gene_names), gene_names)
+        for gene_name in gene_names:
             genes[gene_name] = build_gene(hdf5_file[gene_name], specific_keys)
     return genes
 
