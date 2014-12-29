@@ -5,6 +5,7 @@ from Serialize import read_positions
 from Sequencing import fastq
 from itertools import chain
 import gtf
+import gff
 import os
 from collections import defaultdict
 import logging
@@ -39,7 +40,7 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         self.organism_files = [
             ('bowtie2_index_prefix', 'genome/genome'),
             ('genome', 'genome'),
-            ('genes', 'transcriptome/genes.gtf'),
+            ('genes', 'transcriptome/genes.gff'),
             ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
             ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
             ('oligos', 'contaminant/subtraction_oligos.fasta'),
@@ -104,11 +105,11 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
                     logging.info('{0:,} reads processed'.format(total_reads))
 
             head, tail = os.path.split(file_name)
-            self.summary.append(('Total reads in {0}'.format(tail), total_reads_from_file))
+            self.summary.append(('Reads in {0}'.format(tail), total_reads_from_file))
 
         logging.info('{0:,} total reads processed'.format(total_reads))
         
-        self.summary.append(('Total read pairs', total_reads))
+        self.summary.append(('Total reads', total_reads))
     
     def get_read_pairs(self):
         data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
@@ -154,7 +155,9 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         self.write_file('too_short_lengths', too_short_lengths)
 
     def get_CDSs(self):
-        all_CDSs = gtf.get_CDSs(self.file_names['genes'], self.file_names['genome'], '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/inferred_UTR_lengths.txt')
+        all_CDSs = gff.get_CDSs(self.file_names['genes'],
+                                self.file_names['genome'],
+                               )
         if self.transcripts_file_name == None:
             CDSs = all_CDSs
         else:

@@ -10,6 +10,7 @@ from collections import defaultdict
 from itertools import chain, izip, cycle
 from Sequencing import mapping_tools, fasta, fastq, sam, sw
 import gtf
+import gff
 
 colors = cycle(['b', 'g', 'r', 'c', 'm', 'y', 'BlueViolet', 'Gold'])
 
@@ -61,7 +62,7 @@ def is_synthetic(read, synthetic_sequences):
     return False
 
 def post_filter(input_bam_fn,
-                gtf_fn,
+                gff_fn,
                 clean_bam_fn,
                 more_rRNA_bam_fn,
                 tRNA_bam_fn,
@@ -81,7 +82,7 @@ def post_filter(input_bam_fn,
     '''
     contaminant_qnames = set()
 
-    rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts = gtf.get_noncoding_RNA_transcripts(gtf_fn)
+    rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts = gff.get_noncoding_RNA_transcripts(gff_fn)
 
     input_bam_file = pysam.Samfile(input_bam_fn)
    
