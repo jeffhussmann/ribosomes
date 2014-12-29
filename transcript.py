@@ -1,4 +1,5 @@
 import gtf
+import gff
 import numpy as np
 import Sequencing.genomes as genomes
 import Sequencing.utilities as utilities
@@ -13,7 +14,6 @@ class Transcript(object):
                  features,
                  overlap_finder,
                  region_fetcher,
-                 corrections=None,
                  codon_table=1,
                 ):
         self.name = name
@@ -36,19 +36,6 @@ class Transcript(object):
 
         self.exons = [feature for feature in features if feature.feature == 'exon']
 
-        # Apply corrections
-        if corrections:
-            seqname, strand, five_pos, three_pos = corrections
-            if self.seqname != seqname or self.strand != strand:
-                raise ValueError
-
-            if self.strand == '+':
-                self.exons[0].start = five_pos
-                self.exons[-1].end = three_pos
-            else:
-                self.exons[0].start = three_pos
-                self.exons[-1].end = five_pos
-                
         # A transcript can have more than one start_codon or stop_codon feature
         # if the codon is split across multiple exons.
         self.start_codons = [feature for feature in features if feature.feature == 'start_codon']
@@ -239,31 +226,7 @@ class Transcript(object):
     def __str__(self):
         return '{0} {1}:{2}-{3}'.format(self.name, self.seqname, self.start, self.end)
 
-def write_UTR_file(UTR_boundaries, UTR_fn):
-    def sort_key(name):
-        seqname, strand, five_pos, three_pos = UTR_boundaries[name]
-        return (seqname, min(five_pos, three_pos), max(five_pos, three_pos), strand)
-
-    with open(UTR_fn, 'w') as UTR_fh:
-        for name in sorted(UTR_boundaries, key=sort_key):
-            seqname, strand, five_pos, three_pos = UTR_boundaries[name]
-            line = '{0}\t{1}\t{2}\t{3}\t{4}\n'.format(name,
-                                                      seqname,
-                                                      strand,
-                                                      five_pos,
-                                                      three_pos,
-                                                     )
-            UTR_fh.write(line)
-
-def read_UTR_file(UTR_fn):
-    UTR_boundaries = {}
-    for line in open(UTR_fn):
-        name, seqname, strand, five_pos, three_pos = line.strip().split()
-        UTR_boundaries[name] = (seqname, strand, int(five_pos), int(three_pos))
-
-    return UTR_boundaries
-
-def get_transcripts(all_features, genome_dir, utr_fn):
+def get_transcripts(all_features, genome_dir):
     region_fetcher = genomes.build_region_fetcher(genome_dir, load_references=True)
 
     feature_lists = defaultdict(list)
@@ -271,12 +234,55 @@ def get_transcripts(all_features, genome_dir, utr_fn):
         transcript_name = feature.attribute['transcript_id']
         feature_lists[transcript_name].append(feature)
 
-    UTR_boundaries = read_UTR_file(utr_fn)
-
-    transcripts = [Transcript(name, features, None, region_fetcher, UTR_boundaries.get(name))
+    transcripts = [Transcript(name, features, None, region_fetcher)
                    for name, features in feature_lists.iteritems()]
 
     return transcripts
+
+class GFFTranscript(Transcript):
+    def __init__(self,
+                 feature,
+                 region_fetcher,
+                ):
+        self.name = feature.attribute['ID']
+        self.region_fetcher = region_fetcher
+
+        self.strand = feature.strand
+        self.seqname = feature.seqname
+        self.feature = feature
+
+        self.exons = sorted(c for c in feature.descendants if 'exon' in c.feature)
+
+        self.CDSs = sorted(c for c in feature.descendants if c.feature == 'CDS')
+
+        self.mRNAs = sorted(c for c in feature.descendants if c.feature == 'mRNA')
+
+        if self.CDSs:
+            if self.strand == '+':
+                self.first_start_codon_position = min(cds.start for cds in self.CDSs)
+                self.first_stop_codon_position = max(cds.end for cds in self.CDSs) - 2
+            elif self.strand == '-':
+                self.first_start_codon_position = max(cds.end for cds in self.CDSs)
+                self.first_stop_codon_position = min(cds.start for cds in self.CDSs) + 2
+        else:
+            self.first_start_codon_position = None
+            self.first_stop_codon_position = None
+
+        self.start = self.feature.start
+        self.end = self.feature.end
+
+def get_gff_transcripts(all_features, genome_dir):
+    region_fetcher = genomes.build_region_fetcher(genome_dir)
+    genes = []
+    for feature in all_features:
+        top_level = feature.parent == None
+        has_exon = any('exon' in c.feature for c in feature.descendants) 
+        
+        if top_level and has_exon:
+            gene = GFFTranscript(feature, region_fetcher)
+            genes.append(gene)
+
+    return genes
 
 if __name__ == '__main__':
     import gff

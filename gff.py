@@ -1,7 +1,8 @@
 import gtf
 import urllib
 import pprint
-import gff_transcript
+import call_UTRs
+import transcript
 from collections import Counter
 
 class Feature(gtf.Feature):
@@ -36,11 +37,6 @@ class Feature(gtf.Feature):
         for child in self.children:
             child.print_family(level=level + 1)
 
-new_comments = '''\
-# seqnames replaced.
-# Gene's with a five_prime_UTR_intron have had their mRNA extended upstream 50 bps of the intron.
-'''
-
 def convert_SGD_file(old_fn, new_fn):
     ''' Replaces seqnames in a file from SGD to agree with those from ENSEMBL - 
     removes 'chr' from beginning and replaces mt with Mito.
@@ -61,7 +57,7 @@ def convert_SGD_file(old_fn, new_fn):
 
         return ';'.join(entries)
 
-    def process_features_exons(features):
+    def add_exons(features):
         new_features = []
 
         num_previous_exons = Counter()
@@ -187,13 +183,17 @@ def convert_SGD_file(old_fn, new_fn):
             else:
                 break
         
-        new_fh.write(new_comments)
-        
+        new_fh.write('''\
+# seqnames replaced.
+# CDS's have been wrapped in exons.
+# Gene's with a five_prime_UTR_intron have had their mRNA extended upstream 50 bps of the intron.
+''')
+
         for line in original_lines:
             if line.startswith('#'):
                 break
 
-        features = process_features_exons(features)
+        features = add_exons(features)
 
         for feature in features:
             new_fh.write(str(feature) + '\n')
@@ -204,7 +204,67 @@ def convert_SGD_file(old_fn, new_fn):
 
         #for line in original_lines:
         #    new_fh.write(line)
-                   
+
+def extend_UTRs(old_fn, new_fn, UTR_fn):
+    UTR_boundaries = call_UTRs.read_UTR_file(UTR_fn)
+    all_features = get_all_features(old_fn)
+
+    genes = transcript.get_gff_transcripts(all_features, '/dev/null')
+
+    genes = {g.name: g for g in genes}
+
+    smallest_start = lambda e: e.start
+    largest_end = lambda e: e.end
+
+    for name in UTR_boundaries:
+        gene = genes[name]
+        if len(gene.mRNAs) != 1:
+            raise ValueError('not exactly one mRNA')
+
+        _, _, five_pos, three_pos = UTR_boundaries[name]
+
+    
+        if gene.strand == '+':
+            leftmost_exon = min(gene.exons, key=smallest_start)
+            leftmost_exon.start = five_pos
+            gene.mRNAs[0].start = five_pos
+            gene.feature.start = five_pos
+
+            rightmost_exon = max(gene.exons, key=largest_end)
+            rightmost_exon.end = three_pos
+            gene.mRNAs[0].end = three_pos
+            gene.feature.end = three_pos
+        elif gene.strand == '-':
+            leftmost_exon = max(gene.exons, key=largest_end)
+            leftmost_exon.end = five_pos
+            gene.mRNAs[0].end = five_pos
+            gene.feature.end = five_pos
+
+            rightmost_exon = min(gene.exons, key=smallest_start)
+            rightmost_exon.start = three_pos
+            gene.mRNAs[0].start = three_pos
+            gene.feature.start = three_pos
+    
+    with open(new_fn, 'w') as new_fh:
+        original_lines = open(old_fn)
+
+        for line in original_lines:
+            if line.startswith('#'):
+                new_fh.write(line)
+            else:
+                break
+        
+        new_fh.write('''\
+# UTRs have been extended.
+''')
+
+        for line in original_lines:
+            if line.startswith('#'):
+                break
+
+        for feature in all_features:
+            new_fh.write(str(feature) + '\n')
+
 def populate_connections(features):
     for f in features:
         f.children = set()
