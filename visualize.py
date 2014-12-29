@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import positions
 import numpy as np
 import brewer2mpl
-from Sequencing.Visualize import igv_colors, optional_ax
+import Sequencing.Visualize
 from Sequencing import utilities
 from Sequencing import genomes
 import h5py
@@ -14,6 +14,8 @@ import operator
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
 colors = colors + colors
+
+igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
 def smoothed(position_counts, window_size):
     smoothed_array = positions.PositionCounts(position_counts.extent_length,
@@ -59,6 +61,8 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False,
             start_ax.axvline(x, color='black', alpha=0.1)
         start_ax.set_xlabel('Position of read relative to start of CDS')
         start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+
+        Sequencing.Visualize.add_commas_to_yticks(start_ax)
         
         end_ax.set_xlim(min(end_xs), max(end_xs))
         end_xticks = [x for x in end_xs if x % tick_interval == 0]
@@ -67,6 +71,8 @@ def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False,
             end_ax.axvline(x, color='black', alpha=0.1)
         end_ax.set_xlabel('Position of read relative to stop codon')
         end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+        
+        Sequencing.Visualize.add_commas_to_yticks(end_ax)
 
         start_ax.legend(loc='upper right', framealpha=0.5)
         end_ax.legend(loc='upper right', framealpha=0.5)
@@ -97,7 +103,7 @@ def plot_metagene_positions_all_lengths(from_starts, from_ends, figure_fn, zoome
     
     for length, (start_ax, end_ax) in zip(lengths, axs):
         for base in 'TCAG':
-            color = igv_colors.normalized_rgbs[base]
+            color = igv_colors[base]
             start_ys = from_starts[base][length]['start_codon', start_xs]
             end_ys = from_ends[base][length]['stop_codon', end_xs]
             start_ax.plot(start_xs, start_ys, '.-', label=base, color=color)
@@ -282,7 +288,7 @@ def plot_metagene_positions_heatmap(from_starts,
     fig.savefig(figure_fn, bbox_inches='tight')
     plt.close(fig)
 
-@optional_ax
+@Sequencing.Visualize.optional_ax
 def plot_joint_positions_scatter(joint_position_counts, transcript, name, ax=None):
     xs = []
     ys = []
@@ -723,7 +729,7 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
                 ax.plot(xs,
                         all_rates[:length, i],
                         '.-',
-                        color=igv_colors.normalized_rgbs[b],
+                        color=igv_colors[b],
                         label=b,
                         markersize=10,
                         linewidth=0.5,
