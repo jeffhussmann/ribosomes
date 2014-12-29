@@ -12,13 +12,14 @@ relative_results_dir projects/ribosomes/experiments/{group}/{name}/results
 adapter_type {adapter_type}
 relevant_lengths {min_relevant_length},{max_relevant_length}
 offset_type yeast
+phiX_bowtie2_index_prefix /home/jah/bowtie2/phiX_doubled
 '''
 
 def make_descriptions(group,
                       adapter_type,
                       max_read_length=None,
-                      min_relevant_length=27,
-                      max_relevant_length=31,
+                      min_relevant_length=14,
+                      max_relevant_length=34,
                       num_pieces=12,
                       bartel_markers=False,
                       stephanie_markers=False,
@@ -68,6 +69,8 @@ if __name__ == '__main__':
     fns.append(make_descriptions('belgium_2013_08_06', 'truseq', **kwargs))
     fns.append(make_descriptions('belgium_2014_03_05', 'linker', **kwargs))
     fns.append(make_descriptions('belgium_2014_08_07', 'linker', stephanie_markers=True, **kwargs))
+    fns.append(make_descriptions('belgium_2014_10_27', 'linker_local', stephanie_markers=True, **kwargs))
+    fns.append(make_descriptions('belgium_2014_12_10', 'linker_local', stephanie_markers=True, **kwargs))
     fns.append(make_descriptions('dunn_elife', 'linker', **kwargs))
     fns.append(make_descriptions('gerashchenko_pnas', 'polyA', max_read_length=44, **kwargs))
     fns.append(make_descriptions('gerashchenko_nar', 'nothing', max_read_length=50, **kwargs))
