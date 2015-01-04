@@ -190,23 +190,27 @@ class Transcript(object):
         landmarks = {'start': 0,
                      'start_codon': self.transcript_start_codon,
                      'stop_codon': self.transcript_stop_codon,
+                     'after_stop_codon': self.transcript_stop_codon + 3,
                      'end': self.transcript_length,
                     }
 
-        return positions.PositionCounts(landmarks,
-                                        left_buffer,
-                                        right_buffer,
-                                        data=np.asarray(sequence, 'c'),
-                                       )
+        self.delete_coordinate_maps()
+
+        transcript_sequence = positions.PositionCounts(landmarks,
+                                                       left_buffer,
+                                                       right_buffer,
+                                                       data=sequence,
+                                                      )
+        return transcript_sequence
 
     def get_coding_sequence(self):
         transcript_sequence = self.get_transcript_sequence()
-        coding_sequence = ''.join(transcript_sequence['start_codon', 0:self.CDS_length + 3])
+        coding_sequence = transcript_sequence['start_codon':'after_stop_codon']
         
         # Ensure that the coding sequence is well-formed.
         try:
             Bio.Seq.translate(coding_sequence, cds=True, table=self.codon_table)  
-        except Bio.Seq.CodonTable.TranslationError as error:
+        except Bio.Seq.CodonTable.TranslationError:
             coding_sequence = None
 
         return coding_sequence
