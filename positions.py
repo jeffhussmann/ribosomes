@@ -80,14 +80,15 @@ class PositionCounts(object):
 
         return adjusted_key
     
-    def __getitem__(self, landmark_and_key):
-        landmark, key = landmark_and_key
-        adjusted_key = self.adjust_relative_to_landmark(landmark, key)
-        try:
+    def __getitem__(self, index):
+        if isinstance(index, tuple):
+            landmark, key = index
+            adjusted_key = self.adjust_relative_to_landmark(landmark, key)
             return self.data[adjusted_key]
-        except IndexError:
-            print len(self.data), adjusted_key
-            raise
+        elif isinstance(index, slice):
+            start = self.landmark_to_index[index.start]
+            stop = self.landmark_to_index[index.stop]
+            return self.data[start:stop]
 
     def __setitem__(self, landmark_and_key, value):
         landmark, key = landmark_and_key
@@ -97,7 +98,7 @@ class PositionCounts(object):
     def __iadd__(self, other):
         if self.landmarks != other.landmarks:
             raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
-        if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
+        elif self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
             raise ValueError('Unequal buffer lengths')
         else:
             self.data += other.data
