@@ -1,4 +1,6 @@
 import bisect
+import Sequencing.genomes as genomes
+import gtf
 from collections import defaultdict
 
 class IntervalTree(object):
@@ -80,10 +82,17 @@ class OverlapFinder(object):
         return sorted(set(from_tree + from_list))
 
 class NamedOverlapFinder(object):
-    def __init__(self, named_intervals):
+    def __init__(self, named_intervals, genome_dir):
         by_name = defaultdict(list)
         for interval in named_intervals:
             by_name[interval.seqname].append(interval)
+
+        genome_index = genomes.get_genome_index(genome_dir)
+        for name in by_name:
+            start = gtf.Feature.sequence_edge(name, 0)
+            end = gtf.Feature.sequence_edge(name, genome_index[name].length)
+            by_name[name].append(start)
+            by_name[name].append(end)
 
         self.overlap_finders = {}
 
@@ -92,3 +101,29 @@ class NamedOverlapFinder(object):
 
     def overlapping(self, seqname, start, end):
         return self.overlap_finders[seqname].overlapping(start, end)
+
+    def find_closest_before(self, seqname, strand, start):
+        window = 100
+        before = []
+        while before == []:
+            overlapping = self.overlapping(seqname, start - window, start)
+            before = [f for f in overlapping
+                      if f.end <= start and f.strand in ['.', strand]
+                     ]
+            window *= 10
+
+        before = sorted(before, key=lambda f: f.end, reverse=True)
+        return before
+
+    def find_closest_after(self, seqname, strand, end):
+        window = 100
+        after = []
+        while after == []:
+            overlapping = self.overlapping(seqname, end, end + window)
+            after = [f for f in overlapping
+                     if f.start >= end and f.strand in ['.', strand]
+                    ]
+            window *= 10
+
+        after = sorted(after, key=lambda f: f.start)
+        return after

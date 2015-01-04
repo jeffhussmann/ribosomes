@@ -3,6 +3,7 @@ import urllib
 import pprint
 import call_UTRs
 import transcript
+import interval_tree
 from collections import Counter
 
 class Feature(gtf.Feature):
@@ -12,10 +13,24 @@ class Feature(gtf.Feature):
         self.children = set()
 
     def parse_attribute_string(self):
-        fields = self.attribute_string.split(';')
-        pairs = [field.split('=') for field in fields]
-        parsed = {name: urllib.unquote(value).strip('"') for name, value in pairs}
-        return parsed
+        if self.attribute_string == '.':
+            parsed = {}
+        else:
+            fields = self.attribute_string.split(';')
+            pairs = [field.split('=') for field in fields]
+            parsed = {name: urllib.unquote(value).strip('"') for name, value in pairs}
+
+        self.attribute = parsed
+    
+    def unparse_attribute_string(self):
+        entries = []
+        for key, value in sorted(self.attribute.items()):
+            key = urllib.quote(str(key), safe='')
+            value = urllib.quote(str(value), safe='')
+            entry = '{0}={1}'.format(key, value)
+            entries.append(entry)
+
+        self.attribute_string = ';'.join(entries)
 
     def populate_connections(self, id_to_object):
         parent_id = self.attribute.get('Parent')
@@ -40,22 +55,13 @@ class Feature(gtf.Feature):
 def convert_SGD_file(old_fn, new_fn):
     ''' Replaces seqnames in a file from SGD to agree with those from ENSEMBL - 
     removes 'chr' from beginning and replaces mt with Mito.
+    Adds exon features to genes.
     '''
     def standardize_seqname(seqname):
         seqname = seqname[3:]
         if seqname == 'mt':
             seqname = 'Mito'
         return seqname
-
-    def attribute_to_string(attribute):
-        entries = []
-        for key, value in sorted(attribute.items()):
-            key = urllib.quote(key, safe='')
-            value = urllib.quote(value, safe='')
-            entry = '{0}={1}'.format(key, value)
-            entries.append(entry)
-
-        return ';'.join(entries)
 
     def add_exons(features):
         new_features = []
@@ -73,10 +79,6 @@ def convert_SGD_file(old_fn, new_fn):
                 exon_id = '{0}_exon_{1}'.format(gene_id, num_previous_exons[gene_id] + 1)
                 num_previous_exons[gene_id] += 1
 
-                exon_attribute = {'ID': exon_id,
-                                  'Parent': parent_id,
-                                 }
-
                 exon = Feature.from_fields(feature.seqname,
                                            feature.source,
                                            'exon',
@@ -85,17 +87,22 @@ def convert_SGD_file(old_fn, new_fn):
                                            feature.score,
                                            feature.strand,
                                            '.',
-                                           attribute_to_string(exon_attribute),
+                                           '.',
                                           )
                 
+                exon.attribute = {'ID': exon_id,
+                                  'Parent': parent_id,
+                                 }
+                exon.unparse_attribute_string()
+                
                 feature.attribute['Parent'] = exon_id
-                feature.attribute_string = attribute_to_string(feature.attribute)
+                feature.unparse_attribute_string()
                 
                 new_features.append(exon)
 
         with_exons = sorted(features + new_features)
 
-        populate_connections(with_exons)
+        populate_all_connections(with_exons)
 
         upstream_exons = []
             
@@ -130,10 +137,6 @@ def convert_SGD_file(old_fn, new_fn):
 
                 closest = min(exons, key=distance)
                 
-                exon_attribute = {'ID': exon_id,
-                                  'Parent': parent_id,
-                                 }
-
                 if feature.strand == '+':
                     closest.start = feature.end + 1
 
@@ -160,13 +163,17 @@ def convert_SGD_file(old_fn, new_fn):
                                                     feature.score,
                                                     feature.strand,
                                                     '.',
-                                                    attribute_to_string(exon_attribute),
+                                                    '.',
                                                    )
+                upstream_exon.attribute = {'ID': exon_id,
+                                           'Parent': parent_id,
+                                          }
+                upstream_exon.unparse_attribute_string()
 
                 upstream_exons.append(upstream_exon)
 
         processed_features = sorted(with_exons + upstream_exons)
-        populate_connections(processed_features)
+        populate_all_connections(processed_features)
 
         return processed_features
 
@@ -186,18 +193,18 @@ def convert_SGD_file(old_fn, new_fn):
         new_fh.write('''\
 # seqnames replaced.
 # CDS's have been wrapped in exons.
-# Gene's with a five_prime_UTR_intron have had their mRNA extended upstream 50 bps of the intron.
+# Gene's with a five_prime_UTR_intron have had their mRNA extended upstream of the intron.
 ''')
-
-        for line in original_lines:
-            if line.startswith('#'):
-                break
 
         features = add_exons(features)
 
         for feature in features:
             new_fh.write(str(feature) + '\n')
         
+        #for line in original_lines:
+        #    if line.startswith('#'):
+        #        break
+
         ## The first line to start with a comment after the features still needs
         ## to be written.
         #new_fh.write(line)
@@ -205,7 +212,7 @@ def convert_SGD_file(old_fn, new_fn):
         #for line in original_lines:
         #    new_fh.write(line)
 
-def extend_UTRs(old_fn, new_fn, UTR_fn):
+def extend_UTRs(old_fn, new_fn, UTR_fn, genome_dir):
     UTR_boundaries = call_UTRs.read_UTR_file(UTR_fn)
     all_features = get_all_features(old_fn)
 
@@ -223,27 +230,26 @@ def extend_UTRs(old_fn, new_fn, UTR_fn):
 
         _, _, five_pos, three_pos = UTR_boundaries[name]
 
-    
         if gene.strand == '+':
             leftmost_exon = min(gene.exons, key=smallest_start)
             leftmost_exon.start = five_pos
             gene.mRNAs[0].start = five_pos
-            gene.feature.start = five_pos
+            gene.top_level_feature.start = five_pos
 
             rightmost_exon = max(gene.exons, key=largest_end)
             rightmost_exon.end = three_pos
             gene.mRNAs[0].end = three_pos
-            gene.feature.end = three_pos
+            gene.top_level_feature.end = three_pos
         elif gene.strand == '-':
             leftmost_exon = max(gene.exons, key=largest_end)
             leftmost_exon.end = five_pos
             gene.mRNAs[0].end = five_pos
-            gene.feature.end = five_pos
+            gene.top_level_feature.end = five_pos
 
             rightmost_exon = min(gene.exons, key=smallest_start)
             rightmost_exon.start = three_pos
             gene.mRNAs[0].start = three_pos
-            gene.feature.start = three_pos
+            gene.top_level_feature.start = three_pos
     
     with open(new_fn, 'w') as new_fh:
         original_lines = open(old_fn)
@@ -256,16 +262,15 @@ def extend_UTRs(old_fn, new_fn, UTR_fn):
         
         new_fh.write('''\
 # UTRs have been extended.
+# Top-level features have had distances to the closest other top-level features annotated. 
 ''')
 
-        for line in original_lines:
-            if line.startswith('#'):
-                break
+        mark_nearby(all_features, genome_dir)
 
         for feature in all_features:
             new_fh.write(str(feature) + '\n')
 
-def populate_connections(features):
+def populate_all_connections(features):
     for f in features:
         f.children = set()
         f.parent = None
@@ -288,13 +293,17 @@ def get_all_features(gff_fn):
                 yield line
 
     all_features = [Feature(line) for line in relevant_lines(gff_fn)]
-    populate_connections(all_features)    
+    populate_all_connections(all_features)    
 
     return all_features
 
-def get_CDSs(gff_fn, genome_dir, utr_fn):
+def get_top_level_features(features):
+    top_level_features = [f for f in features if f.parent == None]
+    return top_level_features
+
+def get_CDSs(gff_fn, genome_dir):
     all_features = get_all_features(gff_fn)
-    genes = gff_transcript.get_genes(gff_fn, genome_dir)
+    genes = transcript.get_gff_transcripts(all_features, genome_dir)
     translated_genes = [g for g in genes if g.CDSs]
     return translated_genes
 
@@ -304,10 +313,65 @@ def get_noncoding_RNA_transcripts(gff_fn):
     tRNA_transcripts = []
     other_ncRNA_transcripts = []
     for gene in genes:
-        if gene.feature.feature == 'rRNA':
+        if gene.top_level_feature.feature == 'rRNA':
             rRNA_transcripts.append(gene)
-        elif gene.feature.feature == 'tRNA':
+        elif gene.top_level_feature.feature == 'tRNA':
             tRNA_transcripts.append(gene)
-        elif 'RNA' in gene.feature.feature:
+        elif 'RNA' in gene.top_level_feature.feature:
             other_ncRNA_transcripts.append(gene)
     return rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts
+
+def mark_nearby(all_features, genome_dir):
+    top_level_features = get_top_level_features(all_features)
+    overlap_finder = interval_tree.NamedOverlapFinder(top_level_features, genome_dir)
+
+    def is_interesting(possible, main):
+        if possible.feature in ['chromosome', 'landmark']:
+            return False
+        elif possible == main:
+            return False
+        elif possible.attribute.get('orf_classification') == 'Dubious':
+            return False
+        elif possible.strand not in ['.', main.strand]:
+            return False
+        else:
+            return True
+
+    for top_level in top_level_features:
+        overlapping = overlap_finder.overlapping(top_level.seqname,
+                                                 top_level.start,
+                                                 top_level.end,
+                                                )
+        overlapping = [f for f in overlapping if is_interesting(f, top_level)]
+
+        before = overlap_finder.find_closest_before(top_level.seqname,
+                                                    top_level.strand,
+                                                    top_level.start,
+                                                   )
+        after = overlap_finder.find_closest_after(top_level.seqname,
+                                                  top_level.strand,
+                                                  top_level.end,
+                                                 )
+
+        to_left = top_level.start - before[0].end
+        to_right = after[0].start - top_level.end
+
+        top_level.attribute['to_left'] = to_left
+        top_level.attribute['to_right'] = to_right
+
+        top_level.unparse_attribute_string()
+
+if __name__ == '__main__':
+    boundaries_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/inferred_UTR_lengths.txt'
+    genome_dir = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/genome/'
+    original_gff_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/saccharomyces_cerevisiae.gff'
+    with_exons_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/genes_with_exons.gff'
+    final_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/genes.gff'
+
+    convert_SGD_file(original_gff_fn, with_exons_fn)
+
+    # This assumes that the experiments used in call_UTR_boundaries have been
+    # run using with_exons_fn as the source of gene models.
+    call_UTRs.call_UTR_boundaries(boundaries_fn)
+
+    extend_UTRs(with_exons_fn, final_fn, boundaries_fn, genome_dir)

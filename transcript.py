@@ -1,11 +1,8 @@
-import gtf
-import gff
 import numpy as np
-import Sequencing.genomes as genomes
 import Sequencing.utilities as utilities
+import Sequencing.genomes as genomes
 from collections import defaultdict
 import positions
-import interval_tree
 import Bio.Seq
 
 class Transcript(object):
@@ -19,7 +16,6 @@ class Transcript(object):
         self.name = name
         self.region_fetcher = region_fetcher
         self.codon_table = codon_table
-        #self.overlap_finder = overlap_finder.overlapping
 
         # Further processing assumes that features is sorted by (start, end).
         features = sorted(features)
@@ -247,19 +243,19 @@ class GFFTranscript(Transcript):
     def __init__(self,
                  feature,
                  region_fetcher,
+                 codon_table=1,
                 ):
         self.name = feature.attribute['ID']
-        self.region_fetcher = region_fetcher
-
         self.strand = feature.strand
         self.seqname = feature.seqname
-        self.feature = feature
-
-        self.exons = sorted(c for c in feature.descendants if 'exon' in c.feature)
-
-        self.CDSs = sorted(c for c in feature.descendants if c.feature == 'CDS')
+        self.top_level_feature = feature
+        
+        self.region_fetcher = region_fetcher
+        self.codon_table = codon_table
 
         self.mRNAs = sorted(c for c in feature.descendants if c.feature == 'mRNA')
+        self.exons = sorted(c for c in feature.descendants if 'exon' in c.feature)
+        self.CDSs = sorted(c for c in feature.descendants if c.feature == 'CDS')
 
         if self.CDSs:
             if self.strand == '+':
@@ -272,58 +268,19 @@ class GFFTranscript(Transcript):
             self.first_start_codon_position = None
             self.first_stop_codon_position = None
 
-        self.start = self.feature.start
-        self.end = self.feature.end
+        self.start = feature.start
+        self.end = feature.end
 
 def get_gff_transcripts(all_features, genome_dir):
-    region_fetcher = genomes.build_region_fetcher(genome_dir)
+    region_fetcher = genomes.build_region_fetcher(genome_dir, load_references=True)
     genes = []
     for feature in all_features:
         top_level = feature.parent == None
+        dubious = feature.attribute.get('orf_classification') == 'Dubious'
         has_exon = any('exon' in c.feature for c in feature.descendants) 
         
-        if top_level and has_exon:
+        if top_level and has_exon and not dubious:
             gene = GFFTranscript(feature, region_fetcher)
             genes.append(gene)
 
     return genes
-
-if __name__ == '__main__':
-    import gff
-    import pprint
-
-    gtf_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gtf'
-    gff_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/saccharomyces_cerevisiae.gff'
-    utr_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/inferred_UTR_lengths.txt'
-    genome_dir = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/genome'
-
-    CDSs = gtf.get_CDSs(gtf_fn, genome_dir, utr_fn)
-    gff_features = gff.get_all_features(gff_fn)
-    overlap_finder = interval_tree.NamedOverlapFinder(gff_features).overlapping
-    name_to_object = {f.attribute['Name']: f for f in gff_features if 'Name' in f.attribute}
-
-    def is_interesting(possible, CDS):
-        if possible.feature == 'chromosome':
-            return False
-
-        same_gene = name_to_object[CDS.name]
-        if possible in same_gene.descendants:
-            return False
-
-        if possible.parent:
-            return False
-
-        return True
-
-    for CDS in CDSs:
-        overlapping = overlap_finder(CDS.seqname, CDS.start, CDS.end)
-        same_gene = name_to_object[CDS.name]
-        overlapping = [f for f in overlapping if is_interesting(f, CDS)]
-        print CDS
-        print
-        for f in overlapping:
-            print f
-            pprint.pprint(f.attribute)
-
-        print
-        raw_input()

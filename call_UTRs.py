@@ -1,6 +1,3 @@
-import three_p_experiment
-import TL_seq_experiment
-import ribosome_profiling_experiment
 import numpy as np
 import Serialize.read_positions
 import h5py
@@ -9,11 +6,12 @@ import matplotlib.pyplot as plt
 import gff
 import transcript
 
-def call_UTR_boundaries():
+def call_UTR_boundaries(boundaries_fn):
+    import three_p_experiment
+    import TL_seq_experiment
     three_prime_description_fn = '/home/jah/projects/ribosomes/experiments/three_p_seq/Cerevisiae_3Pseq/job/description.txt'
     three_prime_exp = three_p_experiment.ThreePExperiment.from_description_file_name(three_prime_description_fn)
 
-    boundaries_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/inferred_UTR_lengths.txt'
 
     three_prime_genes = Serialize.read_positions.read_file(three_prime_exp.file_names['three_prime_read_positions'],
                                                            specific_keys={'all', '0'},
@@ -31,7 +29,6 @@ def call_UTR_boundaries():
 
     transcripts = gff.get_CDSs(three_prime_exp.file_names['genes'],
                                three_prime_exp.file_names['genome'],
-                               '/dev/null',
                               )
     transcripts = {t.name: t for t in transcripts}
 
@@ -62,9 +59,10 @@ def call_UTR_boundaries():
 
         UTR_boundaries[name] = (t.seqname, t.strand, five_pos, three_pos)
 
-    transcript.write_UTR_file(UTR_boundaries, boundaries_fn)
+    write_UTR_file(UTR_boundaries, boundaries_fn)
 
 def look_at_densities():
+    import ribosome_profiling_experiment
     description_fn = '/home/jah/projects/ribosomes/experiments/weinberg/RiboZero/job/description.txt'
     exp = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name(description_fn)
     
