@@ -77,6 +77,18 @@ class Transcript(object):
         ''' Make dictionaries mapping from genomic coordinates to transcript
             coordinates and vice-versa.
         '''
+        self.num_overlapping = int(self.top_level_feature.attribute.get('overlapping'))
+
+        closest_left = int(self.top_level_feature.attribute.get('closest_left'))
+        closest_right = int(self.top_level_feature.attribute.get('closest_right'))
+        
+        if self.strand == '+':
+            self.upstream_transcript = closest_left
+            self.downstream_transcript = closest_right
+        elif self.strand == '-':
+            self.upstream_transcript = closest_right
+            self.downstream_transcript = closest_left
+
         if self.strand == '+':
             exon_position_lists = [np.arange(exon.start, exon.end + 1) for exon in self.exons]
         elif self.strand == '-':
@@ -164,7 +176,7 @@ class Transcript(object):
         return positions.PositionCounts(extent_landmarks,
                                         left_buffer,
                                         right_buffer,
-                                        data=np.asarray(sequence, 'c'),
+                                        data=sequence,
                                        )
 
     def get_transcript_sequence(self, left_buffer=0, right_buffer=0):
@@ -188,8 +200,6 @@ class Transcript(object):
                      'stop_codon': self.transcript_stop_codon,
                      'end': self.transcript_length,
                     }
-
-        self.delete_coordinate_maps()
 
         transcript_sequence = positions.PositionCounts(landmarks,
                                                        left_buffer,
@@ -223,7 +233,7 @@ class Transcript(object):
         del self.genomic_to_transcript
 
     def __str__(self):
-        return '{0} {1}:{2}-{3}'.format(self.name, self.seqname, self.start, self.end)
+        return '{0} {1}:{2}-{3} {4}'.format(self.name, self.seqname, self.start, self.end, self.strand)
 
 def get_transcripts(all_features, genome_dir):
     region_fetcher = genomes.build_region_fetcher(genome_dir, load_references=True)

@@ -80,6 +80,10 @@ class Feature(object):
         line = '\t'.join(fields)
         return line
     
+    @property
+    def pasteable(self):
+        return '{0}:{1}-{2}'.format(self.seqname, self.start, self.end)
+    
     def __hash__(self):
         return hash(str(self))
 

@@ -89,7 +89,7 @@ class NamedOverlapFinder(object):
 
         genome_index = genomes.get_genome_index(genome_dir)
         for name in by_name:
-            start = gtf.Feature.sequence_edge(name, 0)
+            start = gtf.Feature.sequence_edge(name, -1)
             end = gtf.Feature.sequence_edge(name, genome_index[name].length)
             by_name[name].append(start)
             by_name[name].append(end)
@@ -106,9 +106,9 @@ class NamedOverlapFinder(object):
         window = 100
         before = []
         while before == []:
-            overlapping = self.overlapping(seqname, start - window, start)
+            overlapping = self.overlapping(seqname, start - window, start - 1)
             before = [f for f in overlapping
-                      if f.end <= start and f.strand in ['.', strand]
+                      if f.end < start and f.strand in ['.', strand]
                      ]
             window *= 10
 
@@ -119,9 +119,9 @@ class NamedOverlapFinder(object):
         window = 100
         after = []
         while after == []:
-            overlapping = self.overlapping(seqname, end, end + window)
+            overlapping = self.overlapping(seqname, end + 1, end + window)
             after = [f for f in overlapping
-                     if f.start >= end and f.strand in ['.', strand]
+                     if f.start > end and f.strand in ['.', strand]
                     ]
             window *= 10
 

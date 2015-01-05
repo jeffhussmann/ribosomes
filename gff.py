@@ -326,13 +326,13 @@ def mark_nearby(all_features, genome_dir):
     overlap_finder = interval_tree.NamedOverlapFinder(top_level_features, genome_dir)
 
     def is_interesting(possible, main):
-        if possible.feature in ['chromosome', 'landmark']:
+        if possible.feature in ['chromosome', 'landmark', 'ARS', 'region']:
             return False
         elif possible == main:
             return False
         elif possible.attribute.get('orf_classification') == 'Dubious':
             return False
-        elif possible.strand not in ['.', main.strand]:
+        elif main.strand != '.' and possible.strand != '.' and main.strand != possible.strand:
             return False
         else:
             return True
@@ -353,25 +353,23 @@ def mark_nearby(all_features, genome_dir):
                                                   top_level.end,
                                                  )
 
-        to_left = top_level.start - before[0].end
-        to_right = after[0].start - top_level.end
-
-        top_level.attribute['to_left'] = to_left
-        top_level.attribute['to_right'] = to_right
+        top_level.attribute['closest_left'] = before[0].end
+        top_level.attribute['closest_right'] = after[0].start
+        top_level.attribute['overlapping'] = len(overlapping)
 
         top_level.unparse_attribute_string()
 
 if __name__ == '__main__':
-    boundaries_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/inferred_UTR_lengths.txt'
+    boundaries_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/inferred_UTR_lengths.txt'
     genome_dir = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/genome/'
     original_gff_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/saccharomyces_cerevisiae.gff'
-    with_exons_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/genes_with_exons.gff'
-    final_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4_test/transcriptome/genes.gff'
+    with_exons_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes_with_exons.gff'
+    final_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gff'
 
-    convert_SGD_file(original_gff_fn, with_exons_fn)
+    ##convert_SGD_file(original_gff_fn, with_exons_fn)
 
-    # This assumes that the experiments used in call_UTR_boundaries have been
-    # run using with_exons_fn as the source of gene models.
-    call_UTRs.call_UTR_boundaries(boundaries_fn)
+    ## This assumes that the experiments used in call_UTR_boundaries have been
+    ## run using with_exons_fn as the source of gene models.
+    #call_UTRs.call_UTR_boundaries(boundaries_fn)
 
     extend_UTRs(with_exons_fn, final_fn, boundaries_fn, genome_dir)
