@@ -17,14 +17,10 @@ class PositionCounts(object):
         self.left_buffer = left_buffer
         self.right_buffer = right_buffer
 
-        try:
-            leftmost_name = min(landmarks, key=landmarks.get)
-            leftmost_value = landmarks[leftmost_name]
-            rightmost_name = max(landmarks, key=landmarks.get)
-            rightmost_value = landmarks[rightmost_name]
-        except AttributeError:
-            print landmarks, left_buffer, right_buffer
-            raise
+        leftmost_name = min(landmarks, key=landmarks.get)
+        leftmost_value = landmarks[leftmost_name]
+        rightmost_name = max(landmarks, key=landmarks.get)
+        rightmost_value = landmarks[rightmost_name]
 
         # For historical reasons, rightmost_value is assumed to point to one
         # past the 'interesting' region, so that it is the first index of the
@@ -42,66 +38,67 @@ class PositionCounts(object):
 
             self.data = data
 
-    def adjust_relative_to_landmark(self, landmark, key):
-        if isinstance(key, (int, long)):
-            adjusted_key = self.landmark_to_index[landmark] + key
-            # Note that adjusted_key must be allowed to be equal to
-            # len(self.data) to allow a slice to contain the end point.
-            if adjusted_key < 0 or adjusted_key > len(self.data):
-                raise IndexError('Length of data - {0}, attempted to access {1} from key of {2}'.format(len(self.data), adjusted_key, key), self.landmark_to_index, self.left_buffer, self.right_buffer)
+    def transform_relative_slice(self, relative_slice, end_allowed=False):
+        if isinstance(relative_slice, str):
+            # relative_slice is just a landmark
+            absolute_slice = self.landmark_to_index[relative_slice]
 
-        elif isinstance(key, slice):
-            if key.start == None:
-                start = 0
+        elif isinstance(relative_slice, tuple):
+            # relative_slice is a (landmark, slice) tuple 
+            landmark, key = relative_slice
+
+            if key == None:
+                absolute_slice = self.transform_relative_slice(landmark)
+
+            elif isinstance(key, (int, long)):
+                absolute_slice = self.landmark_to_index[landmark] + key
+                if absolute_slice < 0 or absolute_slice > len(self.data):
+                    raise IndexError('Length of data - {0}, attempted to access {1} from key of {2}'.format(len(self.data), absolute_slice, key))
+                # When it is the stop of a slice, adjusted_key must be allowed to be
+                # equal to len(self.data) to allow a slice to contain the end point.
+                if absolute_slice == len(self.data) and not end_allowed:
+                    raise IndexError('Attempted to access end point')
+
+            elif isinstance(key, slice):
+                if key.stop == None:
+                    raise ValueError('None not allowed as stop in slice')
+
+                if key.step != None and key.step < 0:
+                    raise ValueError('Negative step not allowed')
+
+                start = self.transform_relative_slice((landmark, key.start))
+                stop = self.transform_relative_slice((landmark, key.stop), end_allowed=True)
+                absolute_slice = slice(start, stop, key.step)
+
+            elif isinstance(key, (list, np.ndarray)):
+                absolute_slice = [self.transform_relative_slice((landmark, k)) for k in key]
+
             else:
-                start = key.start
+                raise TypeError(type(key))
 
-            if key.stop == None:
-                raise ValueError('None not allowed as stop in slice')
-            else:
-                stop = key.stop
-
-            if key.step == None:
-                adjusted_step = 1
-            elif key.step < 0:
-                raise ValueError('Negative step not allowed')
-            else:
-                adjusted_step = key.step
-
-            adjusted_start = self.adjust_relative_to_landmark(landmark, start)
-            adjusted_stop = self.adjust_relative_to_landmark(landmark, stop)
-            adjusted_key = slice(adjusted_start, adjusted_stop, adjusted_step)
-
-        elif isinstance(key, (list, np.ndarray)):
-            adjusted_key = [self.adjust_relative_to_landmark(landmark, k) for k in key]
+        elif isinstance(relative_slice, slice):
+            # relative_slice.start and relative_slice.stop are each one of the
+            # two previous categories
+            start = self.transform_relative_slice(relative_slice.start)
+            stop = self.transform_relative_slice(relative_slice.stop)
+            absolute_slice = slice(start, stop, relative_slice.step)
 
         else:
-            raise TypeError(type(key))
+            raise NotImplementedError(relative_slice)
 
-        return adjusted_key
-    
-    def __getitem__(self, index):
-        if isinstance(index, tuple):
-            landmark, key = index
-            adjusted_key = self.adjust_relative_to_landmark(landmark, key)
-            return self.data[adjusted_key]
-        elif isinstance(index, slice):
-            start = self.landmark_to_index[index.start]
-            stop = self.landmark_to_index[index.stop]
-            return self.data[start:stop]
+        return absolute_slice
 
-    def __setitem__(self, landmark_and_key, value):
-        landmark, key = landmark_and_key
-        adjusted_key = self.adjust_relative_to_landmark(landmark, key)
-        self.data[adjusted_key] = value
+    def __getitem__(self, relative_slice):
+        absolute_slice = self.transform_relative_slice(relative_slice)
+        return self.data[absolute_slice]
+
+    def __setitem__(self, relative_slice, value):
+        absolute_slice = self.transform_relative_slice(relative_slice)
+        self.data[absolute_slice] = value
 
     def __iadd__(self, other):
-        if self.landmarks != other.landmarks:
-            raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
-        elif self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
-            raise ValueError('Unequal buffer lengths')
-        else:
-            self.data += other.data
+        self.check_compatibility(other)
+        self.data += other.data
 
         return self
 
@@ -110,7 +107,7 @@ class PositionCounts(object):
 
     def argmax_over_slice(self, landmark, key):
         if isinstance(key, (list, np.ndarray)):
-            counts = self.__getitem__((landmark, key))
+            counts = self[landmark, key]
             return key[counts.argmax()]
         else:
             raise NotImplementedError
@@ -118,19 +115,22 @@ class PositionCounts(object):
     @property
     def CDS_length(self):
         return self.landmarks['stop_codon'] - self.landmarks['start_codon']
-    
+
+    def check_compatibility(self, other):
+        ''' Check if self and other can be used for element-wise operations. '''
+        if self.landmarks != other.landmarks:
+            raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
+        if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
+            raise ValueError('Unequal buffer lengths')
+
     def __div__(self, other):
         if isinstance(other, PositionCounts):
-            if self.landmarks != other.landmarks:
-                raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
-            if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
-                raise ValueError('Unequal buffer lengths')
-            else:
-                return PositionCounts(self.landmarks,
-                                      self.left_buffer,
-                                      self.right_buffer,
-                                      data=np.true_divide(self.data, other.data),
-                                     )
+            self.check_compatibility(other)
+            return PositionCounts(self.landmarks,
+                                  self.left_buffer,
+                                  self.right_buffer,
+                                  data=np.true_divide(self.data, other.data),
+                                 )
         elif isinstance(other, numbers.Number):
             return PositionCounts(self.landmarks,
                                   self.left_buffer,
@@ -140,31 +140,23 @@ class PositionCounts(object):
     
     def __add__(self, other):
         if isinstance(other, PositionCounts):
-            if self.landmarks != other.landmarks:
-                raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
-            if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
-                raise ValueError('Unequal buffer lengths')
-            else:
-                return PositionCounts(self.landmarks,
-                                      self.left_buffer,
-                                      self.right_buffer,
-                                      data=(self.data + other.data),
-                                     )
+            self.check_compatibility(other)
+            return PositionCounts(self.landmarks,
+                                  self.left_buffer,
+                                  self.right_buffer,
+                                  data=(self.data + other.data),
+                                 )
         else:
-            raise ValueError('bad types in PositionCounts subtraction')
+            raise ValueError('bad types in PositionCounts addition')
     
     def __sub__(self, other):
         if isinstance(other, PositionCounts):
-            if self.landmarks != other.landmarks:
-                raise ValueError('Unequal landmarks:', self.landmarks, other.landmarks)
-            if self.left_buffer != other.left_buffer or self.right_buffer != other.right_buffer:
-                raise ValueError('Unequal buffer lengths')
-            else:
-                return PositionCounts(self.landmarks,
-                                      self.left_buffer,
-                                      self.right_buffer,
-                                      data=(self.data - other.data),
-                                     )
+            self.check_compatibility(other)
+            return PositionCounts(self.landmarks,
+                                  self.left_buffer,
+                                  self.right_buffer,
+                                  data=(self.data - other.data),
+                                 )
         else:
             raise ValueError('bad types in PositionCounts subtraction')
 

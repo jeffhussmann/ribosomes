@@ -186,7 +186,6 @@ class Transcript(object):
         landmarks = {'start': 0,
                      'start_codon': self.transcript_start_codon,
                      'stop_codon': self.transcript_stop_codon,
-                     'after_stop_codon': self.transcript_stop_codon + 3,
                      'end': self.transcript_length,
                     }
 
@@ -201,7 +200,7 @@ class Transcript(object):
 
     def get_coding_sequence(self):
         transcript_sequence = self.get_transcript_sequence()
-        coding_sequence = transcript_sequence['start_codon':'after_stop_codon']
+        coding_sequence = transcript_sequence['start_codon':('stop_codon', 3)]
         
         # Ensure that the coding sequence is well-formed.
         try:
