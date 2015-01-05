@@ -20,6 +20,9 @@ def build_gene(group, specific_keys=None):
         dataset = group[key]
         data = dataset[...]
 
+        if data.dtype.kind == 'S':
+            data = ''.join(data)
+
         attrs = dict(dataset.attrs.items())
         left_buffer = attrs.pop('left_buffer')
         right_buffer = attrs.pop('right_buffer')
@@ -53,7 +56,12 @@ def write_file(genes, file_name):
                 position_counts = genes[gene_name][key]
                 # HDF5 names must be strings
                 key = str(key)
-                gene_group[key] = np.asarray(position_counts.data)
+
+                if isinstance(position_counts.data, str):
+                    gene_group[key] = np.asarray(position_counts.data, 'c')
+                else:
+                    gene_group[key] = np.asarray(position_counts.data)
+
                 gene_group[key].attrs['left_buffer'] = position_counts.left_buffer
                 gene_group[key].attrs['right_buffer'] = position_counts.right_buffer
                 for name, value in position_counts.landmarks.items():
