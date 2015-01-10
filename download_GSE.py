@@ -28,7 +28,6 @@ def get_xml(paper_dir, accession):
     tar_command = ['tar', 'xzf', tgz_fn, '-C', paper_dir]
     subprocess.check_call(tar_command)
     os.remove(tgz_fn)
-    os.remove(xml_fn)
 
     return xml_fn
 
@@ -162,7 +161,7 @@ def dump_fastqs(sra_fns, gzip=False):
                                   ])
         
         subprocess.check_call(fastq_dump_command)
-        #os.remove(sra_fn)
+        os.remove(sra_fn)
 
 experiments = {
     # Yeast
@@ -176,6 +175,7 @@ experiments = {
     'lareau_elife': ('GSE58321', lambda name: True),
     'baudin-baillieu_cell_reports': ('GSE41590', lambda name: True),
     'gerashchenko_nar': ('GSE59573', lambda name: 'unstressed' in name),
+    'pop_msb': ('GSE63789', lambda name: True),
     # UTR boundary identification
     'arribere_gr': ('GSE39074', lambda name: 'S288C' in name and '_TLSeq' in name),
     'pelechano_nature': ('GSE39128', lambda name: name.startswith('nypd')),
@@ -222,6 +222,8 @@ if __name__ == '__main__':
         samples = extract_samples_from_xml(xml_fn, condition=condition)
     elif args.paper_name in non_GSE_experiments:
         samples = non_GSE_experiments[args.paper_name]
+    else:
+        raise ValueError('{0} not recognized'.format(args.paper_name))
 
     for sample in samples:
         print sample[0]
