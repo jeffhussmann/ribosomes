@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
 import matplotlib.pyplot as plt
+import matplotlib.backends.backend_pdf
 import positions
 import numpy as np
 import brewer2mpl
@@ -31,59 +32,145 @@ def smoothed(position_counts, window_size):
         smoothed_array[i] = position_counts[i:].sum() / float(smoothed_array.extent_length - i)
     return smoothed_array
 
-def plot_metagene_positions(from_starts, from_ends, figure_fn, zoomed_out=False, title=None):
-    fig, axs = plt.subplots(2, 2, figsize=(24, 16))
+def plot_metagene_positions(metagene_positions,
+                            figure_fn,
+                            lengths,
+                            title=None,
+                            by_base=False,
+                           ):
 
-    if zoomed_out:
-        start_xs = np.arange(-190, 190)
-        end_xs = np.arange(-190, 190)
-        tick_interval = 30
-    else:
-        start_xs = np.arange(-21, 19)
-        end_xs = np.arange(-33, 7)
-        tick_interval = 3
-    
-    short_lengths = range(20, 24)
-    long_lengths = range(27, 32)
+    landmarks = [('start', 'end'),
+                 ('start_codon', 'stop_codon'),
+                ]
 
-    recorded_short_lengths = sorted(set(short_lengths) & set(from_starts.keys()))
-    recorded_long_lengths = sorted(set(long_lengths) & set(from_starts.keys()))
+    pdf = matplotlib.backends.backend_pdf.PdfPages(figure_fn)
 
-    for lengths, (start_ax, end_ax) in zip([recorded_short_lengths, recorded_long_lengths], axs):
-        for length in lengths:
-            start_ax.plot(start_xs, from_starts[length]['start_codon', start_xs], '.-', label=length)
-            end_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
+    for start_landmark, end_landmark in landmarks:
+        fig, axs = plt.subplots(2, 2, figsize=(24, 16))
 
-        start_ax.set_xlim(min(start_xs), max(start_xs))
-        start_xticks = [x for x in start_xs if x % tick_interval == 0]
-        start_ax.set_xticks(start_xticks)
-        for x in start_xticks:
-            start_ax.axvline(x, color='black', alpha=0.1)
-        start_ax.set_xlabel('Position of read relative to start of CDS')
-        start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
-
-        Sequencing.Visualize.add_commas_to_yticks(start_ax)
+        for zoomed_out, (start_ax, end_ax) in zip([False, True], axs):
+            if zoomed_out:
+                start_xs = np.arange(-190, 190)
+                end_xs = np.arange(-190, 190)
+                tick_interval = 30
+            else:
+                start_xs = np.arange(-21, 19)
+                end_xs = np.arange(-33, 7)
+                tick_interval = 3
         
-        end_ax.set_xlim(min(end_xs), max(end_xs))
+            if by_base:
+                for base in 'TCAG':
+                    #start_key = '{0}_{1}'.format(start_landmark, base)
+                    #end_key = '{0}_{1}'.format(end_landmark, base)
+                    #start_ys = metagene_positions[start_key]['all'][start_landmark, start_xs]
+                    #end_ys = metagene_positions[end_key]['all'][end_landmark, end_xs]
+
+                    #kwargs = {'label': base,
+                    #          'color': igv_colors[base],
+                    #          'marker': '.',
+                    #         }
+                    #
+                    #start_ax.plot(start_xs, start_ys, **kwargs)
+                    #end_ax.plot(end_xs, end_ys, **kwargs)
+                    
+                    start_key = '{0}_{1}_uniform'.format(start_landmark, base)
+                    end_key = '{0}_{1}_uniform'.format(end_landmark, base)
+                    start_ys = metagene_positions[start_key]['all'][start_landmark, start_xs]
+                    end_ys = metagene_positions[end_key]['all'][end_landmark, end_xs]
+
+                    kwargs = {'label': '{0}_uniform'.format(base),
+                              'color': igv_colors[base],
+                              'marker': '.',
+                              'alpha': 0.3,
+                             }
+                    
+                    start_ax.plot(start_xs, start_ys, **kwargs)
+                    end_ax.plot(end_xs, end_ys, **kwargs)
+            else:
+                start_counts = metagene_positions[start_landmark]
+                end_counts = metagene_positions[end_landmark]
+                recorded_lengths = sorted(set(lengths) & set(start_counts.keys()))
+
+                for length in recorded_lengths:
+                    start_ys = start_counts[length][start_landmark, start_xs]
+                    end_ys = end_counts[length][end_landmark, end_xs]
+                    
+                    kwargs = {'label': length,
+                              'marker': '.',
+                             }
+                    if length == 'all':
+                        kwargs['color'] = 'black'
+                        kwargs['alpha'] = 0.7
+
+                    start_ax.plot(start_xs, start_ys, **kwargs)
+                    end_ax.plot(end_xs, end_ys, **kwargs)
+
+            start_ax.set_xlim(min(start_xs), max(start_xs))
+            start_xticks = [x for x in start_xs if x % tick_interval == 0]
+            start_ax.set_xticks(start_xticks)
+            for x in start_xticks:
+                start_ax.axvline(x, color='black', alpha=0.1)
+            start_ax.set_xlabel('Position of read relative to {0}'.format(start_landmark))
+            start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+
+            Sequencing.Visualize.add_commas_to_yticks(start_ax)
+            
+            end_ax.set_xlim(min(end_xs), max(end_xs))
+            end_xticks = [x for x in end_xs if x % tick_interval == 0]
+            end_ax.set_xticks(end_xticks)
+            for x in end_xticks:
+                end_ax.axvline(x, color='black', alpha=0.1)
+            end_ax.set_xlabel('Position of read relative to {0}'.format(end_landmark))
+            end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+            
+            Sequencing.Visualize.add_commas_to_yticks(end_ax)
+
+            start_ax.legend(loc='upper right', framealpha=0.5)
+            end_ax.legend(loc='upper right', framealpha=0.5)
+
+            ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
+            start_ax.set_ylim(0, ymax)
+            end_ax.set_ylim(0, ymax)
+
+        if title:
+            fig.suptitle(title)
+        
+        pdf.savefig(fig)
+        plt.close(fig)
+
+    pdf.close()
+
+def plot_just_ends(from_ends, figure_fn, title):
+    fig, (linear_ax, log_ax) = plt.subplots(2, 1, figsize=(24, 16))
+
+    end_xs = np.arange(-63, 97)
+    tick_interval = 3
+    
+    lengths = range(27, 32)
+
+    recorded_lengths = sorted(set(lengths) & set(from_ends.keys()))
+
+    for length in recorded_lengths:
+        linear_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
+        log_ax.plot(end_xs, from_ends[length]['stop_codon', end_xs], '.-', label=length)
+
+    for ax in [linear_ax, log_ax]:
+        ax.set_xlim(min(end_xs), max(end_xs))
         end_xticks = [x for x in end_xs if x % tick_interval == 0]
-        end_ax.set_xticks(end_xticks)
+        ax.set_xticks(end_xticks)
         for x in end_xticks:
-            end_ax.axvline(x, color='black', alpha=0.1)
-        end_ax.set_xlabel('Position of read relative to stop codon')
-        end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
+            ax.axvline(x, color='black', alpha=0.1)
+        ax.set_xlabel('Position of read relative to stop codon')
+        ax.set_ylabel('Number of uniquely mapped reads of specified length')
         
-        Sequencing.Visualize.add_commas_to_yticks(end_ax)
+        ax.set_ylim(ymin=1)
+        ax.legend(loc='upper right', framealpha=0.5)
+        
+    log_ax.set_yscale('log')
+    Sequencing.Visualize.add_commas_to_yticks(linear_ax)
 
-        start_ax.legend(loc='upper right', framealpha=0.5)
-        end_ax.legend(loc='upper right', framealpha=0.5)
+    fig.suptitle(title)
 
-        ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
-        start_ax.set_ylim(0, ymax)
-        end_ax.set_ylim(0, ymax)
-
-    if title:
-        fig.suptitle(title)
-    
     fig.savefig(figure_fn)
     plt.close(fig)
 
@@ -168,125 +255,139 @@ def plot_metacodon_positions(position_counts, figure_fn, key='feature'):
     fig.savefig(figure_fn)
     plt.close(fig)
 
-def plot_metagene_positions_heatmap(from_starts,
-                                    from_ends,
+def plot_metagene_positions_heatmap(metagene_positions,
                                     figure_fn,
                                     zoomed_out=False,
                                     normalize_to_max_in=None,
                                    ):
-    fig, ((start_5_ax, end_5_ax), (start_3_ax, end_3_ax)) = plt.subplots(2, 2)
+    landmarks = [('start', 'end'),
+                 ('start_codon', 'stop_codon'),
+                ]
+
+    pdf = matplotlib.backends.backend_pdf.PdfPages(figure_fn)
 
     if zoomed_out:
-        start_xs = np.arange(-30, 140)
-        end_xs = np.arange(-140, 30)
+        start_xs = np.arange(-90, 60)
+        end_xs = np.arange(-60, 90)
     else:
         start_xs = np.arange(-21, 31)
         end_xs = np.arange(-33, 19)
 
     if len(start_xs) != len(end_xs):
         raise ValueError(len(start_xs), len(end_xs))
-
-    lengths = sorted([k for k in from_starts if isinstance(k, int)], reverse=True)
-    from_starts_5_array = [from_starts[l]['start_codon', start_xs] for l in lengths]
-    from_ends_5_array = [from_ends[l]['stop_codon', end_xs] for l in lengths]
-    from_starts_3_array = [positions.convert_to_three_prime(from_starts[l], l)['start_codon', start_xs] for l in lengths]
-    from_ends_3_array = [positions.convert_to_three_prime(from_ends[l], l)['stop_codon', end_xs] for l in lengths]
-
-    from_starts_5_array = np.asarray(from_starts_5_array)
-    from_starts_3_array = np.asarray(from_starts_3_array)
-    from_ends_5_array = np.asarray(from_ends_5_array)
-    from_ends_3_array = np.asarray(from_ends_3_array)
-
-    if normalize_to_max_in:
-        allowed_lengths, which_end, allowed_positions = normalize_to_max_in
-        if which_end == 'from_start':
-            counts = from_starts
-        elif which_end == 'from_end':
-            counts = from_ends
-        allowed_counts = [counts[l][allowed_positions] for l in allowed_lengths]
-        overall_max = np.asarray(allowed_counts).max()
-    else:
-        overall_max = max(from_starts_5_array.max(),
-                          from_ends_5_array.max(),
-                          from_starts_3_array.max(),
-                          from_ends_3_array.max(),
-                         )
-
-    blues_cdict = {'red': ((0.0, 1.0, 1.0),
-                           (1.0, 0.0, 0.0)),
-                   'green': ((0.0, 1.0, 1.0),
-                             (1.0, 0.0, 0.0)),
-                   'blue': ((0.0, 1.0, 1.0),
-                            (1.0, 1.0, 1.0)),
-                  }
-
-    blues = matplotlib.colors.LinearSegmentedColormap('blues', blues_cdict, 10000)
-    blues.set_over('red')
     
-    reds_cdict = {'red': ((0.0, 1.0, 1.0),
-                          (1.0, 1.0, 1.0)),
-                  'green': ((0.0, 1.0, 1.0),
-                            (1.0, 0.0, 0.0)),
-                  'blue': ((0.0, 1.0, 1.0),
-                           (1.0, 0.0, 0.0)),
-                 }
+    for start_landmark, end_landmark in landmarks:
+        from_starts = metagene_positions[start_landmark]
+        from_ends = metagene_positions[end_landmark]
 
-    reds = matplotlib.colors.LinearSegmentedColormap('blues', reds_cdict, 10000)
-    reds.set_over('blue')
+        lengths = sorted([k for k in from_starts if isinstance(k, int)], reverse=True)
+        from_starts_5_array = [from_starts[l][start_landmark, start_xs] for l in lengths]
+        from_ends_5_array = [from_ends[l][end_landmark, end_xs] for l in lengths]
+        from_starts_3_array = [positions.convert_to_three_prime(from_starts[l], l)[start_landmark, start_xs] for l in lengths]
+        from_ends_3_array = [positions.convert_to_three_prime(from_ends[l], l)[end_landmark, end_xs] for l in lengths]
 
-    kwargs_five = {'interpolation': 'nearest',
-                   'cmap': blues,
-                   'vmin': 0,
-                   'vmax': overall_max,
-                  }
-    kwargs_three = {'interpolation': 'nearest',
-                    'cmap': reds,
-                    'vmin': 0,
-                    'vmax': overall_max,
-                   }
+        from_starts_5_array = np.asarray(from_starts_5_array)
+        from_starts_3_array = np.asarray(from_starts_3_array)
+        from_ends_5_array = np.asarray(from_ends_5_array)
+        from_ends_3_array = np.asarray(from_ends_3_array)
 
-    start_5_ax.imshow(from_starts_5_array, **kwargs_five)
-    end_5_ax.imshow(from_ends_5_array, **kwargs_five)
-    start_3_ax.imshow(from_starts_3_array, **kwargs_three)
-    end_3_ax.imshow(from_ends_3_array, **kwargs_three)
+        if normalize_to_max_in:
+            allowed_lengths, which_end, allowed_positions = normalize_to_max_in
+            if which_end == 'start':
+                counts = from_starts
+                landmark = start_landmark
+            elif which_end == 'end':
+                counts = from_ends
+                landmark = end_landmark
+            allowed_counts = [counts[l][landmark, allowed_positions] for l in allowed_lengths]
+            overall_max = np.asarray(allowed_counts).max()
+        else:
+            overall_max = max(from_starts_5_array.max(),
+                              from_ends_5_array.max(),
+                              from_starts_3_array.max(),
+                              from_ends_3_array.max(),
+                             )
 
-    index_to_x = {i: x for i, x in enumerate(start_xs)}
-    if zoomed_out:
-        modulus = 30
-    else:
-        modulus = 3
-    xticks = [i for i in range(len(start_xs)) if index_to_x[i] % modulus == 0]
-    xticklabels = [str(index_to_x[i]) for i in xticks]
+        blues_cdict = {'red': ((0.0, 1.0, 1.0),
+                               (1.0, 0.0, 0.0)),
+                       'green': ((0.0, 1.0, 1.0),
+                                 (1.0, 0.0, 0.0)),
+                       'blue': ((0.0, 1.0, 1.0),
+                                (1.0, 1.0, 1.0)),
+                      }
 
-    for ax in (start_5_ax, start_3_ax):
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xticklabels)
+        blues = matplotlib.colors.LinearSegmentedColormap('blues', blues_cdict, 10000)
+        blues.set_over('red')
+        
+        reds_cdict = {'red': ((0.0, 1.0, 1.0),
+                              (1.0, 1.0, 1.0)),
+                      'green': ((0.0, 1.0, 1.0),
+                                (1.0, 0.0, 0.0)),
+                      'blue': ((0.0, 1.0, 1.0),
+                               (1.0, 0.0, 0.0)),
+                     }
 
-    start_5_ax.set_xlabel('Position of 5\' end of read relative to start of CDS')
-    start_3_ax.set_xlabel('Position of 3\' end of read relative to start of CDS')
-    
-    index_to_x = {i: x for i, x in enumerate(end_xs)}
-    xticks = [i for i in range(len(end_xs)) if index_to_x[i] % modulus == 0]
-    xticklabels = [str(index_to_x[i]) for i in xticks]
+        reds = matplotlib.colors.LinearSegmentedColormap('blues', reds_cdict, 10000)
+        reds.set_over('blue')
 
-    for ax in (end_5_ax, end_3_ax):
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xticklabels)
+        kwargs_five = {'interpolation': 'nearest',
+                       'cmap': blues,
+                       'vmin': 0,
+                       'vmax': overall_max,
+                      }
+        kwargs_three = {'interpolation': 'nearest',
+                        'cmap': reds,
+                        'vmin': 0,
+                        'vmax': overall_max,
+                       }
+        
+        width = len(start_xs) * 2. / 3.
+        height = len(lengths) * 2 / 3.
+        fig, ((start_5_ax, end_5_ax), (start_3_ax, end_3_ax)) = plt.subplots(2, 2, figsize=(width, height))
 
-    end_5_ax.set_xlabel('Position of 5\' end of read relative to stop codon')
-    end_3_ax.set_xlabel('Position of 3\' end of read relative to stop codon')
-    
-    y_ticks = np.arange(len(lengths))
-    y_tick_labels = [str(l) for l in lengths]
-    
-    for ax in (start_5_ax, start_3_ax, end_5_ax, end_3_ax):
-        ax.set_yticks(y_ticks)
-        ax.set_yticklabels(y_tick_labels)
-    
-    fig.set_size_inches((len(start_xs) * 2. / 3., len(lengths) * 2 / 3.))
-    fig.tight_layout()
-    fig.savefig(figure_fn, bbox_inches='tight')
-    plt.close(fig)
+        start_5_ax.imshow(from_starts_5_array, **kwargs_five)
+        end_5_ax.imshow(from_ends_5_array, **kwargs_five)
+        start_3_ax.imshow(from_starts_3_array, **kwargs_three)
+        end_3_ax.imshow(from_ends_3_array, **kwargs_three)
+
+        index_to_x = {i: x for i, x in enumerate(start_xs)}
+        if zoomed_out:
+            modulus = 30
+        else:
+            modulus = 3
+        xticks = [i for i in range(len(start_xs)) if index_to_x[i] % modulus == 0]
+        xticklabels = [str(index_to_x[i]) for i in xticks]
+
+        for ax in (start_5_ax, start_3_ax):
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xticklabels)
+
+        start_5_ax.set_xlabel('Position of 5\' end of read relative to start of CDS')
+        start_3_ax.set_xlabel('Position of 3\' end of read relative to start of CDS')
+        
+        index_to_x = {i: x for i, x in enumerate(end_xs)}
+        xticks = [i for i in range(len(end_xs)) if index_to_x[i] % modulus == 0]
+        xticklabels = [str(index_to_x[i]) for i in xticks]
+
+        for ax in (end_5_ax, end_3_ax):
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xticklabels)
+
+        end_5_ax.set_xlabel('Position of 5\' end of read relative to stop codon')
+        end_3_ax.set_xlabel('Position of 3\' end of read relative to stop codon')
+        
+        y_ticks = np.arange(len(lengths))
+        y_tick_labels = [str(l) for l in lengths]
+        
+        for ax in (start_5_ax, start_3_ax, end_5_ax, end_3_ax):
+            ax.set_yticks(y_ticks)
+            ax.set_yticklabels(y_tick_labels)
+        
+        fig.set_size_inches((len(start_xs) * 2. / 3., len(lengths) * 2 / 3.))
+        fig.tight_layout()
+        pdf.savefig(fig, bbox_inches='tight')
+        plt.close(fig)
+    pdf.close()
 
 @Sequencing.Visualize.optional_ax
 def plot_joint_positions_scatter(joint_position_counts, transcript, name, ax=None):
