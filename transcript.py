@@ -170,6 +170,8 @@ class Transcript(object):
         if self.strand == '-':
             sequence = utilities.reverse_complement(sequence)
 
+        sequence = np.asarray(sequence, dtype='c')
+
         extent_landmarks = {'start': 0,
                             'end': self.extent_length,
                            }
@@ -194,6 +196,7 @@ class Transcript(object):
         sequence = ''.join(bases).upper()
         if self.strand == '-':
             sequence = utilities.complement(sequence)
+        sequence = np.asarray(sequence, dtype='c')
         
         landmarks = {'start': 0,
                      'start_codon': self.transcript_start_codon,
@@ -211,6 +214,7 @@ class Transcript(object):
     def get_coding_sequence(self):
         transcript_sequence = self.get_transcript_sequence()
         coding_sequence = transcript_sequence['start_codon':('stop_codon', 3)]
+        coding_sequence = ''.join(coding_sequence)
         
         # Ensure that the coding sequence is well-formed.
         try:
