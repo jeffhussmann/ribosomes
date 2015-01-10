@@ -231,15 +231,20 @@ def get_Transcript_extent_position_counts(transcript,
 
     return position_counts
 
-def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, left_buffer=left_buffer, right_buffer=right_buffer):
+def get_Transcript_position_counts(clean_bam_fn,
+                                   transcripts,
+                                   relevant_lengths,
+                                   left_buffer=left_buffer,
+                                   right_buffer=right_buffer,
+                                  ):
     gene_infos = {}
     bam_file = pysam.Samfile(clean_bam_fn)
+    
+    max_nongenomic_length = 5
+
     for transcript in transcripts:
         transcript.build_coordinate_maps(left_buffer, right_buffer)
-        if transcript.CDS_length < 0:
-            print transcript.name, transcript.CDS_length
 
-        expression = np.zeros(2, int)
         nonunique = 0
         alternatively_spliced = 0
         
@@ -248,10 +253,15 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, 
                      'stop_codon': transcript.transcript_stop_codon,
                      'end': transcript.transcript_length,
                     }
-        transcript_position_counts = {l: PositionCounts(landmarks, left_buffer, right_buffer)
-                                      for l in relevant_lengths + ['all']}
+        five_prime_positions = {l: PositionCounts(landmarks, left_buffer, right_buffer)
+                                for l in relevant_lengths + ['all']}
+        
+        three_prime_positions = {l: PositionCounts(landmarks, left_buffer, right_buffer)
+                                 for l in range(max_nongenomic_length + 1) + ['all']}
 
-        transcript_position_counts['sequence'] = transcript.get_transcript_sequence(left_buffer, right_buffer)
+        transcript_sequence = transcript.get_transcript_sequence(left_buffer, right_buffer)
+        five_prime_positions['sequence'] = transcript_sequence
+        three_prime_positions['sequence'] = transcript_sequence
         
         # fetch raises a ValueError if given a negative start, but it doesn't 
         # care if the end is valid.
@@ -269,82 +279,38 @@ def get_Transcript_position_counts(clean_bam_fn, transcripts, relevant_lengths, 
 
             read_strand = '-' if read.is_reverse else '+'
             if read_strand != transcript.strand:
-                expression[1] += 1
                 continue
-
-            expression[0] += 1
-
+            
+            left_edge = read.pos
+            right_edge = read.aend - 1
+            
             if read_strand == '+':
-                five_prime_position = read.pos
+                five_prime_position = left_edge
+                three_prime_position = right_edge
             elif read_strand == '-':
-                five_prime_position = read.aend - 1
+                five_prime_position = right_edge
+                three_prime_position = left_edge
 
             if five_prime_position in transcript.genomic_to_transcript:
                 transcript_coord = transcript.genomic_to_transcript[five_prime_position]
-                transcript_position_counts['all']['start', transcript_coord] += 1
+                five_prime_positions['all']['start', transcript_coord] += 1
+                
                 if read.qlen in relevant_lengths:
-                    transcript_position_counts[read.qlen]['start', transcript_coord] += 1
-
-        gene_infos[transcript.name] = {'CDS_length': transcript.CDS_length,
-                                       'position_counts': transcript_position_counts,
-                                       'expression': expression,
-                                       'nonunique': nonunique,
-                                       'alternatively_spliced': alternatively_spliced,
-                                      }
-        transcript.delete_coordinate_maps()
-
-    return gene_infos
-
-def get_Transcript_polyA_position_counts(extended_bam_fn,
-                                         transcripts,
-                                         max_nongenomic_length,
-                                         left_buffer=left_buffer,
-                                         right_buffer=right_buffer,
-                                        ):
-    gene_infos = {}
-    bam_file = pysam.Samfile(extended_bam_fn)
-    for transcript in transcripts:
-        transcript.build_coordinate_maps(left_buffer, right_buffer)
-
-        landmarks = {'start': 0,
-                     'start_codon': transcript.transcript_start_codon,
-                     'stop_codon': transcript.transcript_stop_codon,
-                     'end': transcript.transcript_length,
-                    }
-        transcript_position_counts = {l: PositionCounts(landmarks, left_buffer, right_buffer)
-                                      for l in range(max_nongenomic_length + 1) + ['all']}
-        
-        # fetch raises a ValueError if given a negative start, but it doesn't 
-        # care if the end is valid.
-        left_edge = max(0, transcript.start - left_buffer)
-        right_edge = transcript.end + right_buffer
-        overlapping_reads = bam_file.fetch(transcript.seqname, left_edge, right_edge)
-        for read in overlapping_reads:
-            if any(transcript.is_spliced_out(position) for position in read.positions):
-                continue
+                    five_prime_positions[read.qlen]['start', transcript_coord] += 1
             
-            if read.mapq != 50:
-                continue
-
-            read_strand = '-' if read.is_reverse else '+'
-            if read_strand != transcript.strand:
-                continue
-
-            if read_strand == '+':
-                three_prime_position = read.aend - 1
-            elif read_strand == '-':
-                three_prime_position = read.pos
-
             if three_prime_position in transcript.genomic_to_transcript:
                 transcript_coord = transcript.genomic_to_transcript[three_prime_position]
-                transcript_position_counts['all']['start', transcript_coord] += 1
+                three_prime_positions['all']['start', transcript_coord] += 1
 
                 nongenomic_length = trim.get_nongenomic_length(read)
                 if nongenomic_length <= max_nongenomic_length:
-                    transcript_position_counts[nongenomic_length]['start', transcript_coord] += 1
+                    three_prime_positions[nongenomic_length]['start', transcript_coord] += 1
 
         gene_infos[transcript.name] = {'CDS_length': transcript.CDS_length,
-                                       'position_counts': transcript_position_counts,
+                                       'five_prime_positions': five_prime_positions,
+                                       'three_prime_positions': three_prime_positions,
+                                       'nonunique': nonunique,
+                                       'alternatively_spliced': alternatively_spliced,
                                       }
         transcript.delete_coordinate_maps()
 
