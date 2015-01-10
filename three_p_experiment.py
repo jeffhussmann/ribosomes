@@ -37,7 +37,7 @@ class ThreePExperiment(rna_experiment.RNAExperiment):
          'extended_filtered',
          'nongenomic_lengths',
         ],
-        ['from_starts_and_ends',
+        ['metagene_positions',
          'three_prime_read_positions',
         ],
     ]
@@ -150,14 +150,14 @@ class ThreePExperiment(rna_experiment.RNAExperiment):
 
     def get_polyA_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        gene_infos = positions.get_Transcript_polyA_position_counts(self.merged_file_names['extended'],
-                                                                    piece_CDSs,
-                                                                    5,
-                                                                    left_buffer=500,
-                                                                    right_buffer=500,
-                                                                   )
+        gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['extended'],
+                                                              piece_CDSs,
+                                                              [],
+                                                              left_buffer=500,
+                                                              right_buffer=500,
+                                                             )
 
-        self.three_prime_read_positions = {name: info['position_counts']
+        self.three_prime_read_positions = {name: info['three_prime_positions']
                                            for name, info in gene_infos.iteritems()}
 
         self.write_file('three_prime_read_positions', self.three_prime_read_positions)
@@ -170,20 +170,23 @@ class ThreePExperiment(rna_experiment.RNAExperiment):
         for name in read_positions:
             gene = {'three_prime_genomic': read_positions[name][0],
                     'three_prime_nongenomic': read_positions[name]['all'] - read_positions[name][0],
+                    'sequence': read_positions[name]['sequence'],
                    }
             processed_read_positions[name] = gene
     
-        from_starts_and_ends = positions.compute_metagene_positions(processed_read_positions, max_gene_length)
+        metagene_positions = positions.compute_metagene_positions(piece_CDSs,
+                                                                  processed_read_positions,
+                                                                  max_gene_length,
+                                                                 )
 
-        self.write_file('from_starts_and_ends', from_starts_and_ends)
+        self.write_file('metagene_positions', metagene_positions)
     
     def plot_starts_and_ends(self):
-        from_starts_and_ends = self.read_file('from_starts_and_ends')
+        metagene_positions = self.read_file('metagene_positions')
 
-        visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
-                                          from_starts_and_ends['from_ends'],
-                                          self.figure_file_names['starts_and_ends_zoomed_out'],
-                                          zoomed_out=True,
+        visualize.plot_metagene_positions(metagene_positions,
+                                          self.figure_file_names['starts_and_ends'],
+                                          ['three_prime_genomic', 'three_prime_nongenomic'],
                                          )
 
     def get_total_eligible_reads(self):

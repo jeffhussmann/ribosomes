@@ -79,8 +79,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
         ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
         ('unambiguous_read_positions', read_positions, '{name}_unambiguous_read_positions.hdf5'),
-        ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
-        ('unambiguous_from_starts', read_positions, '{name}_unambiguous_from_starts.hdf5'),
+        
         ('codon_counts', codon_counts, '{name}_codon_counts.txt'),
         ('codon_counts_anisomycin', codon_counts, '{name}_codon_counts_anisomycin.txt'),
         ('codon_counts_stringent', codon_counts, '{name}_codon_counts_stringent.txt'),

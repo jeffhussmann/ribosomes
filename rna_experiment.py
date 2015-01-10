@@ -17,12 +17,12 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
         ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
-        ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
+        ('metagene_positions', read_positions, '{name}_metagene_positions.hdf5'),
+        ('three_prime_metagene_positions', read_positions, '{name}_three_prime_metagene_positions.hdf5'),
     ]
 
     specific_figure_files = [
         ('starts_and_ends', '{name}_starts_and_ends.pdf'),
-        ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
     ]
     
     specific_outputs = []
@@ -167,7 +167,7 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         max_gene_length = 0
         for CDS in CDSs:
             CDS.build_coordinate_maps()
-            max_gene_length = max(max_gene_length, CDS.CDS_length)
+            max_gene_length = max(max_gene_length, CDS.transcript_length)
             CDS.delete_coordinate_maps()
         
         piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)

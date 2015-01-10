@@ -71,7 +71,6 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
                                  no_sort=True,
                                 )
 
-
     def get_read_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
         gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['bam'],
@@ -89,21 +88,19 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
         read_positions = self.load_read_positions(modifier='five_prime')
-        processed_read_positions = {}
-        for name in read_positions:
-            gene = {'five_prime': read_positions[name]['all']}
-            processed_read_positions[name] = gene
-        from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
+        from_starts_and_ends = positions.compute_metagene_positions(piece_CDSs,
+                                                                    read_positions,
+                                                                    max_gene_length,
+                                                                   )
 
         self.write_file('from_starts_and_ends', from_starts_and_ends)
     
     def plot_starts_and_ends(self):
         from_starts_and_ends = self.read_file('from_starts_and_ends')
 
-        visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
-                                          from_starts_and_ends['from_ends'],
-                                          self.figure_file_names['starts_and_ends_zoomed_out'],
-                                          zoomed_out=True,
+        visualize.plot_metagene_positions(from_starts_and_ends,
+                                          self.figure_file_names['starts_and_ends'],
+                                          ['all'],
                                          )
 
     def combine_mappings(self):
