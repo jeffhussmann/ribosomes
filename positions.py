@@ -421,93 +421,97 @@ def compute_codon_counts(position_counts, offset_type):
 
     return codon_counts
 
-def compute_metagene_positions(position_counts, max_CDS_length):
+def compute_metagene_positions(CDSs, position_counts, max_CDS_length):
     ''' max_CDS_length needs to be passed in because it may reflect the max of
         more than just the CDS being considered here.
     '''
-    random_gene = position_counts.itervalues().next()
-    relevant_lengths = [l for l, counts in random_gene.items() if l != 'sequence']
+    relevant_lengths, left_buffer, right_buffer = extract_lengths_and_buffers(position_counts)
 
-    random_length = relevant_lengths[0]
-    random_position_counts = random_gene[random_length]
-    left_buffer = random_position_counts.left_buffer
-    right_buffer = random_position_counts.right_buffer
-
-    landmarks = {'start_codon': 0,
+    landmarks = {'start': 0,
+                 'start_codon': 0,
                  'stop_codon': max_CDS_length,
-                }
-    from_starts = {length: PositionCounts(landmarks, left_buffer, right_buffer)
-                   for length in relevant_lengths}
-    from_ends = {length: PositionCounts(landmarks, left_buffer, right_buffer)
-                 for length in relevant_lengths}
-    
-    for name, counts in position_counts.iteritems():
-        CDS_length = counts[random_length].CDS_length
-        start_slice = ('start_codon', slice(-left_buffer, CDS_length))
-        end_slice = ('stop_codon', slice(-CDS_length, right_buffer))
-        for length in relevant_lengths:
-            from_starts[length][start_slice] += counts[length][start_slice]
-            from_ends[length][end_slice] += counts[length][end_slice]
-
-    from_starts_and_ends = {'from_starts': from_starts,
-                            'from_ends': from_ends,
-                           }
-    return from_starts_and_ends
-
-def compute_metagene_positions_by_base(position_counts, max_CDS_length):
-    ''' max_CDS_length needs to be passed in because it may reflect the max of
-        more than just the CDS being considered here.
-    '''
-    random_gene = position_counts.itervalues().next()
-    relevant_lengths = [l for l, counts in random_gene.items() if l != 'sequence']
-    random_length = relevant_lengths[0]
-    random_position_counts = random_gene[random_length]
-    left_buffer = random_position_counts.left_buffer
-    right_buffer = random_position_counts.right_buffer
-
-    landmarks = {'start_codon': 0,
-                 'stop_codon': max_CDS_length,
+                 'end': max_CDS_length,
                 }
 
-    from_starts = {}
-    from_ends = {}
-    for b in 'TCAG':
-        from_starts[b] = {length: PositionCounts(landmarks, left_buffer, right_buffer)
-                          for length in relevant_lengths}
-        from_starts[b + '_uniform'] = {length: PositionCounts(landmarks, left_buffer, right_buffer, dtype=float)
-                                       for length in relevant_lengths}
+    def make_PositionCounts_dictionary(**kwargs):
+        d = {length: PositionCounts(landmarks, left_buffer, right_buffer, **kwargs)
+             for length in relevant_lengths}
+        return d
 
-        from_ends[b] = {length: PositionCounts(landmarks, left_buffer, right_buffer)
-                        for length in relevant_lengths}
-        from_ends[b + '_uniform'] = {length: PositionCounts(landmarks, left_buffer, right_buffer, dtype=float)
-                        for length in relevant_lengths}
-
-    total = 0
-    for name, counts in position_counts.iteritems():
-        CDS_length = counts[random_length].CDS_length
-        start_slice = ('start_codon', slice(-left_buffer, CDS_length))
-        end_slice = ('stop_codon', slice(-CDS_length, right_buffer))
-
+    metagene_positions = {}
+    for landmark in landmarks:
+        metagene_positions[landmark] = make_PositionCounts_dictionary()
+        uniform_key = '{0}_uniform'.format(landmark)
+        metagene_positions[uniform_key] = make_PositionCounts_dictionary(dtype=float)
         for b in 'TCAG':
-            base_mask_start = counts['sequence'][start_slice] == b
-            base_mask_end = counts['sequence'][end_slice] == b
-            for length in relevant_lengths:
+            key = '{0}_{1}'.format(landmark, b)
+            metagene_positions[key] = make_PositionCounts_dictionary()
+            
+            uniform_key = '{0}_{1}_uniform'.format(landmark, b)
+            metagene_positions[uniform_key] = make_PositionCounts_dictionary(dtype=float)
+
+    for CDS in CDSs:
+        # Skip CDSs that overlap other qualifying features or that have another
+        # too close.
+        if CDS.num_overlapping > 0:
+            continue
+
+        CDS.build_coordinate_maps(left_buffer, right_buffer)
+        downstream = CDS.genomic_to_transcript.get(CDS.downstream_transcript)
+        if downstream != None:
+            if downstream - CDS.transcript_stop_codon < 100:
+                continue
+
+        counts = position_counts[CDS.name]
+        CDS_length = CDS.CDS_length
+        
+        landmark_slices = [('start', slice(-left_buffer, CDS_length)),
+                           ('start_codon', slice(-left_buffer, CDS_length)),
+                           ('stop_codon', slice(-CDS_length, right_buffer)),
+                           ('end', slice(-CDS_length, right_buffer)),
+                          ]
+
+        for length in relevant_lengths:
+            for landmark_slice in landmark_slices:
+                landmark, _ = landmark_slice
+                sliced_counts = counts[length][landmark_slice]
+                metagene_positions[landmark][length][landmark_slice] += sliced_counts
+
+                density = sliced_counts.sum() / float(len(sliced_counts))
+                uniform_counts = np.ones_like(sliced_counts) * density
+                    
+                uniform_key = '{0}_uniform'.format(landmark)
+                metagene_positions[uniform_key][length][landmark_slice] += uniform_counts
                 
-                start_counts = counts[length][start_slice]
-                start_uniform = np.ones_like(start_counts) * start_counts.sum() / float(len(start_counts))
-                from_starts[b + '_uniform'][length][start_slice] += np.multiply(start_uniform, base_mask_start)
-                
-                end_counts = counts[length][end_slice]
-                end_uniform = np.ones_like(end_counts) * end_counts.sum() / float(len(end_counts))
-                from_ends[b + '_uniform'][length][end_slice] += np.multiply(end_uniform, base_mask_end)
+                for b in 'TCAG':
+                    base_mask = counts['sequence'][landmark_slice] == b
+                    base_counts = np.multiply(sliced_counts, base_mask)
+                    key = '{0}_{1}'.format(landmark, b)
+                    metagene_positions[key][length][landmark_slice] += base_counts 
 
-                start_base_counts = np.multiply(start_counts, base_mask_start)
-                end_base_counts = np.multiply(end_counts, base_mask_end)
+                    # Metagene base composition could be skewed simply because
+                    # highly expressed genes happen to have a particular base
+                    # at a given offset, rather than because that base is really
+                    # occuring more often than its neighbors.
+                    # To control for expression-weighted composition, compute
+                    # the average read density for each gene and sum up
+                    # base-masked arrays of it.
+                    uniform_key = '{0}_{1}_uniform'.format(landmark, b)
+                    uniform_base_counts = np.multiply(uniform_counts, base_mask)
+                    metagene_positions[uniform_key][length][landmark_slice] += uniform_base_counts
+                    
+        CDS.delete_coordinate_maps()
 
-                from_starts[b][length][start_slice] += start_base_counts
-                from_ends[b][length][end_slice] += end_base_counts
+    return metagene_positions
 
-    return from_starts, from_ends
+def extract_lengths_and_buffers(position_counts):
+    arbitrary_gene = position_counts.itervalues().next()
+    relevant_lengths = [l for l in arbitrary_gene if l != 'sequence']
+    arbitrary_length = relevant_lengths[0]
+    arbitrary_counts = arbitrary_gene[arbitrary_length]
+    left_buffer = arbitrary_counts.left_buffer
+    right_buffer = arbitrary_counts.right_buffer
+    return relevant_lengths, left_buffer, right_buffer
 
 def compute_averaged_codon_densities(codon_counts, offset_key='relaxed', names_to_skip=set()): 
     # To reduce noise, genes with less than min_counts total counts are ignored.
