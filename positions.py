@@ -410,10 +410,10 @@ def compute_codon_counts(position_counts, offset_type):
     # subsequent data show an accumulation of (typically length 29 or 30) reads
     # that do advance this far.
     num_codons = CDS_length // 3
-    codon_counts = PositionCounts({'start_codon': 0, 'stop_codon': num_codons},
-                                  codon_buffer,
-                                  codon_buffer,
-                                 )
+    landmarks = {'start_codon': 0,
+                 'stop_codon': num_codons,
+                }
+    codon_counts = PositionCounts(landmarks, codon_buffer, codon_buffer)
 
     recorded_lengths = set(position_counts.keys())
     known_A_site_lengths = set(A_site_offsets[offset_type].keys())
@@ -429,7 +429,15 @@ def compute_codon_counts(position_counts, offset_type):
                              position_counts[length]['start_codon', one_behind] + \
                              position_counts[length]['start_codon', one_ahead]
 
-    return codon_counts
+    sequence_slice = slice(('start_codon', -codon_buffer * 3), ('stop_codon', codon_buffer * 3))
+    sequence = ''.join(position_counts['sequence'][sequence_slice])
+    codon_identities_list = list(codons.codons_from_seq(sequence))
+    codon_identities = PositionCounts(landmarks,
+                                      codon_buffer,
+                                      codon_buffer,
+                                      data = np.asarray(codon_identities_list),
+                                     )
+    return codon_counts, codon_identities
 
 def compute_metagene_positions(CDSs, position_counts, max_CDS_length):
     ''' max_CDS_length needs to be passed in because it may reflect the max of

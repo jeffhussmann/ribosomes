@@ -845,14 +845,16 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         codon_counts_stringent = {}
         codon_counts_anisomycin = {}
         for name, position_counts in read_positions.iteritems():
-            buffered_counts = positions.compute_codon_counts(position_counts, self.offset_type)
-            buffered_counts_stringent = positions.compute_codon_counts(position_counts, self.offset_type + '_stringent')
-            buffered_counts_anisomycin = positions.compute_codon_counts(position_counts, self.offset_type + '_anisomycin')
+            buffered_counts, identities = positions.compute_codon_counts(position_counts, self.offset_type)
+            buffered_counts_stringent, _ = positions.compute_codon_counts(position_counts, self.offset_type + '_stringent')
+            buffered_counts_anisomycin, _ = positions.compute_codon_counts(position_counts, self.offset_type + '_anisomycin')
             buffered_codon_counts[name] = {'relaxed': buffered_counts,
                                            'stringent': buffered_counts_stringent,
                                            'anisomycin': buffered_counts_anisomycin,
+                                           'identities': identities,
                                           }
             num_codons = buffered_counts.CDS_length
+
             # + 1 is to include the stop codon
             codon_counts[name] = buffered_counts['start_codon', :num_codons + 1]
             codon_counts_stringent[name] = buffered_counts_stringent['start_codon', :num_codons + 1]
