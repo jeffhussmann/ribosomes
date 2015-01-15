@@ -112,6 +112,16 @@ class PositionCounts(object):
         else:
             raise NotImplementedError
 
+    def n_largest_over_slice(self, n, landmark_and_key):
+        landmark, key = landmark_and_key
+        
+        if isinstance(key, (list, np.ndarray)):
+            counts = self[landmark, key]
+            n_largest = counts.argsort()[:-(n + 1):-1]
+            return key[n_largest]
+        else:
+            raise NotImplementedError
+
     @property
     def CDS_length(self):
         return self.landmarks['stop_codon'] - self.landmarks['start_codon']
