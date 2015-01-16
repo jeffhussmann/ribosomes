@@ -159,10 +159,11 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         self.write_file('trimmed_lengths', trimmed_lengths)
         self.write_file('too_short_lengths', too_short_lengths)
 
-    def get_CDSs(self):
+    def get_CDSs(self, force_all=False):
         all_CDSs = gff.get_CDSs(self.file_names['genes'],
                                 self.file_names['genome'],
                                )
+
         if self.transcripts_file_name == None:
             CDSs = all_CDSs
         else:
@@ -175,5 +176,9 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
             max_gene_length = max(max_gene_length, CDS.transcript_length)
             CDS.delete_coordinate_maps()
         
-        piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
+        if force_all:
+            piece_CDSs = CDSs
+        else:
+            piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
+
         return piece_CDSs, max_gene_length
