@@ -17,12 +17,14 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
         ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
+        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
         ('metagene_positions', read_positions, '{name}_metagene_positions.hdf5'),
         ('three_prime_metagene_positions', read_positions, '{name}_three_prime_metagene_positions.hdf5'),
     ]
 
     specific_figure_files = [
         ('starts_and_ends', '{name}_starts_and_ends.pdf'),
+        ('three_prime_starts_and_ends', '{name}_three_prime_starts_and_ends.pdf'),
     ]
     
     specific_outputs = []
@@ -45,13 +47,13 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         self.organism_files = [
             ('bowtie2_index_prefix', 'genome/genome'),
             ('genome', 'genome'),
-            ('genes', 'transcriptome/genes.gff'),
-            ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
+            ('genes', 'transcriptome/genes{0}.gff'.format(self.bootstrap)),
+            ('transcriptome_index', 'transcriptome/bowtie2_index/genes{0}'.format(self.bootstrap)),
             ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
             ('oligos', 'contaminant/subtraction_oligos.fasta'),
             ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
         ]
-        
+
         self.data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
         
         for key, tail in self.organism_files:
