@@ -374,10 +374,10 @@ if __name__ == '__main__':
     with_exons_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes_with_exons.gff'
     final_fn = '/home/jah/projects/ribosomes/data/organisms/saccharomyces_cerevisiae/EF4/transcriptome/genes.gff'
 
-    ##convert_SGD_file(original_gff_fn, with_exons_fn)
+    convert_SGD_file(original_gff_fn, with_exons_fn)
 
     ## This assumes that the experiments used in call_UTR_boundaries have been
     ## run using with_exons_fn as the source of gene models.
-    #call_UTRs.call_UTR_boundaries(boundaries_fn)
+    call_UTRs.call_UTR_boundaries(boundaries_fn)
 
     extend_UTRs(with_exons_fn, final_fn, boundaries_fn, genome_dir)
