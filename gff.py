@@ -301,14 +301,17 @@ def get_top_level_features(features):
     top_level_features = [f for f in features if f.parent == None]
     return top_level_features
 
-def get_CDSs(gff_fn, genome_dir):
+def get_CDSs(gff_fn, genome_dir, annotate_nearby=False):
     all_features = get_all_features(gff_fn)
+    if annotate_nearby:
+        mark_nearby(all_features, genome_dir)
     genes = transcript.get_gff_transcripts(all_features, genome_dir)
     translated_genes = [g for g in genes if g.CDSs]
     return translated_genes
 
 def get_noncoding_RNA_transcripts(gff_fn):
-    genes = gff_transcript.get_genes(gff_fn, '/dev/null')
+    all_features = get_all_features(gff_fn)
+    genes = transcript.get_gff_transcripts(all_features, '/dev/null')
     rRNA_transcripts = []
     tRNA_transcripts = []
     other_ncRNA_transcripts = []
@@ -322,15 +325,20 @@ def get_noncoding_RNA_transcripts(gff_fn):
     return rRNA_transcripts, tRNA_transcripts, other_ncRNA_transcripts
 
 def mark_nearby(all_features, genome_dir):
-    top_level_features = get_top_level_features(all_features)
-    overlap_finder = interval_tree.NamedOverlapFinder(top_level_features, genome_dir)
-
-    def is_interesting(possible, main):
+    def is_nontrivial(possible):
         if possible.feature in ['chromosome', 'landmark', 'ARS', 'region']:
             return False
-        elif possible == main:
-            return False
         elif possible.attribute.get('orf_classification') == 'Dubious':
+            return False
+        else:
+            return True
+    
+    top_level_features = get_top_level_features(all_features)
+    nontrivial_features = filter(is_nontrivial, top_level_features)
+    overlap_finder = interval_tree.NamedOverlapFinder(nontrivial_features, genome_dir)
+
+    def is_relevant_to(possible, main):
+        if possible == main:
             return False
         elif main.strand != '.' and possible.strand != '.' and main.strand != possible.strand:
             return False
@@ -342,7 +350,7 @@ def mark_nearby(all_features, genome_dir):
                                                  top_level.start,
                                                  top_level.end,
                                                 )
-        overlapping = [f for f in overlapping if is_interesting(f, top_level)]
+        overlapping = [f for f in overlapping if is_relevant_to(f, top_level)]
 
         before = overlap_finder.find_closest_before(top_level.seqname,
                                                     top_level.strand,
