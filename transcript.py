@@ -77,10 +77,10 @@ class Transcript(object):
         ''' Make dictionaries mapping from genomic coordinates to transcript
             coordinates and vice-versa.
         '''
-        self.num_overlapping = int(self.top_level_feature.attribute.get('overlapping'))
+        self.num_overlapping = int(self.top_level_feature.attribute.get('overlapping', 0))
 
-        closest_left = int(self.top_level_feature.attribute.get('closest_left'))
-        closest_right = int(self.top_level_feature.attribute.get('closest_right'))
+        closest_left = int(self.top_level_feature.attribute.get('closest_left', 0))
+        closest_right = int(self.top_level_feature.attribute.get('closest_right', 1e10))
         
         if self.strand == '+':
             self.upstream_transcript = closest_left
