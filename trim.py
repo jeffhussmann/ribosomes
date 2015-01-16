@@ -276,7 +276,8 @@ def extend_polyA_end(mapping, region_fetcher, trimmed_twice=False):
 
 def get_nongenomic_length(mapping):
     tags = {name: value for name, value in mapping.tags}
-    nongenomic_length = tags['ZN']
+    # If ZN wasn't set, we want to return 0.
+    nongenomic_length = tags.get('ZN', 0)
     return nongenomic_length
 
 def set_nongenomic_length(mapping, nongenomic_length):
