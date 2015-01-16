@@ -11,6 +11,7 @@ from Sequencing import genomes
 import h5py
 import gtf
 import operator
+import Circles.variants as variants
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
@@ -648,12 +649,12 @@ def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, len
     fig.savefig(fig_fn, bbox_inches='tight')
 
 def plot_frameshifts(gtf_fn,
-                         bam_fns,
-                         gene_name,
-                         exp_name,
-                         genome_dir,
-                         show_fractions=False,
-                        ):
+                     bam_fns,
+                     gene_name,
+                     exp_name,
+                     genome_dir,
+                     show_fractions=False,
+                    ):
     codon_buffer = 10 
     start_codon = 'ATG'
     stop_codons = {'TAA', 'TAG', 'TGA'}
@@ -806,23 +807,12 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
     length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
     
     fig, axs = plt.subplots(len(nonzero_lengths), 2, figsize=(24, 8 * len(nonzero_lengths)))
-
-    min_qual = 30
+    
+    base_order = utilities.base_order[:4]
 
     for length, (absolute_ax, zoomed_ax) in zip(nonzero_lengths, axs):
         length_counts = type_counts[length_to_index[length]]
-        num_positions, _, _, _ = length_counts.shape
-        all_rates = np.zeros((num_positions, 4))
-        base_order = utilities.base_order[:4]
-        for p in range(num_positions):
-            position_ms = length_counts[p][min_qual:].sum(axis=0)
-            calls_of_each_type = position_ms.sum(axis=0)
-            bad_calls = calls_of_each_type - position_ms.diagonal()
-            total_calls = np.maximum(1, calls_of_each_type.sum())
-            # rates is the fraction of all calls at this position that were of each
-            # type when they shouldn't have been
-            rates = np.true_divide(bad_calls, total_calls)
-            all_rates[p] = rates[:4]
+        all_rates = variants.compute_fractions_miscalled_as(length_counts, min_q=30)
 
         xs = np.arange(length)
         for ax in [absolute_ax, zoomed_ax]:
