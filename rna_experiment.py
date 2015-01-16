@@ -37,6 +37,11 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
         self.transcripts_file_name = kwargs.get('transcripts_file_name', None)
         
+        # As part of the process of determining gene annotation boundaries,
+        # experiments need to be run on placeholder gene models.
+        # This is controlled by setting bootstrap to a file name suffix.
+        self.bootstrap = kwargs.get('bootstrap', '')
+        
         self.organism_files = [
             ('bowtie2_index_prefix', 'genome/genome'),
             ('genome', 'genome'),
