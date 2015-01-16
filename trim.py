@@ -284,200 +284,169 @@ def set_nongenomic_length(mapping, nongenomic_length):
     # setTag throws a fit if it is is given a long, so coerce to int
     mapping.setTag('ZN', int(nongenomic_length))
 
-def trim_mismatches_from_start(bam_fn, trimmed_bam_fn, genome_dir, relevant_lengths, max_read_length):
+def trim_mismatches_from_start(mapping, region_fetcher, type_counts):
     ''' Remove all consecutive Q30+ mismatches from the beginning of alignments,
         under the assumption that these represent untemplated additions during
         reverse transcription.
-        Characterize the mismatches.
+        Characterize the mismatches into type_counts.
     '''
-    type_shape = (len(relevant_lengths),
-                  max_read_length,
-                  fastq.MAX_EXPECTED_QUAL + 1,
-                  6,
-                  6,
-                 )
-    type_counts = np.zeros(type_shape, int)
-    length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
+    if sam.contains_indel_pysam(mapping) or mapping.is_unmapped:
+        set_nongenomic_length(mapping, 0)
+        return mapping
+
+    if mapping.is_reverse:
+        aligned_pairs = mapping.aligned_pairs[::-1]
+        index_lookup = utilities.base_to_complement_index
+    else:
+        aligned_pairs = mapping.aligned_pairs
+        index_lookup = utilities.base_to_index
+
+    decoded_qual = fastq.decode_sanger(mapping.qual)
     
-    bam_file = pysam.Samfile(bam_fn)
-    region_fetcher = genomes.build_region_fetcher(genome_dir,
-                                                  load_references=True,
-                                                  sam_file=bam_file,
-                                                 )
+    bases_to_trim = 0
+    found_trim_point = False
+    first_ref_index = None
+    for read_index, ref_index in aligned_pairs:
+        if read_index == None:
+            # This shouldn't be able to be triggered since alignments
+            # containing indels are ruled out above.
+            continue
 
-    with pysam.Samfile(trimmed_bam_fn, 'wb', template=bam_file) as trimmed_bam_file:
-        for mapping in bam_file:
-            if sam.contains_indel_pysam(mapping) or mapping.is_unmapped:
-                trimmed_bam_file.write(mapping)
-                continue
+        if mapping.is_reverse:
+            corrected_read_index = mapping.qlen - 1 - read_index
+        else:
+            corrected_read_index = read_index
 
-            if mapping.is_reverse:
-                aligned_pairs = mapping.aligned_pairs[::-1]
-                index_lookup = utilities.base_to_complement_index
+        ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+        read_base = mapping.seq[read_index]
+        read_qual = decoded_qual[read_index]
+        coords = (mapping.qlen,
+                  corrected_read_index,
+                  read_qual,
+                  index_lookup[ref_base],
+                  index_lookup[read_base],
+                 )
+        type_counts[coords] += 1
+
+        if not found_trim_point:
+            if read_base != ref_base and read_qual >= 30:
+                bases_to_trim += 1
             else:
-                aligned_pairs = mapping.aligned_pairs
-                index_lookup = utilities.base_to_index
+                first_ref_index = ref_index
+                found_trim_point = True
 
-            decoded_qual = fastq.decode_sanger(mapping.qual)
-            length_index = length_to_index.get(mapping.qlen, None)
-            
-            bases_to_trim = 0
-            found_trim_point = False
-            first_ref_index = None
-            for read_index, ref_index in aligned_pairs:
-                if read_index == None:
-                    # This shouldn't be able to be triggered since alignments
-                    # containing indels are ruled out above.
-                    continue
+    if first_ref_index == None:
+        raise ValueError('first_ref_index not set')
 
-                if mapping.is_reverse:
-                    corrected_read_index = mapping.qlen - 1 - read_index
-                else:
-                    corrected_read_index = read_index
+    if bases_to_trim == 0:
+        trimmed_mapping = mapping
+    else:
+        trimmed_mapping = pysam.AlignedRead()
+        trimmed_mapping.qname = mapping.qname
+        trimmed_mapping.tid = mapping.tid
+        
+        # first_ref_index has been set above to the be index of the
+        # reference base aligned to the first non-trimmed base in the
+        # read. If the mapping is forward, this will be the new pos.
+        # If the mapping is reverse, the pos won't change.
+        if mapping.is_reverse:
+            first_ref_index = mapping.pos
+        trimmed_mapping.pos = first_ref_index
 
-                ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
-                read_base = mapping.seq[read_index]
-                read_qual = decoded_qual[read_index]
-                if length_index != None:
-                    coords = (length_index,
-                              corrected_read_index,
-                              read_qual,
-                              index_lookup[ref_base],
-                              index_lookup[read_base],
-                             )
-                    type_counts[coords] += 1
+        trimmed_mapping.is_reverse = mapping.is_reverse
+        trimmed_mapping.is_secondary = mapping.is_secondary
+        trimmed_mapping.mapq = mapping.mapq
 
-                if not found_trim_point:
-                    if read_base != ref_base and read_qual >= 30:
-                        bases_to_trim += 1
-                    else:
-                        first_ref_index = ref_index
-                        found_trim_point = True
+        if mapping.is_reverse:
+            # bases_to_trim is never zero here, so there is no danger
+            # of minus zero
+            trimmed_slice = slice(None, -bases_to_trim)
+        else:
+            trimmed_slice = slice(bases_to_trim, None)
 
-            if first_ref_index == None:
-                raise ValueError('first_ref_index not set')
+        trimmed_mapping.seq = mapping.seq[trimmed_slice]
+        trimmed_mapping.qual = mapping.qual[trimmed_slice]
+        trimmed_mapping.rnext = -1
+        trimmed_mapping.pnext = -1
 
-            if bases_to_trim == 0:
-                trimmed_mapping = mapping
-            else:
-                trimmed_mapping = pysam.AlignedRead()
-                trimmed_mapping.qname = mapping.qname
-                trimmed_mapping.tid = mapping.tid
-                
-                # first_ref_index has been set above to the be index of the
-                # reference base aligned to the first non-trimmed base in the
-                # read. If the mapping is forward, this will be the new pos.
-                # If the mapping is reverse, the pos won't change.
-                if mapping.is_reverse:
-                    first_ref_index = mapping.pos
-                trimmed_mapping.pos = first_ref_index
+        trimmed_length = len(mapping.seq) - bases_to_trim
+        if mapping.is_reverse:
+            # Remove blocks from the end
+            trimmed_cigar = sam.truncate_cigar_blocks_up_to(mapping.cigar, trimmed_length)
+        else:
+            # Remove blocks from the beginning
+            trimmed_cigar = sam.truncate_cigar_blocks_from_beginning(mapping.cigar, trimmed_length)
+        
+        trimmed_mapping.cigar = trimmed_cigar
 
-                trimmed_mapping.is_reverse = mapping.is_reverse
-                trimmed_mapping.mapq = mapping.mapq
+    return trimmed_mapping
 
-                if mapping.is_reverse:
-                    # bases_to_trim is never zero here, so there is no danger
-                    # of minus zero
-                    trimmed_slice = slice(None, -bases_to_trim)
-                else:
-                    trimmed_slice = slice(bases_to_trim, None)
-
-                trimmed_mapping.seq = mapping.seq[trimmed_slice]
-                trimmed_mapping.qual = mapping.qual[trimmed_slice]
-                trimmed_mapping.rnext = -1
-                trimmed_mapping.pnext = -1
-
-                trimmed_length = len(mapping.seq) - bases_to_trim
-                if mapping.is_reverse:
-                    # Remove blocks from the end
-                    trimmed_cigar = sam.truncate_cigar_blocks_up_to(mapping.cigar, trimmed_length)
-                else:
-                    # Remove blocks from the beginning
-                    trimmed_cigar = sam.truncate_cigar_blocks_from_beginning(mapping.cigar, trimmed_length)
-                
-                trimmed_mapping.cigar = trimmed_cigar
-
-            trimmed_bam_file.write(trimmed_mapping)
-
-    return type_counts
-
-def trim_nongenomic_polyA_from_end(bam_fn, trimmed_bam_fn, genome_dir):
+def trim_nongenomic_polyA_from_end(mapping, region_fetcher):
     ''' If a mapping ends in a polyA stretch, soft clip from the first
     nongenomic A onward.
     '''
-    bam_file = pysam.Samfile(bam_fn)
-    region_fetcher = genomes.build_region_fetcher(genome_dir,
-                                                  load_references=True,
-                                                  sam_file=bam_file,
-                                                 )
+    if sam.contains_indel_pysam(mapping) or mapping.is_unmapped:
+        return mapping
 
-    with pysam.Samfile(trimmed_bam_fn, 'wb', template=bam_file) as trimmed_bam_file:
-        for mapping in bam_file:
-            if sam.contains_indel_pysam(mapping):
+    first_ref_index = None
+    if mapping.is_reverse:
+        bases_to_trim = 0
+        poly_T_end = find_poly_T(mapping.seq)
+        for read_index, ref_index in mapping.aligned_pairs[::-1]:
+            if read_index == None:
+                # indels are filtered out above, so this can only be 
+                # a skip from splicing
                 continue
-            if mapping.is_unmapped:
-                trimmed_bam_file.write(mapping)
+            if read_index > poly_T_end:
+                first_ref_index = ref_index
                 continue
-
-            first_ref_index = None
-            if mapping.is_reverse:
-                bases_to_trim = 0
-                poly_T_end = find_poly_T(mapping.seq)
-                for read_index, ref_index in mapping.aligned_pairs[::-1]:
-                    if read_index == None:
-                        # indels are filtered out above, so this can only be 
-                        # a skip from splicing
-                        continue
-                    if read_index > poly_T_end:
-                        first_ref_index = ref_index
-                        continue
-                    ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
-                    if ref_base != 'T':
-                        bases_to_trim = read_index + 1
-                        break
-                    else:
-                        # first_ref_index needs to be set to the last position
-                        # that passed that 'are you genomic?' test
-                        first_ref_index = ref_index
+            ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+            if ref_base != 'T':
+                bases_to_trim = read_index + 1
+                break
             else:
-                first_ref_index = mapping.pos
-                bases_to_trim = 0
-                poly_A_start = find_poly_A(mapping.seq)
-                for read_index, ref_index in mapping.aligned_pairs:
-                    if read_index < poly_A_start:
-                        continue
-                    ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
-                    if ref_base != 'A':
-                        bases_to_trim = len(mapping.seq) - read_index
-                        break
-            
-            if first_ref_index == None:
-                print mapping
-                raise ValueError('first_ref_index not set')
+                # first_ref_index needs to be set to the last position
+                # that passed that 'are you genomic?' test
+                first_ref_index = ref_index
+    else:
+        first_ref_index = mapping.pos
+        bases_to_trim = 0
+        poly_A_start = find_poly_A(mapping.seq)
+        for read_index, ref_index in mapping.aligned_pairs:
+            if read_index < poly_A_start:
+                continue
+            ref_base = region_fetcher(mapping.tid, ref_index, ref_index + 1)
+            if ref_base != 'A':
+                bases_to_trim = len(mapping.seq) - read_index
+                break
+    
+    if first_ref_index == None:
+        print mapping
+        raise ValueError('first_ref_index not set')
 
-            if bases_to_trim > 0:
-                mapping.pos = first_ref_index
+    if bases_to_trim > 0:
+        mapping.pos = first_ref_index
 
-                trimmed_length = len(mapping.seq) - bases_to_trim
-                soft_clipped_block = [(sam.BAM_CSOFT_CLIP, bases_to_trim)]
-                if mapping.is_reverse:
-                    # Remove blocks from the beginning.
-                    trimmed_cigar = sam.truncate_cigar_blocks_from_beginning(mapping.cigar, trimmed_length)
-                    updated_cigar = soft_clipped_block + trimmed_cigar
-                else:
-                    # Remove blocks from the end.
-                    trimmed_cigar = sam.truncate_cigar_blocks_up_to(mapping.cigar, trimmed_length)
-                    updated_cigar = trimmed_cigar + soft_clipped_block
-                
-                mapping.cigar = updated_cigar
-            
-            if mapping.tags:
-                # Clear the MD tag since the possible removal of bases to the
-                # alignment may have made it inaccurate. 
-                # TODO: now have machinery to make it accurate.
-                filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
-                mapping.tags = filtered_tags
+        trimmed_length = len(mapping.seq) - bases_to_trim
+        soft_clipped_block = [(sam.BAM_CSOFT_CLIP, bases_to_trim)]
+        if mapping.is_reverse:
+            # Remove blocks from the beginning.
+            trimmed_cigar = sam.truncate_cigar_blocks_from_beginning(mapping.cigar, trimmed_length)
+            updated_cigar = soft_clipped_block + trimmed_cigar
+        else:
+            # Remove blocks from the end.
+            trimmed_cigar = sam.truncate_cigar_blocks_up_to(mapping.cigar, trimmed_length)
+            updated_cigar = trimmed_cigar + soft_clipped_block
+        
+        mapping.cigar = updated_cigar
+    
+    if mapping.tags:
+        # Clear the MD tag since the possible removal of bases to the
+        # alignment may have made it inaccurate. 
+        # TODO: now have machinery to make it accurate.
+        filtered_tags = filter(lambda t: t[0] != 'MD', mapping.tags)
+        mapping.tags = filtered_tags
 
-            set_nongenomic_length(mapping, bases_to_trim)
+    set_nongenomic_length(mapping, bases_to_trim)
 
-            trimmed_bam_file.write(mapping)
+    return mapping
