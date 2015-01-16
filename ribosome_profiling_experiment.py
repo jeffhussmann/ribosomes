@@ -14,6 +14,7 @@ import composition
 import codons
 import visualize
 import rna_experiment
+import examine_specific_codon
 from Sequencing import mapping_tools, fastq, sam, utilities, fasta, annotation
 import Sequencing.genomes as genomes
 from Sequencing import visualize_structure
