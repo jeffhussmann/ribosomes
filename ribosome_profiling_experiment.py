@@ -66,6 +66,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
         ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
+        ('codon_to_examine', counts, '{name}_codon_to_examine.txt'),
+
         ('phiX_bam', 'bam', '{name}_phiX.bam'),
 
         ('clean_trimmed_bam', 'bam', '{name}_clean_trimmed.bam'),
@@ -244,6 +246,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.trim_function = trim.bound_trim[self.adapter_type]
 
+        codon_to_examine = kwargs.get('codon_to_examine')
+        if codon_to_examine:
+            gene_name, codon_number = codon_to_examine.split(',')
+            self.codon_to_examine = (gene_name, int(codon_number))
+        else:
+            self.codon_to_examine = None
+
     def compute_base_composition(self):
         seq_info_pairs = composition.get_seq_info_pairs(self.file_names['clean_bam'])
         all_array, perfect_array = composition.length_stratified_composition(seq_info_pairs, self.max_read_length)
@@ -267,6 +276,21 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                            self.figure_file_names['clean_composition_perfect'],
                                            lengths=self.relevant_lengths + ['all', 'all_from_right'],
                                           )
+
+    def examine_specific_codon(self):
+        if self.codon_to_examine == None:
+            triplets = Counter()
+        else:
+            gene_name, codon_number = self.codon_to_examine
+
+            reads = fastq.reads(self.file_names['preprocessed_reads'])
+            CDSs, _ = self.get_CDSs(force_all=True)
+            CDSs = {c.name: c for c in CDSs}
+            gene = CDSs[gene_name]
+
+            triplets = examine_specific_codon.count_triplets(reads, gene, codon_number)
+
+        self.write_file('codon_to_examine', triplets)
 
     def preprocess(self):
         reads = self.get_reads()
