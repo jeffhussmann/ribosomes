@@ -167,6 +167,21 @@ def get_read_lengths():
                 print group, name
     print read_lengths.most_common()
 
+def gerashchenko_nar_sorting_key(name):
+    _, concentration = name.split('_', 1)
+    concentration, _ = concentration.split('CHX')
+    if concentration == 'no':
+        concentration = 0
+    else:
+        concentration = concentration.strip('_x')
+        if '_' in concentration:
+            num, denom = concentration.split('_')
+            concentration = float(num) / float(denom)
+        else:
+            concentration = int(concentration)
+
+    return concentration
+
 def make_averaged_codon_densities_plot():
     experiments = build_all_experiments(verbose=False)
     
