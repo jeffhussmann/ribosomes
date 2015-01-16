@@ -7,6 +7,8 @@ import visualize
 import contaminants
 from collections import Counter
 
+experiment_from_file_name = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
+
 def build_all_experiments(verbose=True):
     families = ['zinshteyn_plos_genetics',
                 'ingolia_science',
@@ -17,7 +19,10 @@ def build_all_experiments(verbose=True):
                 'guydosh_cell',
                 'mcmanus_gr',
                 'artieri',
+                'artieri_gr_2',
                 'lareau_elife',
+                'belgium_2014_12_10',
+                'belgium_2014_10_27',
                 'belgium_2014_08_07',
                 'belgium_2014_03_05',
                 'belgium_2013_08_06',
@@ -34,7 +39,7 @@ def build_all_experiments(verbose=True):
             if verbose:
                 print '\t', name
             description_file_name = '{0}/job/description.txt'.format(d)
-            experiments[family][name] = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name(description_file_name)
+            experiments[family][name] = experiment_from_file_name(description_file_name)
 
     return experiments
 

@@ -5,59 +5,138 @@ import Sequencing.utilities as utilities
 import matplotlib.pyplot as plt
 import gff
 import transcript
+import glob
+import os
 
-def call_UTR_boundaries(boundaries_fn):
+def build_all_experiments(verbose=True):
     import three_p_experiment
     import TL_seq_experiment
-    three_prime_description_fn = '/home/jah/projects/ribosomes/experiments/three_p_seq/Cerevisiae_3Pseq/job/description.txt'
-    three_prime_exp = three_p_experiment.ThreePExperiment.from_description_file_name(three_prime_description_fn)
+    import TIF_seq_experiment
+    import ribosome_profiling_experiment
+    import three_t_fill_experiment
 
+    families = {'TIF_seq': (TIF_seq_experiment.TIFSeqExperiment, ['pelechano_nature']),
+                'three_p_seq': (three_p_experiment.ThreePExperiment, ['three_p_seq']),
+                'TL_seq': (TL_seq_experiment.TLSeqExperiment, ['arribere_gr', 'park_nar']),
+                'three_t_fill_seq': (three_t_fill_experiment.ThreeTFillExperiment, ['wilkening_nar']),
+                'ribosome_profiling': (ribosome_profiling_experiment.RibosomeProfilingExperiment, ['weinberg']),
+               }
 
-    three_prime_genes = Serialize.read_positions.read_file(three_prime_exp.file_names['three_prime_read_positions'],
-                                                           specific_keys={'all', '0'},
-                                                          )
+    experiments = {}
+    for kind in families:
+        experiments[kind] = {}
+        Experiment, kind_families = families[kind]
+        for family in kind_families:
+            if verbose:
+                print family
+            experiments[kind][family] = {}
+            prefix = '/home/jah/projects/ribosomes/experiments/{0}/'.format(family)
+            dirs = [path for path in glob.glob('{}*'.format(prefix)) if os.path.isdir(path)]
+            for d in sorted(dirs):
+                _, name = os.path.split(d)
+                if verbose:
+                    print '\t', name
+                description_file_name = '{0}/job/description.txt'.format(d)
+                experiments[kind][family][name] = Experiment.from_description_file_name(description_file_name)
+
+    return experiments
+
+def call_UTR_boundaries(boundaries_fn, diagnostic_fn='/dev/null'):
+    experiments = build_all_experiments(verbose=False)
     
-    five_prime_description_fn = '/home/jah/projects/ribosomes/experiments/arribere_gr/S288C_TLSeq1/job/description.txt'
-    five_prime_exp = TL_seq_experiment.TLSeqExperiment.from_description_file_name(five_prime_description_fn)
+    five_prime_exp = experiments['TL_seq']['arribere_gr']['S288C_TLSeq1']
+    three_prime_exp = experiments['three_p_seq']['three_p_seq']['Cerevisiae_3Pseq']
 
-    five_prime_genes = Serialize.read_positions.read_file(five_prime_exp.file_names['five_prime_read_positions'],
-                                                          specific_keys={'all'},
-                                                         )
+    other_five_prime_exps = [experiments['TL_seq']['park_nar']['SMORE-seq_WT_TAP+_rep1'],
+                             experiments['TIF_seq']['pelechano_nature']['ypd_bio1_lib1'],
+                            ]
 
-    three_xs = np.arange(3, 500)
-    five_xs = np.arange(-200, 0)
+    
+    other_three_prime_exps = [experiments['three_t_fill_seq']['wilkening_nar']['3tfill_ypd_rep1'],
+                              experiments['TIF_seq']['pelechano_nature']['ypd_bio1_lib1'],
+                             ]
 
-    transcripts = gff.get_CDSs(three_prime_exp.file_names['genes'],
-                               three_prime_exp.file_names['genome'],
-                              )
-    transcripts = {t.name: t for t in transcripts}
+    five_prime_fh = h5py.File(five_prime_exp.file_names['five_prime_read_positions'], 'r')
+    three_prime_fh = h5py.File(three_prime_exp.file_names['three_prime_read_positions'], 'r')
+    
+    other_five_prime_fhs = [h5py.File(exp.file_names['five_prime_read_positions'], 'r') for exp in other_five_prime_exps]
+    other_three_prime_fhs = [h5py.File(exp.file_names['three_prime_read_positions'], 'r') for exp in other_three_prime_exps]
+
+    transcripts, _ = five_prime_exp.get_CDSs()
 
     UTR_boundaries = {}
     
-    for name in three_prime_genes:
-        t = transcripts[name]
-        t.build_coordinate_maps(left_buffer=500, right_buffer=500)
+    with open(diagnostic_fn, 'w') as diagnostic_fh:
+        progress = utilities.progress_bar(len(transcripts), sorted(transcripts))
+        for transcript in progress:
+            name = transcript.name
 
-        five_counts = five_prime_genes[name]['all']
-        five_count = five_counts['start_codon', five_xs].sum()
-        if five_count == 0:
-            five_offset = 0
-        else:
-            five_offset = five_counts.argmax_over_slice('start_codon', five_xs)
+            transcript.build_coordinate_maps(left_buffer=500, right_buffer=500)
 
-        three_counts = three_prime_genes[name]['all'] - three_prime_genes[name][0]
-        three_count = three_counts['stop_codon', three_xs].sum()
-        if three_count == 0:
-            three_offset = 3
-        else:
-            three_offset = three_counts.argmax_over_slice('stop_codon', three_xs)
+            five_prime_gene = Serialize.read_positions.build_gene(five_prime_fh[name], specific_keys={'all'})
+            other_genes = [Serialize.read_positions.build_gene(other_fh[name], specific_keys={'all'}) for other_fh in other_five_prime_fhs]
+            five_xs = np.arange(-500, transcript.CDS_length)
+            five_slice = ('start_codon', five_xs)
+            
+            five_counts = five_prime_gene['all']
+            five_sum = five_counts[five_slice].sum()
+            if five_sum == 0:
+                five_offset = 0
+            else:
+                five_offset = five_counts.argmax_over_slice('start_codon', five_xs)
 
-        five_pos = t.transcript_to_genomic[t.transcript_start_codon + five_offset]
-        three_pos = t.transcript_to_genomic[t.transcript_stop_codon + three_offset]
-        
-        t.delete_coordinate_maps()
+            n_largest = five_counts.n_largest_over_slice(10, five_slice)
+            five_prime_diagnostic = []
+            for i in n_largest:
+                row = []
+                for gene in [five_prime_gene] + other_genes:
+                    count = gene['all']['start_codon', i]
+                    total = gene['all'][five_slice].sum()
+                    if row == []:
+                        genomic = transcript.transcript_to_genomic[transcript.transcript_start_codon + i]
+                        row.append('{0}\t({1:,})\t'.format(i, genomic))
+                    row.append('{0}\t{1:0.2%}'.format(count, count / float(total)))
+                five_prime_diagnostic.append('\t'.join(row))
+            five_prime_diagnostic = '\n'.join(five_prime_diagnostic)
+            
+            three_prime_gene = Serialize.read_positions.build_gene(three_prime_fh[name], specific_keys={'all', '0'})
+            other_genes = [Serialize.read_positions.build_gene(other_fh[name], specific_keys={'all', '0'}) for other_fh in other_three_prime_fhs]
+            three_xs = np.arange(-transcript.CDS_length, 500)
+            three_slice = ('stop_codon', three_xs)
+            
+            three_counts = three_prime_gene['all']# - three_prime_gene[0]
+            three_sum = three_counts[three_slice].sum()
+            if three_sum == 0:
+                three_offset = 3
+            else:
+                three_offset = three_counts.argmax_over_slice('stop_codon', three_xs)
 
-        UTR_boundaries[name] = (t.seqname, t.strand, five_pos, three_pos)
+            n_largest = three_counts.n_largest_over_slice(10, three_slice)
+            three_prime_diagnostic = []
+            for i in n_largest:
+                row = []
+                for gene in [three_prime_gene] + other_genes:
+                    count = gene['all']['stop_codon', i]
+                    total = gene['all'][three_slice].sum()
+                    if row == []:
+                        genomic = transcript.transcript_to_genomic[transcript.transcript_stop_codon + i]
+                        row.append('{0}\t({1:,})\t'.format(i, genomic))
+                    row.append('{0}\t{1:0.2%}'.format(count, count / float(total)))
+                three_prime_diagnostic.append('\t'.join(row))
+            three_prime_diagnostic = '\n'.join(three_prime_diagnostic)
+
+            diagnostic_fh.write('{0}\n'.format(str(transcript)))
+            diagnostic_fh.write('{0}\n'.format(five_prime_diagnostic))
+            diagnostic_fh.write('\n')
+            diagnostic_fh.write('{0}\n'.format(three_prime_diagnostic))
+            diagnostic_fh.write('\n')
+
+            five_pos = transcript.transcript_to_genomic[transcript.transcript_start_codon + five_offset]
+            three_pos = transcript.transcript_to_genomic[transcript.transcript_stop_codon + three_offset]
+            
+            transcript.delete_coordinate_maps()
+
+            UTR_boundaries[name] = (transcript.seqname, transcript.strand, five_pos, three_pos)
 
     write_UTR_file(UTR_boundaries, boundaries_fn)
 

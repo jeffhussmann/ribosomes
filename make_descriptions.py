@@ -19,7 +19,7 @@ def make_descriptions(group,
                       adapter_type,
                       max_read_length=None,
                       min_relevant_length=14,
-                      max_relevant_length=34,
+                      max_relevant_length=44,
                       num_pieces=12,
                       bartel_markers=False,
                       stephanie_markers=False,
@@ -59,9 +59,7 @@ def make_descriptions(group,
     return bash_fn
 
 if __name__ == '__main__':
-    kwargs = {'min_relevant_length': 14,
-              'max_relevant_length': 34,
-              'num_pieces': 12,
+    kwargs = {'num_pieces': 12,
              }
     all_bash_fn = '/home/jah/projects/ribosomes/code/everything.sh'
     fns = []
@@ -80,6 +78,7 @@ if __name__ == '__main__':
     fns.append(make_descriptions('mcmanus_gr', 'linker', **kwargs))
     fns.append(make_descriptions('weinberg', 'weinberg', bartel_markers=True, **kwargs))
     fns.append(make_descriptions('zinshteyn_plos_genetics', 'polyA', **kwargs))
+    fns.append(make_descriptions('pop_msb', 'linker', **kwargs))
     with open(all_bash_fn, 'w') as all_bash_fh:
         for fn in fns:
             all_bash_fh.write('echo {}\n'.format(fn))
