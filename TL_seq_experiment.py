@@ -20,17 +20,17 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
     ]
 
     specific_outputs = [
-        ['bam',
+        [#'bam',
         ],
         ['five_prime_read_positions',
-         'from_starts_and_ends',
+         'metagene_positions',
         ],
     ]
 
     specific_work = [
-        ['preprocess',
-         'map_tophat',
-         'combine_mappings',
+        [#'preprocess',
+         #'map_tophat',
+         #'combine_mappings',
         ],
         ['get_read_positions',
          'get_metagene_positions',
@@ -80,7 +80,7 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
                                                               right_buffer=500,
                                                              )
 
-        self.five_prime_read_positions = {name: info['position_counts']
+        self.five_prime_read_positions = {name: info['five_prime_positions']
                                           for name, info in gene_infos.iteritems()}
 
         self.write_file('five_prime_read_positions', self.five_prime_read_positions)
@@ -88,17 +88,17 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
         read_positions = self.load_read_positions(modifier='five_prime')
-        from_starts_and_ends = positions.compute_metagene_positions(piece_CDSs,
-                                                                    read_positions,
-                                                                    max_gene_length,
-                                                                   )
+        metagene_positions = positions.compute_metagene_positions(piece_CDSs,
+                                                                  read_positions,
+                                                                  max_gene_length,
+                                                                 )
 
-        self.write_file('from_starts_and_ends', from_starts_and_ends)
+        self.write_file('metagene_positions', metagene_positions)
     
     def plot_starts_and_ends(self):
-        from_starts_and_ends = self.read_file('from_starts_and_ends')
+        metagene_positions = self.read_file('metagene_positions')
 
-        visualize.plot_metagene_positions(from_starts_and_ends,
+        visualize.plot_metagene_positions(metagene_positions,
                                           self.figure_file_names['starts_and_ends'],
                                           ['all'],
                                          )

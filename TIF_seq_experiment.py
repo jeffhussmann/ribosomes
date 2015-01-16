@@ -72,7 +72,7 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
         ],
         ['five_prime_read_positions',
          'three_prime_read_positions',
-         'from_starts_and_ends',
+         'metagene_positions',
          'joint_positions',
         ],
     ]
@@ -289,27 +289,21 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
 
     def get_read_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        five_prime_gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['combined_extended'],
-                                                                         piece_CDSs,
-                                                                         relevant_lengths=[],
-                                                                         left_buffer=500,
-                                                                         right_buffer=500,
-                                                                        )
-        
-        self.five_prime_read_positions = {name: info['position_counts']
-                                          for name, info in five_prime_gene_infos.iteritems()}
+        gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['combined_extended'],
+                                                              piece_CDSs,
+                                                              relevant_lengths=[],
+                                                              left_buffer=500,
+                                                              right_buffer=500,
+                                                             )
+
+        self.five_prime_read_positions = {name: info['five_prime_positions']
+                                          for name, info in gene_infos.iteritems()}
 
         self.write_file('five_prime_read_positions', self.five_prime_read_positions)
         
 
-        three_prime_gene_infos = positions.get_Transcript_polyA_position_counts(self.merged_file_names['combined_extended'],
-                                                                                piece_CDSs,
-                                                                                5,
-                                                                                left_buffer=500,
-                                                                                right_buffer=500,
-                                                                               )
-        self.three_prime_read_positions = {name: info['position_counts']
-                                          for name, info in three_prime_gene_infos.iteritems()}
+        self.three_prime_read_positions = {name: info['three_prime_positions']
+                                          for name, info in gene_infos.iteritems()}
 
         self.write_file('three_prime_read_positions', self.three_prime_read_positions)
 
@@ -335,19 +329,22 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
             gene = {'five_prime': five_prime_read_positions[name]['all'],
                     'three_prime_genomic': three_prime_read_positions[name][0],
                     'three_prime_nongenomic': three_prime_read_positions[name]['all'] - three_prime_read_positions[name][0],
+                    'sequence': five_prime_read_positions[name]['sequence'],
                    }
             processed_read_positions[name] = gene
 
-        from_starts_and_ends = positions.compute_metagene_positions(processed_read_positions, max_gene_length)
-        self.write_file('from_starts_and_ends', from_starts_and_ends)
+        metagene_positions = positions.compute_metagene_positions(piece_CDSs,
+                                                                  processed_read_positions,
+                                                                  max_gene_length,
+                                                                 )
+        self.write_file('metagene_positions', metagene_positions)
     
     def plot_starts_and_ends(self):
-        from_starts_and_ends = self.read_file('from_starts_and_ends')
+        metagene_positions = self.read_file('metagene_positions')
 
-        visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
-                                          from_starts_and_ends['from_ends'],
-                                          self.figure_file_names['starts_and_ends_zoomed_out'],
-                                          zoomed_out=True,
+        visualize.plot_metagene_positions(metagene_positions,
+                                          self.figure_file_names['starts_and_ends'],
+                                          ['five_prime', 'three_prime_genomic', 'three_prime_nongenomic'],
                                          )
         
     def plot_positions(self):
