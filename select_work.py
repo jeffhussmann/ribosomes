@@ -26,6 +26,8 @@ def build_all_experiments(verbose=True):
                 'belgium_2014_08_07',
                 'belgium_2014_03_05',
                 'belgium_2013_08_06',
+                'pop_msb',
+                'gardin_elife',
                ]
     experiments = {}
     for family in families:
@@ -150,13 +152,11 @@ def make_mismatch_position_plots():
 
 def make_multipage_pdf(figure_name):
     all_experiments = build_all_experiments(verbose=False)
-    all_fn = '/home/jah/projects/ribosomes/results/everything_{0}.pdf'.format(figure_name)
+    all_fn = '/home/jah/projects/ribosomes/results/gerashchenko_{0}.pdf'.format(figure_name)
     fns = []
-    for group in sorted(all_experiments):
-        for name in sorted(all_experiments[group]):
-            if 'jeff' in name:
-                continue
-            fns.append(all_experiments[group][name].figure_file_names[figure_name])
+    for name in sorted(all_experiments['gerashchenko_nar'], key=gerashchenko_nar_sorting_key):
+        print name
+        fns.append(all_experiments['gerashchenko_nar'][name].figure_file_names[figure_name])
 
     pdftk_command = ['pdftk'] + fns + ['cat', 'output', all_fn]
     subprocess.check_call(pdftk_command)
@@ -186,6 +186,12 @@ def gerashchenko_nar_sorting_key(name):
             concentration = int(concentration)
 
     return concentration
+
+def get_gerashchenko_nar_experiments():
+    experiments = build_all_experiments(verbose=False)
+    relevant_exps = [exp for exp in experiments['gerashchenko_nar'].values() if 'unstressed' in exp.name]
+    sorted_exps = sorted(relevant_exps, key=lambda exp: gerashchenko_nar_sorting_key(exp.name))
+    return sorted_exps
 
 def make_averaged_codon_densities_plot():
     experiments = build_all_experiments(verbose=False)
