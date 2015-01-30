@@ -307,10 +307,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                       self.file_names['bowtie_error'],
                                                      )
 
-        synthetic_filtered_reads = self.filter_synthetic_sequences(rRNA_filtered_reads)
-
         with open(self.file_names['preprocessed_reads'], 'w') as preprocessed_fh:
-            for read in synthetic_filtered_reads:
+            for read in rRNA_filtered_reads:
                 preprocessed_fh.write(str(read))
 
     def filter_synthetic_sequences(self, reads):
