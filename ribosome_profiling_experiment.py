@@ -17,6 +17,7 @@ import rna_experiment
 import examine_specific_codon
 from Sequencing import mapping_tools, fastq, sam, utilities, fasta, annotation
 import Sequencing.genomes as genomes
+import Sequencing.Visualize
 from Sequencing import visualize_structure
 from Sequencing.Parallel import map_reduce, piece_of_list, split_file
 from Sequencing.Serialize import (array_1d,
@@ -39,6 +40,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     specific_results_files = [
         ('clean_composition', array_3d, '{name}_clean_composition.npy'),
         ('clean_composition_perfect', array_3d, '{name}_clean_composition_perfect.npy'),
+        ('unmapped_composition', array_3d, '{name}_unmapped_composition.npy'),
         ('quality', array_2d, '{name}_quality.txt'),
 
         ('bowtie_error', '', '{name}_bowtie_error.txt'),
@@ -76,19 +78,17 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         ('unmapped_structures', None, '{name}_unmapped_structures.txt'),
         ('common_unmapped', counts, '{name}_common_unmapped.txt'),
-        ('common_long_polyA', counts, '{name}_common_long_polyA.txt'),
 
         ('mismatches', mismatches, '{name}_mismatches.npy'),
 
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
-        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
-        ('unambiguous_read_positions', read_positions, '{name}_unambiguous_read_positions.hdf5'),
         
         ('codon_counts', codon_counts, '{name}_codon_counts.txt'),
         ('codon_counts_anisomycin', codon_counts, '{name}_codon_counts_anisomycin.txt'),
         ('codon_counts_stringent', codon_counts, '{name}_codon_counts_stringent.txt'),
         ('buffered_codon_counts', read_positions, '{name}_buffered_codon_counts.hdf5'),
         ('metacodon_counts', read_positions, '{name}_metacodon_counts.hdf5'),
+        ('metanucleotide_counts', read_positions, '{name}_metanucleotide_counts.hdf5'),
         ('mean_densities', read_positions, '{name}_mean_densities.hdf5'),
         ('mean_densities_anisomycin', read_positions, '{name}_mean_densities_anisomycin.hdf5'),
         ('mean_densities_no_misannotated', read_positions, '{name}_mean_densities_no_misannotated.hdf5'),
@@ -109,6 +109,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('recycling_ratios', 'ratios', '{name}_recycling_ratios.txt'),
 
         ('reciprocal_rates', 'pickle', '{name}_reciprocal_rates.pkl'),
+        ('reciprocal_rates_exclude_50', 'pickle', '{name}_reciprocal_rates_exclude_50.pkl'),
 
         ('yield', '', '{name}_yield.txt'),
     ]
@@ -117,17 +118,19 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('quality', '{name}_quality.png'),
         ('clean_composition', '{name}_clean_composition.pdf'),
         ('clean_composition_perfect', '{name}_clean_composition_perfect.pdf'),
+        ('unmapped_composition', '{name}_unmapped_composition.pdf'),
         ('all_lengths', '{name}_all_lengths.pdf'),
         ('clean_lengths', '{name}_clean_lengths.pdf'),
         ('rRNA_coverage', '{name}_rRNA_coverage.pdf'),
         ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
         ('dominant_stretch_lengths', '{name}_dominant_stretch_lengths.pdf'),
         ('starts_and_ends', '{name}_starts_and_ends.pdf'),
+        ('three_prime_starts_and_ends', '{name}_three_prime_starts_and_ends.pdf'),
         ('ends', '{name}_ends.pdf'),
-        ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
         ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
         ('starts_and_ends_heatmap_zoomed_out', '{name}_starts_and_ends_heatmap_zoomed_out.pdf'),
         ('mean_densities', '{name}_mean_densities.pdf'),
+        ('mean_nucleotide_densities', '{name}_mean_nucleotide_densities.pdf'),
         ('mean_densities_anisomycin', '{name}_mean_densities_anisomycin.pdf'),
         ('mismatches', '{name}_mismatches.pdf'),
         ('frames', '{name}_frames.pdf'),
@@ -142,6 +145,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     specific_outputs = [
         ['clean_composition',
          'clean_composition_perfect',
+         'unmapped_composition',
          'too_short_lengths',
          'trimmed_lengths',
          'tRNA_lengths',
@@ -157,7 +161,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'long_polyA_lengths',
          'rRNA_coverage',
          'common_unmapped',
-         'common_long_polyA',
          'merged_mappings',
          'rRNA_bam',
          'more_rRNA_bam',
@@ -167,13 +170,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'codons_to_examine',
         ],
         ['read_positions',
-         'three_prime_read_positions',
+         'metagene_positions',
          'buffered_codon_counts',
          'codon_counts',
-         'metagene_positions',
-         'three_prime_metagene_positions',
          'read_counts',
          'read_counts_exclude_edges',
+         'metacodon_counts',
+         'metanucleotide_counts',
         ],
     ]
     
@@ -186,12 +189,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'compute_base_composition',
          'find_unambiguous_lengths',
          'get_rRNA_coverage',
-         'examine_specific_codon',
+         'examine_locii',
         ],
         ['get_read_positions',
          'get_metagene_positions',
          'compute_total_read_counts',
          'compute_codon_occupancy_counts',
+         'compute_metacodon_counts',
         ],
     ]
 
@@ -207,6 +211,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'compute_mean_densities',
          'plot_starts_and_ends',
          'plot_frames',
+         'plot_metacodon_counts',
         ],
     ]
 
@@ -279,6 +284,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         perfect_array = self.read_file('clean_composition_perfect', merged=True)
         composition.length_stratified_plot(perfect_array,
                                            self.figure_file_names['clean_composition_perfect'],
+                                           lengths=self.relevant_lengths + ['all', 'all_from_right'],
+                                          )
+        
+        unmapped_array = self.read_file('unmapped_composition', merged=True)
+        composition.length_stratified_plot(unmapped_array,
+                                           self.figure_file_names['unmapped_composition'],
                                            lengths=self.relevant_lengths + ['all', 'all_from_right'],
                                           )
 
@@ -634,12 +645,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                     ('phiX reads', phiX_reads),
                                     ('rRNA reads', rRNA_reads),
                                     ('(rRNA reads from non-dominant stetches)', other_reads),
-                                    ('synthetic reads', synthetic_reads),
                                     ('tRNA reads', tRNA_reads),
                                     ('Other ncRNA reads', other_ncRNA_reads),
                                     ('Clean reads', clean_reads),
                                     ('Reads mapped after polyA trimming', remapped_reads),
                                     ('Reads that start wth long polyA', long_polyA_reads),
+                                    ('Synthetic reads', synthetic_reads),
                                     ('Unaccounted-for reads', unmapped_reads),
                                    ]:
                 fraction = float(count) / total_reads
@@ -677,6 +688,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ax_all.set_xlabel('Length of original RNA fragment')
         ax_all.set_ylabel('Number of reads')
         ax_all.legend(loc='upper left', framealpha=0.5)
+        Sequencing.Visualize.add_commas_to_yticks(ax_all)
+        
         fig_all.savefig(self.figure_file_names['all_lengths'])
         plt.close(fig_all)
         
@@ -693,7 +706,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         
         ax_clean.axvspan(27.5, 28.5, color='green', alpha=0.2)
         ax_clean.set_xlim(0, self.max_interesting_length)
-        ax_clean.legend()
         ax_clean.set_title('{0}\n{1}\nFragment length distribution by source'.format(self.group, self.name))
         ax_clean.set_xlabel('Length of original RNA fragment')
         ax_clean.set_ylabel('Fraction of clean reads')
@@ -731,7 +743,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         visualize.plot_metagene_positions(metagene_positions,
                                           self.figure_file_names['starts_and_ends'],
-                                          long_lengths + ['all'],
+                                          long_lengths + ['all', 'all_nonunique'],
+                                          title='{0}\n{1}'.format(self.group, self.name),
+                                         )
+        
+        visualize.plot_metagene_positions(metagene_positions,
+                                          self.figure_file_names['three_prime_starts_and_ends'],
+                                          ['three_prime_genomic', 'three_prime_nongenomic', 'three_prime_nonunique'],
                                           title='{0}\n{1}'.format(self.group, self.name),
                                          )
         
@@ -757,6 +775,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                 smooth=False,
                                                )
         
+        visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
+                                                     self.figure_file_names['mean_nucleotide_densities'],
+                                                     past_edge=10,
+                                                     plot_up_to=2000,
+                                                     smooth=False,
+                                                    )
+
         #visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
         #                                        self.figure_file_names['mean_densities_anisomycin'],
         #                                        past_edge=10,
@@ -767,7 +792,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     def plot_frames(self):
         metagene_positions = self.read_file('metagene_positions')
 
-        visualize.plot_frames(metagene_positions['from_start_codons'],
+        visualize.plot_frames(metagene_positions['start_codon'],
                               self.figure_file_names['frames'],
                              )
 
@@ -886,13 +911,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.write_file('read_counts_exclude_edges', read_counts_exclude_edges)
 
     def compute_metacodon_counts(self):
-        read_positions = self.load_read_positions()
-        metacodon_counts = positions.compute_metacodon_counts(read_positions,
-                                                              self.file_names['genes'],
-                                                              self.file_names['genome'],
-                                                              self.codon_table,
-                                                             )
+        codon_counts = self.read_file('buffered_codon_counts')
+        metacodon_counts = positions.compute_metacodon_counts(codon_counts)
         self.write_file('metacodon_counts', metacodon_counts)
+
+        read_positions = self.load_read_positions()
+        metanucleotide_counts = positions.compute_metanucleotide_counts(read_positions)
+        self.write_file('metanucleotide_counts', metanucleotide_counts)
 
     def compute_mean_densities(self):
         codon_counts = self.read_file('buffered_codon_counts', merged=True)
