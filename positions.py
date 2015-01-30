@@ -471,14 +471,22 @@ def compute_metagene_positions(CDSs, position_counts, max_CDS_length):
     metagene_positions = {}
     for landmark in landmarks:
         metagene_positions[landmark] = make_PositionCounts_dictionary()
+
         uniform_key = '{0}_uniform'.format(landmark)
         metagene_positions[uniform_key] = make_PositionCounts_dictionary(dtype=float)
+
         for b in 'TCAG':
             key = '{0}_{1}'.format(landmark, b)
             metagene_positions[key] = make_PositionCounts_dictionary()
             
             uniform_key = '{0}_{1}_uniform'.format(landmark, b)
             metagene_positions[uniform_key] = make_PositionCounts_dictionary(dtype=float)
+        
+        enrichment_key = '{0}_sum_of_enrichments'.format(landmark)
+        metagene_positions[enrichment_key] = make_PositionCounts_dictionary(dtype=float)
+        
+        eligible_key = '{0}_num_eligible'.format(landmark)
+        metagene_positions[eligible_key] = make_PositionCounts_dictionary(dtype=float)
 
     for CDS in CDSs:
         # Skip CDSs that overlap other qualifying features or that have another
@@ -495,23 +503,47 @@ def compute_metagene_positions(CDSs, position_counts, max_CDS_length):
         counts = position_counts[CDS.name]
         CDS_length = CDS.CDS_length
         
+        # For actual counts, we need to include left_buffer and right_buffer
+        # around start and end to avoid the artifical appearance that there are
+        # no reads base the boundaries. 
         landmark_slices = [('start', slice(-left_buffer, CDS_length)),
                            ('start_codon', slice(-left_buffer, CDS_length)),
                            ('stop_codon', slice(-CDS_length, right_buffer)),
                            ('end', slice(-CDS_length, right_buffer)),
                           ]
+        
+        # For uniform counts, we want sharp cutoffs at start and end.
+        uniform_slices = [('start', slice(0, CDS_length)),
+                          ('start_codon', slice(-left_buffer, CDS_length)),
+                          ('stop_codon', slice(-CDS_length, right_buffer)),
+                          ('end', slice(-CDS_length, 0)),
+                         ]
 
         for length in relevant_lengths:
-            for landmark_slice in landmark_slices:
+            for landmark_slice, uniform_slice in zip(landmark_slices, uniform_slices):
                 landmark, _ = landmark_slice
                 sliced_counts = counts[length][landmark_slice]
                 metagene_positions[landmark][length][landmark_slice] += sliced_counts
 
-                density = sliced_counts.sum() / float(len(sliced_counts))
-                uniform_counts = np.ones_like(sliced_counts) * density
+                uniform_sliced_counts = counts[length][uniform_slice]
+                density = uniform_sliced_counts.sum() / float(len(uniform_sliced_counts))
+                uniform_counts = np.ones_like(uniform_sliced_counts) * density
                     
                 uniform_key = '{0}_uniform'.format(landmark)
-                metagene_positions[uniform_key][length][landmark_slice] += uniform_counts
+                metagene_positions[uniform_key][length][uniform_slice] += uniform_counts
+
+                if density != 0:
+                    enrichment = uniform_sliced_counts / density
+                    enrichment_key = '{0}_sum_of_enrichments'.format(landmark)
+                    metagene_positions[enrichment_key][length][uniform_slice] += enrichment
+
+                    eligible = np.ones_like(enrichment)
+                    eligible_key = '{0}_num_eligible'.format(landmark)
+                    metagene_positions[eligible_key][length][uniform_slice] += eligible
+
+                if landmark == 'end' and length == 'three_prime_genomic':
+                    utr = counts[length]['stop_codon':'end']
+                    #print CDS.name, utr.sum() - len(utr) * density
                 
                 for b in 'TCAG':
                     base_mask = counts['sequence'][landmark_slice] == b
@@ -526,10 +558,11 @@ def compute_metagene_positions(CDSs, position_counts, max_CDS_length):
                     # To control for expression-weighted composition, compute
                     # the average read density for each gene and sum up
                     # base-masked arrays of it.
+                    uniform_base_mask = counts['sequence'][uniform_slice] == b
                     uniform_key = '{0}_{1}_uniform'.format(landmark, b)
-                    uniform_base_counts = np.multiply(uniform_counts, base_mask)
-                    metagene_positions[uniform_key][length][landmark_slice] += uniform_base_counts
-                    
+                    uniform_base_counts = np.multiply(uniform_counts, uniform_base_mask)
+                    metagene_positions[uniform_key][length][uniform_slice] += uniform_base_counts
+
         CDS.delete_coordinate_maps()
 
     return metagene_positions
@@ -606,42 +639,75 @@ def normalized_codon_density_distribution(codon_counts, offset_key='relaxed'):
 
     return np.asarray(all_normalized_densities)
 
-def compute_metacodon_counts(read_positions, gtf_fn, genome_dir, codon_table=1):
+def compute_metacodon_counts(codon_counts):
+    window = 30
+
+    landmarks = {'codon': 0}
+    metacodon_counts = {codon_id: {'actual': PositionCounts(landmarks, window, window),
+                                   'uniform': PositionCounts(landmarks, window, window, dtype=float),
+                                   'sum_of_enrichments': PositionCounts(landmarks, window, window, dtype=float),
+                                   'num_eligible': PositionCounts(landmarks, window, window),
+                                  }
+                        for codon_id in codons.all_codons}
+
+    window_slice = ('codon', slice(-window, window))
+    for name, read_counts in codon_counts.iteritems():
+        codon_identites = read_counts['identities']['start_codon':('stop_codon', 1)]
+
+        counts = read_counts['relaxed']['start_codon':('stop_codon', 1)]
+        total_counts = counts.sum()
+        num_codons = len(counts)
+        density = float(total_counts) / num_codons
+        uniform_counts = np.full(2 * window, density)
+        num_eligible = np.ones(2 * window)
+
+        for p, codon_id in enumerate(codon_identites):
+            if p >= window and p <= num_codons - window:
+                id_counts = metacodon_counts[codon_id]
+                actual_counts = counts[p - window:p + window]
+                id_counts['actual'][window_slice] += actual_counts
+                id_counts['uniform'][window_slice] += uniform_counts
+
+                if density > 0:
+                    enrichments = actual_counts / density
+                    id_counts['sum_of_enrichments'][window_slice] += enrichments
+                    id_counts['num_eligible'][window_slice] += num_eligible
+
+    return metacodon_counts
+
+def compute_metanucleotide_counts(read_positions):
     left_buffer = 50
     right_buffer = 50
 
     # Figure out what lengths were recorded.
-    random_gene = read_positions.iterkeys().next()
-    length_keys = read_positions[random_gene].keys()
+    length_keys, _, _ = extract_lengths_and_buffers(read_positions)
 
     dinucleotides =  list(''.join(pair) for pair in product('TCAG', repeat=2))
-    features_keys = codons.non_stop_codons + ['T', 'C', 'A', 'G'] + dinucleotides
+    features_keys = codons.all_codons# + ['T', 'C', 'A', 'G'] + dinucleotides
 
     metacodon_counts = {features_key: {length: PositionCounts({'feature': 0}, left_buffer, right_buffer)
                                        for length in length_keys
                                       }
                         for features_key in features_keys}
 
-    coding_sequence_fetcher = gtf.make_coding_sequence_fetcher(gtf_fn, genome_dir, codon_table)
-
+    feature_slice = ('feature', slice(-left_buffer, right_buffer))
+    
     for name, read_counts in read_positions.iteritems():
-        coding_sequence = coding_sequence_fetcher(name)
-        if coding_sequence == None:
-            continue
+        transcript_sequence = read_counts['sequence']
+        coding_sequence = ''.join(transcript_sequence['start_codon':('stop_codon', 3)])
 
         for c, codon_id in enumerate(codons.codons_from_seq(coding_sequence)):
             p = 3 * c
             if p >= left_buffer and p <= len(coding_sequence) - right_buffer:
                 p_slice = ('start_codon', slice(p - left_buffer, p + left_buffer))
                 for length in length_keys:
-                    actual_counts = read_positions[name][length][p_slice]
+                    counts = read_positions[name][length][p_slice]
+                    metacodon_counts[codon_id][length][feature_slice] += counts
                     
-                    feature_slice = ('feature', slice(-left_buffer, right_buffer))
-                    metacodon_counts[codon_id][length][feature_slice] += actual_counts
-                    nucleotide = codon_id[0]
-                    metacodon_counts[nucleotide][length][feature_slice] += actual_counts
-                    dinucleotide = codon_id[:2]
-                    metacodon_counts[dinucleotide][length][feature_slice] += actual_counts
+                    #nucleotide = codon_id[0]
+                    #metacodon_counts[nucleotide][length][feature_slice] += counts
+                    #dinucleotide = codon_id[:2]
+                    #metacodon_counts[dinucleotide][length][feature_slice] += counts
 
     return metacodon_counts
 
@@ -677,3 +743,101 @@ def compute_RPKMs(gene_infos, exclude_from_start, exclude_from_end):
         RPKMs[gene_name] = 1.e9 * RPKMs[gene_name] / total_mapped_reads
 
     return RPKMs
+
+def compute_pause_scores(codon_counts_list, special_sets={}, show_progress=False):
+    ratios_list = [defaultdict(list) for _ in codon_counts_list]
+    raw_counts_list = [defaultdict(list) for _ in codon_counts_list]
+
+    representative_counts = codon_counts_list[0]
+    gene_names = representative_counts.keys()
+
+    cds_slice = slice(('start_codon', 2), 'stop_codon')
+
+    is_specials = {name: np.vectorize(special_set.__contains__) for name, special_set in special_sets.items()}
+
+    qualifying_genes = 0
+
+    if show_progress:
+        gene_names = Sequencing.utilities.progress_bar(len(gene_names), gene_names)
+
+    for gene_name in gene_names:
+        all_counts = np.asarray([codon_counts[gene_name]['relaxed'][cds_slice] for codon_counts in codon_counts_list])
+        medians = np.median(all_counts, axis=1)
+
+        qualifies = np.all(medians >= 2)
+        if not qualifies:
+            continue
+        
+        qualifying_genes += 1
+
+        identities = representative_counts[gene_name]['identities'][cds_slice]
+        locations = {name: is_special(identities) for name, is_special in is_specials.items()}
+        locations['not_special'] = ~np.any(locations.values(), axis=0)
+        
+        for ratios, counts, median, raw_counts in zip(ratios_list, all_counts, medians, raw_counts_list): 
+            count_ratios = counts / median
+            for name, mask in locations.items():
+                ratios[name].extend(count_ratios[mask])
+                raw_counts[name].extend(counts[mask])
+
+    return ratios_list, raw_counts_list
+
+def metacodon_around_pauses(codon_counts, special_codons=set(), show_progress=True):
+    gene_names = codon_counts.keys()
+
+    cds_slice = slice(('start_codon', 2), 'stop_codon')
+
+    cutoffs = {0, 1, 10, 100}
+    
+    counts_around = []
+    ratios_around = []
+    metacodon_counts = PositionCounts({'pause': 0}, left_buffer=30, right_buffer=30)
+    
+    if show_progress:
+        gene_names = Sequencing.utilities.progress_bar(len(gene_names), gene_names)
+    
+    for gene_name in gene_names:
+        counts = codon_counts[gene_name]['relaxed']
+        identities = codon_counts[gene_name]['identities']
+
+        median = np.median(counts[cds_slice])
+        mean = np.mean(counts[cds_slice])
+        
+        if median == 0 or counts.CDS_length < 60:
+            continue
+            
+        for offset in range(30, counts.CDS_length - 30):
+            identity = identities['start_codon', offset]
+            before_identity = identities['start_codon', offset - 10]
+            after_identity = identities['start_codon', offset + 10]
+            count = counts['start_codon', offset]
+            if identity in special_codons and before_identity not in special_codons:
+                at_pause = counts['start_codon', offset]# / median
+                ten_before = counts['start_codon', offset - 10]# / median
+                ten_after = counts['start_codon', offset + 10]# / median
+
+                #for cutoff in cutoffs:
+                #    if at_pause < cutoff:
+                #        key = '<'
+                #    else:
+                #        key = '>='
+
+                #    ats[cutoff][key].append(at_pause)
+                #    befores[cutoff][key].append(ten_before)
+                #    afters[cutoff][key].append(ten_after)
+
+                around = counts['start_codon', offset - 30: offset + 30]
+                counts_around.append(around)
+                ratios_around.append(around / float(mean))
+
+    return np.asarray(counts_around), np.asarray(ratios_around)
+
+def get_all_codon_counts(codon_counts):
+    all_counts = []
+
+    for gene_name in sorted(codon_counts):
+        counts = codon_counts[gene_name]['relaxed'][('start_codon', 2):'stop_codon']
+
+        all_counts.extend(counts)
+
+    return all_counts
