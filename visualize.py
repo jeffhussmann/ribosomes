@@ -6,12 +6,13 @@ import positions
 import numpy as np
 import brewer2mpl
 import Sequencing.Visualize
-from Sequencing import utilities
-from Sequencing import genomes
-import h5py
+import Sequencing.utilities as utilities
+import Sequencing.genomes as genomes
 import gtf
 import operator
 import Circles.variants as variants
+import codons
+import scipy.stats
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
@@ -20,10 +21,10 @@ colors = colors + colors
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
 def smoothed(position_counts, window_size):
-    smoothed_array = positions.PositionCounts(position_counts.extent_length,
+    smoothed_array = positions.PositionCounts(position_counts.landmarks,
                                               position_counts.left_buffer,
                                               position_counts.right_buffer,
-                                              counts=position_counts.counts,
+                                              data=position_counts.data,
                                              )
     for i in range(window_size):
         smoothed_array[i] = position_counts[:i + 1].sum() / float(i + 1)
@@ -51,8 +52,8 @@ def plot_metagene_positions(metagene_positions,
 
         for zoomed_out, (start_ax, end_ax) in zip([False, True], axs):
             if zoomed_out:
-                start_xs = np.arange(-190, 190)
-                end_xs = np.arange(-190, 190)
+                start_xs = np.arange(-190, 290)
+                end_xs = np.arange(-290, 190)
                 tick_interval = 30
             else:
                 start_xs = np.arange(-21, 19)
@@ -363,8 +364,8 @@ def plot_metagene_positions_heatmap(metagene_positions,
             ax.set_xticks(xticks)
             ax.set_xticklabels(xticklabels)
 
-        start_5_ax.set_xlabel('Position of 5\' end of read relative to start of CDS')
-        start_3_ax.set_xlabel('Position of 3\' end of read relative to start of CDS')
+        start_5_ax.set_xlabel('Position of 5\' end of read relative to {0}'.format(start_landmark))
+        start_3_ax.set_xlabel('Position of 3\' end of read relative to {0}'.format(start_landmark))
         
         index_to_x = {i: x for i, x in enumerate(end_xs)}
         xticks = [i for i in range(len(end_xs)) if index_to_x[i] % modulus == 0]
@@ -374,8 +375,8 @@ def plot_metagene_positions_heatmap(metagene_positions,
             ax.set_xticks(xticks)
             ax.set_xticklabels(xticklabels)
 
-        end_5_ax.set_xlabel('Position of 5\' end of read relative to stop codon')
-        end_3_ax.set_xlabel('Position of 3\' end of read relative to stop codon')
+        end_5_ax.set_xlabel('Position of 5\' end of read relative to {0}'.format(end_landmark))
+        end_3_ax.set_xlabel('Position of 3\' end of read relative to {0}'.format(end_landmark))
         
         y_ticks = np.arange(len(lengths))
         y_tick_labels = [str(l) for l in lengths]
@@ -476,6 +477,85 @@ def plot_frames(from_starts, figure_fn):
 
     fig.savefig(figure_fn, bbox_inches='tight')
 
+def plot_averaged_nucleotide_densities(data_sets,
+                                       figure_fn,
+                                       show_start=False,
+                                       past_edge=10,
+                                       smooth=False,
+                                       plot_up_to=1000,
+                                      ):
+    if show_start:
+        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(24, 12))
+    else:
+        fig, end_ax = plt.subplots(figsize=(12, 12))
+
+    start_xs = np.arange(-past_edge, plot_up_to + 1)
+    end_xs = np.arange(-plot_up_to, past_edge)
+
+    for name, metagene_positions, color_index in data_sets:
+        marker = '' if smooth else '.'
+        linewidth = 2 if smooth else 1
+
+        densities = metagene_positions['end_sum_of_enrichments']['three_prime_genomic'] / metagene_positions['end_num_eligible']['three_prime_genomic']
+        if smooth:
+            densities = smoothed(densities, 5)
+        end_densities = densities['end', end_xs]
+        end_ax.plot(end_xs,
+                    end_densities,
+                    '.-',
+                    label=name,
+                    color=colors[color_index],
+                    marker=marker,
+                    linewidth=linewidth,
+                   )
+
+        if show_start:
+            densities = metagene_positions['start_sum_of_enrichments']['all'] / metagene_positions['start_num_eligible']['all']
+            if smooth:
+                densities = smoothed(densities, 5)
+            start_densities = densities['start', start_xs]
+
+            start_ax.plot(start_xs,
+                          start_densities,
+                          '.-',
+                          label=name,
+                          color=colors[color_index],
+                          marker=marker,
+                          linewidth=linewidth,
+                         )
+        
+    
+    if len(data_sets) > 1:
+        start_ax.legend(loc='upper right', framealpha=0.5)
+
+    if show_start:
+        start_ax.set_xlabel('Nucleotides from start')
+        start_ax.set_ylabel('Mean normalized read density')
+        start_ax.set_xlim(min(start_xs), max(start_xs))
+        start_ax.plot(start_xs, [1 for x in start_xs], color='black', alpha=0.5)
+   
+    end_ax.set_xlabel('Nucleotides from end')
+    end_ax.yaxis.tick_right()
+    end_ax.set_xlim(min(end_xs), max(end_xs))
+    end_ax.plot(end_xs, [1 for x in end_xs], color='black', alpha=0.5)
+    
+    axs = [end_ax]
+    if show_start:
+        axs.append(end_ax)
+
+    ymax = max(ax.get_ylim()[1] for ax in axs)
+    
+    for ax in axs:
+        ax.set_ylim(0, ymax + 0.1)
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+        ax.set_aspect((xmax - xmin) / (ymax - ymin))
+        #ax.set_aspect(1)
+
+    #fig.set_size_inches(12, 12)
+    fig.savefig(figure_fn, bbox_inches='tight')
+    plt.close(fig)
+
 def plot_averaged_codon_densities(data_sets,
                                   figure_fn,
                                   show_end=True,
@@ -553,40 +633,45 @@ def plot_averaged_codon_densities(data_sets,
     fig.savefig(figure_fn, bbox_inches='tight')
     plt.close(fig)
 
-def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=False, keys_to_plot=['actual']):
-    random_counts = metacodon_counts['TTT'].itervalues().next()
+def make_metacodon_panel(ax, metacodon_counts, codon_id, style, keys_to_plot):
+    id_counts = metacodon_counts[codon_id]
+    random_counts = id_counts.itervalues().next()
     xs = np.arange(-random_counts.left_buffer, random_counts.right_buffer)
 
+    ax.set_title(codon_id)
+
+    if style == 'enrichment':
+        average_enrichment = id_counts['sum_of_enrichments'] / id_counts['num_eligible']
+        ys = average_enrichment['codon', xs]
+        ax.plot(xs, ys, '.-')
+        
+        ones = np.ones_like(xs)
+        ax.plot(xs, ones, color='black', alpha=0.5)
+    elif style == 'actual':
+        for key in keys_to_plot:
+            ys = id_counts[key]['codon', xs]
+            line, = ax.plot(xs, ys, '.-', label=key)
+
+            if isinstance(key, int):
+                # -key + 1 is the position a read starts at if position 0
+                # is the last base in it
+                ax.axvline(-key + 1, color=line.get_color(), alpha=0.2)
+
+        #ax.plot(xs, metacodon_counts[codon_id]['uniform'].counts, '.-')
+        ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
+
+    ax.set_ylim(ymin=0)
+    ax.set_xlim(min(xs), max(xs))
+    ax.axvline(0, ls='--', color='black', alpha=0.5)
+
+def plot_metacodon_counts(metacodon_counts,
+                          fig_fn,
+                          codon_ids='all',
+                          style='actual',
+                          keys_to_plot=['actual'],
+                         ):
     bases = 'TCAG'
 
-    def make_plot(ax, codon_id):
-        ax.set_title(codon_id)
-
-        if codon_id not in metacodon_counts:
-            return
-
-        if enrichment:
-            average_enrichment = metacodon_counts[codon_id]['sum_of_enrichments'] / metacodon_counts[codon_id]['num_eligible']
-            ones = np.ones(len(average_enrichment.counts))
-            ax.plot(xs, average_enrichment.counts['codon', xs], 'o-')
-            ax.plot(xs, ones, color='black', alpha=0.5)
-        else:
-            for key in keys_to_plot:
-                counts = metacodon_counts[codon_id][key].data
-                line, = ax.plot(xs, counts, '.-', label=key)
-                if isinstance(key, int):
-                    # -key + 1 is the position a read starts at if position 0
-                    # is the last base in it
-                    ax.axvline(-key + 1, color=line.get_color(), alpha=0.2)
-            #ax.plot(xs, metacodon_counts[codon_id]['uniform'].counts, '.-')
-            ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
-            if codon_ids != 'all':
-                ax.legend(loc='upper right', framealpha=0.5)
-
-        ax.set_ylim(ymin=0)
-        ax.set_xlim(min(xs), max(xs))
-        ax.axvline(0, ls='--', color='black', alpha=0.5)
-    
     if codon_ids == 'all':
         fig, axs = plt.subplots(16, 4, figsize=(16, 64))
 
@@ -596,20 +681,45 @@ def plot_metacodon_counts(metacodon_counts, fig_fn, codon_ids='all', enrichment=
                     i = first * 4 + third
                     j = second
                     codon_id = ''.join(bases[first] + bases[second] + bases[third])
-                    make_plot(axs[i, j], codon_id)
+                    make_metacodon_panel(axs[i, j], metacodon_counts, codon_id, style, keys_to_plot)
     else:
         fig, axs = plt.subplots(len(codon_ids), 1, figsize=(8, 8 * len(codon_ids)))
         for codon_id, ax in zip(codon_ids, axs):
-            make_plot(ax, codon_id)
+            make_metacodon_panel(ax, metacodon_counts, codon_id, style)
 
     fig.savefig(fig_fn, bbox_inches='tight')
 
-def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, length=28, edge="5'"):
+def plot_metacodon_comparison(names,
+                              metacodon_counts_list,
+                              fig_fn,
+                              style='actual',
+                              keys_to_plot=['actual'],
+                             ):
+    codon_ids = codons.all_codons[:30]
+    fig, axs = plt.subplots(len(names),
+                            len(codon_ids),
+                            figsize=(8 * len(codon_ids), 8 * len(names)),
+                           )
+    for n, name in enumerate(names):
+        for c, codon_id in enumerate(codon_ids):
+            make_metacodon_panel(axs[n, c], metacodon_counts_list[n], codon_id, style, keys_to_plot)
+
+        axs[n, 0].set_ylabel(name)
+
+    fig.savefig(fig_fn, bbox_inches='tight')
+
+def plot_single_length_metacodon_counts(metacodon_counts,
+                                        fig_fn,
+                                        codon_ids,
+                                        length=28,
+                                        edge="5'",
+                                       ):
     random_codon_id = metacodon_counts.iterkeys().next()
     random_counts = metacodon_counts[random_codon_id].itervalues().next()
     keys = metacodon_counts[random_codon_id].keys()
-    xs = np.arange(-20, 20)
-
+    xs = np.arange(-30, 30)
+    minor_xticks = [x for x in xs if x % 3 == 0]
+    major_xticks = [x for x in xs if x % 15 == 0]
     bases = 'TCAG'
 
     def make_plot(ax, codon_id):
@@ -623,12 +733,16 @@ def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, len
             positions = xs - length + 1
         else:
             positions = xs
-        line, = ax.plot(xs, counts[positions], '.-')
+        line, = ax.plot(xs, counts['feature', positions], '.-')
         ax.ticklabel_format(axis='y', style='sci', scilimits=(0, 3))
 
         ax.set_ylim(ymin=0)
         ax.set_xlim(min(xs), max(xs))
-        ax.axvline(0, ls='--', color='black', alpha=0.5)
+        #ax.axvline(0, ls='--', color='black', alpha=0.5)
+        ax.set_xticks(major_xticks)
+        for x in minor_xticks:
+            ax.axvline(x, color='black', alpha=0.1)
+
     
     if codon_ids == 'all':
         fig, axs = plt.subplots(16, 4, figsize=(16, 64))
@@ -645,7 +759,6 @@ def plot_single_length_metacodon_counts(metacodon_counts, fig_fn, codon_ids, len
         for codon_id, ax in zip(codon_ids, axs):
             make_plot(ax, codon_id)
 
-    fig.suptitle('Read counts around every occurence, {0}'.format(edge))
     fig.savefig(fig_fn, bbox_inches='tight')
 
 def plot_frameshifts(gtf_fn,
@@ -802,16 +915,17 @@ def plot_RPKMs():
             ax.set_ylabel(second)
 
 def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
-    index_counts = type_counts.sum(axis=(1, 2, 3, 4))
-    nonzero_lengths = [length for count, length in zip(index_counts, relevant_lengths) if count > 0]
-    length_to_index = {length: i for i, length in enumerate(relevant_lengths)}
+    # To get the total number of reads for each length, get the total number of
+    # base calls at read position 0 for that length. 
+    length_totals = type_counts[:, 0].sum(axis=(1, 2, 3))
+    nonzero_lengths = [length for length, count in enumerate(length_totals) if count > 0]
     
     fig, axs = plt.subplots(len(nonzero_lengths), 2, figsize=(24, 8 * len(nonzero_lengths)))
     
     base_order = utilities.base_order[:4]
 
     for length, (absolute_ax, zoomed_ax) in zip(nonzero_lengths, axs):
-        length_counts = type_counts[length_to_index[length]]
+        length_counts = type_counts[length]
         all_rates = variants.compute_fractions_miscalled_as(length_counts, min_q=30)
 
         xs = np.arange(length)
@@ -828,7 +942,7 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
             ax.legend(framealpha=0.5)
 
             ax.set_xlim(-1, max(nonzero_lengths))
-            ax.set_title('Length {0}'.format(length))
+            ax.set_title('Length {0} - {1:,} total reads'.format(length, length_totals[length]))
             ax.axvline(0, color='black', alpha=0.5)
             ax.axvline(length - 1, color='black', alpha=0.5)
     
@@ -840,29 +954,18 @@ def plot_mismatch_type_by_position(type_counts, relevant_lengths, figure_fn):
     fig.savefig(figure_fn, bbox_inches='tight')
     plt.close(fig)
 
-if __name__ == '__main__':
+if __name__ == '__main__1':
     from ribosome_profiling_experiment import RibosomeProfilingExperiment
     import subprocess
 
-    job_fns_groups = [['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/WT_1_FP/job/description.txt',
-                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/WT_1_FP/job/description.txt',
-                      ],
-                      ['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/WT_2_FP/job/description.txt',
-                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/WT_2_FP/job/description.txt',
-                      ],
-                      ['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/R98S_1_FP/job/description.txt',
-                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/R98S_1_FP/job/description.txt',
-                      ],
-                      ['/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/R98S_2_FP/job/description.txt',
-                       '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/R98S_2_FP/job/description.txt',
-                      ],
-                      ['/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/WT_cDNA_sample/job/description.txt',
-                      ],
-                      #['/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/R98S_cDNA_sample/job/description.txt',
-                      #],
-                      #['/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/Suppressed_R98S_cDNA_sample/job/description.txt',
-                      #],
-                     ]
+    job_fns = ['/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/WT_1_FP/job/description.txt',
+               '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/WT_2_FP/job/description.txt',
+               '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/R98S_1_FP/job/description.txt',
+               '/home/jah/projects/ribosomes/experiments/belgium_2014_12_10/R98S_2_FP/job/description.txt',
+               '/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/WT_cDNA_sample/job/description.txt',
+               #'/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/R98S_cDNA_sample/job/description.txt',
+               #'/home/jah/projects/ribosomes/experiments/belgium_2013_08_06/Suppressed_R98S_cDNA_sample/job/description.txt',
+              ]
 
     frameshift_genes = ['YIL009C-A',
                         'YOR239W',
@@ -872,15 +975,14 @@ if __name__ == '__main__':
 
     gene_fns = {gene: [] for gene in frameshift_genes}
 
-    for job_fn_group in job_fns_groups:
-        experiments = [RibosomeProfilingExperiment.from_description_file_name(job_fn)
-                       for job_fn in job_fn_group]
+    for job_fn in job_fns:
+        experiment = RibosomeProfilingExperiment.from_description_file_name(job_fn)
         for gene in frameshift_genes:
-            fig = plot_frameshifts(experiments[0].file_names['genes'],
-                                   [experiment.file_names['merged_mappings'] for experiment in experiments],
+            fig = plot_frameshifts(experiment.file_names['genes'],
+                                   [experiment.file_names['merged_mappings']],
                                    gene,
-                                   ' + '.join('{0}: {1}'.format(experiment.group, experiment.name) for experiment in experiments),
-                                   experiments[0].file_names['genome'],
+                                   '{0}: {1}'.format(experiment.group, experiment.name),
+                                   experiment.file_names['genome'],
                                   )
             fig.set_size_inches(16, 12)
 
@@ -892,3 +994,134 @@ if __name__ == '__main__':
     for gene in frameshift_genes:
         merged_fn = '/home/jah/projects/ribosomes/experiments/belgium_2014_10_27/{0}.pdf'.format(gene)
         subprocess.check_call(['pdftk'] + gene_fns[gene] + ['cat', 'output', merged_fn])
+
+if __name__ == '__main__1':
+    import select_work
+    experiments = select_work.build_all_experiments(verbose=False)
+    chx_experiments = experiments['gerashchenko_nar']
+    names = sorted(chx_experiments, key=select_work.gerashchenko_nar_sorting_key)
+    metacodon_counts_list = [chx_experiments[name].read_file('metacodon_counts')
+                             for name in names]
+
+    plot_metacodon_comparison(names, metacodon_counts_list, 'test.png', style='enrichment')
+
+if __name__ == '__main__':
+    import select_work
+    names = ['dom34KO_3-AT',
+             #'dom34KO_CHX',
+             #'dom34KO_mRNA-Seq',
+             #'dom34KO_no_additive',
+             'wild-type_3-AT',
+             #'wild-type_CHX',
+             #'wild-type_mRNA-Seq',
+             #'wild-type_no_additive',
+            ]
+
+    experiments = select_work.build_all_experiments(verbose=False)
+    relevant_experiments = [e for e in experiments['guydosh_cell'].values() if e.name in names]
+    sorted_experiments = sorted(relevant_experiments, key=lambda e: e.name)
+
+    #sorted_experiments = select_work.get_gerashchenko_nar_experiments()
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    special_codons = {'H': set(codons.full_back_table['H'])}
+    #special_codons = {c : c for c in codons.full_back_table['H']}
+    #special_codons = []
+
+    color_iter = iter(colors)
+    codon_counts_list = []
+    for exp in sorted_experiments:
+        print 'Reading {0}'.format(exp.name)
+        codon_counts = exp.read_file('buffered_codon_counts', specific_keys={'relaxed', 'identities'})
+        codon_counts_list.append(codon_counts)
+
+    ratios_list, raw_counts_list = positions.compute_pause_scores(codon_counts_list, special_codons)
+
+    for exp, ratios in zip(sorted_experiments, ratios_list):
+        for key in ratios:
+            if ratios[key] == []:
+                continue
+            sorted_values, cumulative = utilities.empirical_cdf(ratios[key])
+            ax.semilogy(sorted_values, 1 - cumulative, color=color_iter.next(), label=exp.name + '_' + key)
+
+    ax.legend(framealpha=0.5)
+    ax.set_ylabel('Fraction of codons with enrichment >= x')
+    ax.set_xlabel('Ratio of reads at codon to median reads across coding sequence')
+    
+    fig.savefig('../results/stalling/1_pausing_at_his.png', bbox_inches='tight')
+    plt.close(fig)
+
+
+    counts_around, ratios_around = positions.metacodon_around_pauses(codon_counts_list[0], special_codons=codons.full_back_table['H'], show_progress=True)
+    quantiles = scipy.stats.mstats.mquantiles(ratios_around[:, 30], prob=np.linspace(0, 1, 11))
+    boundaries = zip(quantiles, quantiles[1:])
+    bins = [(ratios_around[:, 30] >= start) & (ratios_around[:, 30] < end) for start, end in boundaries]
+    binned = [ratios_around[mask] for mask in bins] 
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    bin_means = np.asarray([np.mean(b, axis=0) for b in binned])[:, 30]
+    before_means = np.asarray([np.mean(b, axis=0) for b in binned])[:, 30 - 10]
+    two_before_means = np.asarray([np.mean(b, axis=0) for b in binned])[:, 30 - 20]
+    control_means = np.asarray([np.mean(b, axis=0) for b in binned])[:, 30 + 10]
+
+    ax.plot(bin_means, bin_means, 'o-', label='0')
+    ax.plot(bin_means, before_means, 'o-', label='-10')
+    ax.plot(bin_means, two_before_means, 'o-', label='-20')
+    ax.plot(bin_means, control_means, 'o-', label='+10')
+    for q in quantiles:
+        ax.axvline(q, color='black', alpha=0.5)
+
+    ax.set_xscale('log', basex=2)
+    ax.set_yscale('log', basey=2)
+
+    ax.set_xlabel('Average enrichment in bin at His')
+    ax.set_ylabel('Average enrichment in bin at offset')
+    ax.legend(loc='upper right', framealpha=0.5)
+    ax.set_title('Stalling behind His codons is independant of read density at the His codon')
+
+    fig.savefig('../results/stalling/5_mean_stalling_vs_mean_pausing.png', bbox_inches='tight')
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    xs = np.arange(-30, 30)
+    ys = ratios_around.mean(axis=0)
+
+    ax.plot(xs, ys, '.-')
+    ax.set_ylabel('Average enrichment')
+    ax.set_xlabel('Offset relative to His codon')
+    fig.savefig('../results/stalling/3_enrichment_around_his.png', bbox_inches='tight')
+    plt.close(fig)
+    
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    xs = np.arange(-30, 30)
+    less_than = ratios_around[ratios_around[:, 30] <= 1].mean(axis=0)
+    greater_than = ratios_around[ratios_around[:, 30] > 1].mean(axis=0)
+
+    ax.plot(xs, less_than, '.-', label='His enrichment <= 1')
+    ax.plot(xs, greater_than, '.-', label='His enrichment > 1')
+    ax.legend(loc='upper right', framealpha=0.5)
+    ax.set_ylabel('Average enrichment')
+    ax.set_xlabel('Offset relative to His codon')
+    fig.savefig('../results/stalling/4_enrichment_around_his_stratified.png', bbox_inches='tight')
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    Sequencing.Visualize.enhanced_scatter(np.maximum(0.01, ratios_list[0]['H']),
+                                          np.maximum(0.01, ratios_list[1]['H']),
+                                          relevant_experiments[0].name,
+                                          relevant_experiments[1].name,
+                                          'Position-specific enrichments are consistent across replicates',
+                                          ax,
+                                          do_fit=False,
+                                          show_p_value=False,
+                                         )
+    ax.set_yscale('log')
+    ax.set_xscale('log')
+    
+    fig.savefig('../results/stalling/2_pausing_reproducibility.png', bbox_inches='tight')
+    plt.close(fig)
