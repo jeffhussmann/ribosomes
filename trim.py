@@ -76,10 +76,10 @@ smRNA_15_linker = 'TGGAATTCTCGGGTGCCAAGG'
 
 full_linker = smRNA_linker + truseq_R2_rc
 
-adapter_prefix_length = 10
+adapter_prefix_length = 15
 max_distance = 1
 
-def trim_by_local_alignment(adapter, seq):
+def trim_by_local_alignment_slow(adapter, seq):
     alignment, = sw.generate_alignments(adapter,
                                         seq,
                                         'unpaired_adapter',
@@ -92,6 +92,25 @@ def trim_by_local_alignment(adapter, seq):
         trim_at = adapter_start_in_seq
     else:
         trim_at = find_adapter(adapter[:adapter_prefix_length], max_distance, seq)
+
+    return trim_at
+
+def trim_by_local_alignment(adapter, seq):
+    ''' Try to find a near-exact match. If this fails, do a local alignment. '''
+    trim_at = find_adapter(adapter[:adapter_prefix_length], 1, seq)
+
+    if trim_at > len(seq) - adapter_prefix_length:
+        alignment, = sw.generate_alignments_new(adapter,
+                                            seq,
+                                            'unpaired_adapter',
+                                            max_alignments=1,
+                                           )
+
+        score_diff = 2 * len(alignment['path']) - alignment['score']
+        adapter_start_in_seq = sw.first_target_index(alignment['path'])
+
+        if alignment['path'] and score_diff <= 10. / 22 * len(alignment['path']):
+            trim_at = adapter_start_in_seq
 
     return trim_at
 
@@ -166,6 +185,7 @@ def trim_polyA_from_unmapped(unmapped_reads,
                              second_time=False,
                             ):
     trimmed_reads = trim(unmapped_reads,
+                         find_start=lambda x: 0,
                          find_end=find_poly_A,
                          second_time=second_time,
                         )
@@ -483,3 +503,19 @@ def trim_nongenomic_polyA_from_end(mapping, region_fetcher):
     set_nongenomic_length(mapping, bases_to_trim)
 
     return mapping
+
+if __name__ == '__main__':
+    fastq_fn = '/home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_CHX/data/SRR1042854.fastq'
+    seqs = [r.seq for _, r in zip(xrange(100000), fastq.reads(fastq_fn))]
+    seqs = utilities.progress_bar(len(seqs), seqs)
+    adapter = full_linker
+    count = 0
+    for seq in seqs:
+        if trim_by_local_alignment_slow(adapter, seq) != trim_by_local_alignment(adapter, seq):
+            print find_adapter(adapter[:10], 1, seq)
+            print find_adapter(adapter[:10], 2, seq)
+            print trim_by_local_alignment_slow(adapter, seq)
+            print trim_by_local_alignment(adapter, seq)
+            print seq
+            raw_input()
+            count += 1
