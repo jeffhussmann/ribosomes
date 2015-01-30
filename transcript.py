@@ -211,16 +211,17 @@ class Transcript(object):
                                                       )
         return transcript_sequence
 
-    def get_coding_sequence(self):
+    def get_coding_sequence(self, translate=True):
         transcript_sequence = self.get_transcript_sequence()
         coding_sequence = transcript_sequence['start_codon':('stop_codon', 3)]
         coding_sequence = ''.join(coding_sequence)
         
-        # Ensure that the coding sequence is well-formed.
-        try:
-            Bio.Seq.translate(coding_sequence, cds=True, table=self.codon_table)  
-        except Bio.Seq.CodonTable.TranslationError:
-            coding_sequence = None
+        if translate:
+            # Ensure that the coding sequence is well-formed.
+            try:
+                Bio.Seq.translate(coding_sequence, cds=True, table=self.codon_table)  
+            except Bio.Seq.CodonTable.TranslationError:
+                coding_sequence = None
 
         return coding_sequence
 
