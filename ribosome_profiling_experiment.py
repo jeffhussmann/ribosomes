@@ -365,6 +365,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                       6,
                      )
         type_counts = np.zeros(type_shape, int)
+
+        # To avoid counting mismatches in non-unique mappings multiple times,
+        # a dummy secondary_type_counts array is passed to
+        # trim_mismatches_from_start for secondary mappings.
+        secondary_type_counts = np.zeros(type_shape, int)
+        
         clean_trimmed_length_counts = Counter()
     
         region_fetcher = genomes.build_region_fetcher(self.file_names['genome'],
@@ -373,9 +379,14 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                      )
 
         for mapping in clean_bam:
+            if mapping.is_secondary:
+                counts_array = secondary_type_counts
+            else:
+                counts_array = type_counts
+
             trimmed_from_start = trim.trim_mismatches_from_start(mapping,
                                                                  region_fetcher,
-                                                                 type_counts,
+                                                                 counts_array,
                                                                 )
             trimmed_from_end = trim.trim_nongenomic_polyA_from_end(trimmed_from_start,
                                                                    region_fetcher,
