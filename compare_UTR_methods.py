@@ -22,7 +22,7 @@ def build_all_experiments(verbose=True):
                 'three_p_seq': (three_p_experiment.ThreePExperiment, ['three_p_seq']),
                 'TL_seq': (TL_seq_experiment.TLSeqExperiment, ['arribere_gr', 'park_nar']),
                 'three_t_fill_seq': (three_t_fill_experiment.ThreeTFillExperiment, ['wilkening_nar']),
-                'ribosome_profiling': (ribosome_profiling_experiment.RibosomeProfilingExperiment, ['weinberg']),
+                'ribosome_profiling': (ribosome_profiling_experiment.RibosomeProfilingExperiment, ['weinberg', 'guydosh_cell']),
                }
 
     experiments = {}
@@ -139,9 +139,9 @@ def plot_gene(gene_name):
                              [(n, e) for n, e in sorted(experiments['TL_seq']['park_nar'].items()) if n == 'SMORE-seq_WT_TAP+_rep1'] + \
                              [(n, e) for n, e in sorted(experiments['TIF_seq']['pelechano_nature'].items()) if n == 'ypd_bio1_lib1' or n == 'ypd_bio1_lib4']
                              
-    three_prime_experiments = [(n, e) for n, e in sorted(experiments['three_p_seq']['three_p_seq'].items())]# + \
-                              #[(n, e) for n, e in sorted(experiments['TIF_seq']['pelechano_nature'].items()) if n == 'ypd_bio1_lib1' or n == 'ypd_bio1_lib4'] + \
-                              #[(n, e) for n, e in sorted(experiments['three_t_fill_seq']['wilkening_nar'].items()) if '3tfill_ypd_rep1' in n]
+    three_prime_experiments = [(n, e) for n, e in sorted(experiments['three_p_seq']['three_p_seq'].items())] + \
+                              [(n, e) for n, e in sorted(experiments['TIF_seq']['pelechano_nature'].items()) if n == 'ypd_bio1_lib1' or n == 'ypd_bio1_lib4'] + \
+                              [(n, e) for n, e in sorted(experiments['three_t_fill_seq']['wilkening_nar'].items()) if '3tfill_ypd_rep1' in n]
 
     rna_seq_experiments = [(n, e) for n, e in sorted(experiments['ribosome_profiling']['weinberg'].items()) if 'RPF' not in n]
 
@@ -152,9 +152,11 @@ def plot_gene(gene_name):
     fig, ax = plt.subplots()
 
     for name, experiment in five_prime_experiments:
-        fn = experiment.file_names['five_prime_read_positions']
+        print name
+        fn = experiment.file_names['read_positions']
         f = h5py.File(fn, 'r')
         gene = Serialize.read_positions.build_gene(f[gene_name])
+        print gene.keys()
         xs = np.arange(-200, gene['all'].CDS_length)
 
         counts = gene['all']['start_codon', xs]
@@ -175,10 +177,10 @@ def plot_gene(gene_name):
     fig, ax = plt.subplots()
     
     for name, experiment in three_prime_experiments:
-        fn = experiment.file_names['three_prime_read_positions']
+        fn = experiment.file_names['read_positions']
         f = h5py.File(fn, 'r')
         gene = Serialize.read_positions.build_gene(f[gene_name])
-        xs = np.arange(-gene['all'].CDS_length, 400)
+        xs = np.arange(-gene.itervalues().next().CDS_length, 400)
 
         total_reads = experiment.get_total_eligible_reads()
         #total_reads = 1.e6
@@ -197,6 +199,7 @@ def plot_gene(gene_name):
             plot_with_line_alpha(ax, xs, genomic_normalized, label='{}_genomic'.format(name))
             plot_with_line_alpha(ax, xs, nongenomic_normalized, label='{}_nongenomic'.format(name))
         else:
+            print gene.keys()
             counts = gene['all']['stop_codon', xs]
             #normalization = float(experiment.get_total_eligible_reads()) / 1.e6
             #normalization = 1.
