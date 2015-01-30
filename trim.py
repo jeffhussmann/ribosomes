@@ -4,23 +4,29 @@ import pysam
 from functools import partial
 from itertools import chain
 from collections import Counter
-from Sequencing import genomes, utilities, fastq, sam
+import Sequencing.fastq as fastq
+import Sequencing.genomes as genomes
+import Sequencing.sam as sam
+import Sequencing.utilities as utilities
+import Sequencing.sw as sw
 from Sequencing.annotation import Annotation_factory
 from trim_cython import *
 from Sequencing.adapters_cython import *
 from Sequencing import sw
-from Sequencing import sam
 
 payload_annotation_fields = [
     ('original_name', 's'),
-    ('barcode', 's'),
-    ('trimmed_seq', 's'),
-    ('trimmed_qual', 's'),
+    ('left_seq', 's'),
+    ('left_qual', 's'),
+    ('right_seq', 's'),
+    ('right_qual', 's'),
 ]
 PayloadAnnotation = Annotation_factory(payload_annotation_fields)
 
-retrimmed_fields = [('retrimmed_seq', 's'),
-                    ('retrimmed_qual', 's'),
+retrimmed_fields = [('retrimmed_left_seq', 's'),
+                    ('retrimmed_left_qual', 's'),
+                    ('retrimmed_right_seq', 's'),
+                    ('retrimmed_right_qual', 's'),
                    ]
 trimmed_twice_annotation_fields = payload_annotation_fields + retrimmed_fields
 TrimmedTwiceAnnotation = Annotation_factory(trimmed_twice_annotation_fields)
@@ -39,19 +45,23 @@ def trim(reads, find_start=None, find_end=None, second_time=False):
         start = find_start(read.seq)
         end = find_end(read.seq) 
 
-        barcode = read.seq[:start]
-        trimmed_seq = read.seq[end:]
-        trimmed_qual = fastq.sanitize_qual(read.qual[end:])
+        left_seq = read.seq[:start]
+        left_qual = fastq.sanitize_qual(read.qual[:start])
+        right_seq = read.seq[end:]
+        right_qual = fastq.sanitize_qual(read.qual[end:])
         if second_time:
             payload_annotation = PayloadAnnotation.from_identifier(read.name)
-            annotation = TrimmedTwiceAnnotation(retrimmed_seq=trimmed_seq,
-                                                retrimmed_qual=trimmed_qual,
+            annotation = TrimmedTwiceAnnotation(retrimmed_left_seq=left_seq,
+                                                retrimmed_left_qual=left_qual,
+                                                retrimmed_right_seq=right_seq,
+                                                retrimmed_right_qual=right_qual,
                                                 **payload_annotation)
         else:
             annotation = PayloadAnnotation(original_name=read.name,
-                                           barcode=barcode,
-                                           trimmed_seq=trimmed_seq,
-                                           trimmed_qual=trimmed_qual,
+                                           left_seq=left_seq,
+                                           left_qual=left_qual,
+                                           right_seq=right_seq,
+                                           right_qual=right_qual,
                                           )
         trimmed_read = fastq.Read(annotation.identifier,
                                   read.seq[start:end],
@@ -163,6 +173,28 @@ def trim_polyA_from_unmapped(unmapped_reads,
         for trimmed_read in trimmed_reads:
             trimmed_fh.write(str(trimmed_read))
 
+def untrim_reads(trimmed_reads, second_time=False):
+    if second_time:
+        Annotation = TrimmedTwiceAnnotation
+        left_seq_key = 'retrimmed_left_seq'
+        left_qual_key = 'retrimmed_left_qual'
+        right_seq_key = 'retrimmed_right_seq'
+        right_qual_key = 'retrimmed_right_qual'
+    else:
+        Annotation = PayloadAnnotation
+        left_seq_key = 'left_seq'
+        left_qual_key = 'left_qual'
+        right_seq_key = 'right_seq'
+        right_qual_key = 'right_qual'
+
+    for trimmed_read in trimmed_reads:
+        annotation = Annotation.from_identifier(trimmed_read.name)
+        name = trimmed_read.name
+        seq = annotation[left_seq_key] + trimmed_read.seq + annotation[right_seq_key]
+        qual = annotation[left_qual_key] + trimmed_read.qual + annotation[right_qual_key]
+        read = fastq.Read(name, seq, qual)
+        yield read
+
 def extend_polyA_ends(bam_fn, extended_bam_fn, genome_dir, trimmed_twice=False):
     bam_file = pysam.Samfile(bam_fn)
     region_fetcher = genomes.build_region_fetcher(genome_dir,
@@ -189,16 +221,17 @@ def extend_polyA_end(mapping, region_fetcher, trimmed_twice=False):
     if trimmed_twice:
         # Trailing poly-As were removed by the second trimming step. 
         annotation = TrimmedTwiceAnnotation.from_identifier(mapping.qname)
-        polyA_seq = annotation['retrimmed_seq']
-        polyA_qual = annotation['retrimmed_qual']
+        polyA_seq = annotation['retrimmed_right_seq']
+        polyA_qual = annotation['retrimmed_right_qual']
         new_qname = PayloadAnnotation.from_prefix_identifier(mapping.qname).identifier
     else:
         annotation = PayloadAnnotation.from_identifier(mapping.qname)
-        polyA_seq = annotation['trimmed_seq']
-        polyA_qual = annotation['trimmed_qual']
-        new_qname = '{0}_{1}'.format(annotation['original_name'],
-                                     annotation['barcode'],
-                                    )
+        polyA_seq = annotation['right_seq']
+        polyA_qual = annotation['right_qual']
+        new_qname = '{0}_{1}_{2}'.format(annotation['original_name'],
+                                         annotation['left_seq'],
+                                         annotation['left_qual'],
+                                        )
 
     num_trimmed = len(polyA_seq)
     

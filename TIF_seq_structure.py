@@ -164,14 +164,16 @@ def find_boundary_sequences(R1, R2, counters):
     common_name, _ = R1.name.rsplit(':', 1)
     control_ids_string = '{0}-{1}'.format(left_id, right_id)
     five_annotation = trim.PayloadAnnotation(original_name=common_name,
-                                             barcode=control_ids_string,
-                                             trimmed_seq='',
-                                             trimmed_qual='',
+                                             left_seq=control_ids_string,
+                                             left_qual='',
+                                             right_seq='',
+                                             right_qual='',
                                             )
     three_annotation = trim.PayloadAnnotation(original_name=common_name,
-                                              barcode=control_ids_string,
-                                              trimmed_seq=polyA_seq,
-                                              trimmed_qual=polyA_qual,
+                                              left_seq=control_ids_string,
+                                              left_qual='',
+                                              right_seq=polyA_seq,
+                                              right_qual=polyA_qual,
                                              )
     five_payload_read = fastq.Read(five_annotation.identifier, five_payload_seq, five_payload_qual)
     three_payload_read = fastq.Read(three_annotation.identifier, three_payload_seq, three_payload_qual)
