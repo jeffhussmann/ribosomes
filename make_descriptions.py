@@ -23,6 +23,8 @@ def make_descriptions(group,
                       num_pieces=12,
                       bartel_markers=False,
                       stephanie_markers=False,
+                      guydosh_markers=False,
+                      codons_to_examine=[],
                      ):
     prefix = '/home/jah/projects/ribosomes/experiments/{0}/'.format(group)
     bash_fn = '/home/jah/projects/ribosomes/code/all_{0}.sh'.format(group)
@@ -45,13 +47,21 @@ def make_descriptions(group,
                                        min_relevant_length=min_relevant_length,
                                        max_relevant_length=max_relevant_length,
                                       )
+
+            if codons_to_examine:
+                locii_string = ';'.join('{0},{1}'.format(g_n, c_n) for g_n, c_n in codons_to_examine)
+                line = 'codons_to_examine {0}\n'.format(locii_string)
+                contents += line
+
             description_fh.write(contents)
             if max_read_length != None:
                 description_fh.write('max_read_length {0}\n'.format(max_read_length))
             if bartel_markers:
-                description_fh.write('synthetic_index_prefix /home/jah/projects/ribosomes/data/bartel_markers/bartel_markers\n')
+                description_fh.write('synthetic_fasta /home/jah/projects/ribosomes/data/bartel_markers/bartel_markers.fa\n')
             elif stephanie_markers:
                 description_fh.write('synthetic_fasta /home/jah/projects/ribosomes/data/stephanie_markers/stephanie_markers.fa\n')
+            elif guydosh_markers:
+                description_fh.write('synthetic_fasta /home/jah/projects/ribosomes/data/guydosh_markers/guydosh_markers.fa\n')
 
         bash_fh.write('echo {name}\n'.format(name=name))
         bash_fh.write('python ribosome_profiling_experiment.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
@@ -59,26 +69,30 @@ def make_descriptions(group,
     return bash_fn
 
 if __name__ == '__main__':
-    kwargs = {'num_pieces': 12,
-             }
+    kwargs = {}
     all_bash_fn = '/home/jah/projects/ribosomes/code/everything.sh'
     fns = []
+
+    arlen_locii = [('YLR075W', 98), ('YHR170W', 379)]
+
     fns.append(make_descriptions('artieri', 'polyA', **kwargs))
-    fns.append(make_descriptions('belgium_2013_08_06', 'truseq', **kwargs))
+    fns.append(make_descriptions('belgium_2013_08_06', 'truseq', codons_to_examine=arlen_locii, **kwargs))
     fns.append(make_descriptions('belgium_2014_03_05', 'linker', **kwargs))
     fns.append(make_descriptions('belgium_2014_08_07', 'linker', stephanie_markers=True, **kwargs))
     fns.append(make_descriptions('belgium_2014_10_27', 'linker_local', stephanie_markers=True, **kwargs))
-    fns.append(make_descriptions('belgium_2014_12_10', 'linker_local', stephanie_markers=True, **kwargs))
+    fns.append(make_descriptions('belgium_2014_12_10', 'linker_local', codons_to_examine=arlen_locii, stephanie_markers=True, **kwargs))
     fns.append(make_descriptions('dunn_elife', 'linker', **kwargs))
     fns.append(make_descriptions('gerashchenko_pnas', 'polyA', max_read_length=44, **kwargs))
     fns.append(make_descriptions('gerashchenko_nar', 'nothing', max_read_length=50, **kwargs))
-    fns.append(make_descriptions('guydosh_cell', 'linker', **kwargs))
+    fns.append(make_descriptions('guydosh_cell', 'linker_local', guydosh_markers=True, **kwargs))
     fns.append(make_descriptions('ingolia_science', 'polyA', **kwargs))
     fns.append(make_descriptions('lareau_elife', 'linker', **kwargs))
     fns.append(make_descriptions('mcmanus_gr', 'linker', **kwargs))
     fns.append(make_descriptions('weinberg', 'weinberg', bartel_markers=True, **kwargs))
     fns.append(make_descriptions('zinshteyn_plos_genetics', 'polyA', **kwargs))
     fns.append(make_descriptions('pop_msb', 'linker', **kwargs))
+    fns.append(make_descriptions('gardin_elife', 'truseq', **kwargs))
+
     with open(all_bash_fn, 'w') as all_bash_fh:
         for fn in fns:
             all_bash_fh.write('echo {}\n'.format(fn))
