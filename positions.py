@@ -3,11 +3,12 @@
 import numpy as np
 import numbers
 import pysam
-from collections import Counter
-from itertools import cycle, product
+from collections import Counter, defaultdict
+from itertools import cycle, product, izip
 import codons
 import gtf
 import Sequencing.Serialize
+import Sequencing.utilities
 import trim
 
 class PositionCounts(object):
@@ -264,14 +265,12 @@ def get_Transcript_position_counts(clean_bam_fn,
                      'end': transcript.transcript_length,
                     }
         five_prime_positions = {l: PositionCounts(landmarks, left_buffer, right_buffer)
-                                for l in relevant_lengths + ['all']}
+                                for l in relevant_lengths + ['all', 'all_nonunique']}
         
         three_prime_positions = {l: PositionCounts(landmarks, left_buffer, right_buffer)
-                                 for l in range(max_nongenomic_length + 1) + ['all']}
+                                 for l in range(max_nongenomic_length + 1) + ['all', 'all_nonunique']}
 
         transcript_sequence = transcript.get_transcript_sequence(left_buffer, right_buffer)
-        five_prime_positions['sequence'] = transcript_sequence
-        three_prime_positions['sequence'] = transcript_sequence
         
         # fetch raises a ValueError if given a negative start, but it doesn't 
         # care if the end is valid.
@@ -285,7 +284,9 @@ def get_Transcript_position_counts(clean_bam_fn,
             
             if read.mapq != 50:
                 nonunique += 1
-                continue
+                is_unique = False
+            else:
+                is_unique = True
 
             read_strand = '-' if read.is_reverse else '+'
             if read_strand != transcript.strand:
@@ -303,24 +304,35 @@ def get_Transcript_position_counts(clean_bam_fn,
 
             if five_prime_position in transcript.genomic_to_transcript:
                 transcript_coord = transcript.genomic_to_transcript[five_prime_position]
-                five_prime_positions['all']['start', transcript_coord] += 1
-                
-                if read.qlen in relevant_lengths:
-                    five_prime_positions[read.qlen]['start', transcript_coord] += 1
+
+                if is_unique:
+                    five_prime_positions['all']['start', transcript_coord] += 1
+                    
+                    if read.qlen in relevant_lengths:
+                        five_prime_positions[read.qlen]['start', transcript_coord] += 1
+
+                elif not read.is_secondary:
+                    five_prime_positions['all_nonunique']['start', transcript_coord] += 1
+
             
             if three_prime_position in transcript.genomic_to_transcript:
                 transcript_coord = transcript.genomic_to_transcript[three_prime_position]
-                three_prime_positions['all']['start', transcript_coord] += 1
 
-                nongenomic_length = trim.get_nongenomic_length(read)
-                if nongenomic_length <= max_nongenomic_length:
-                    three_prime_positions[nongenomic_length]['start', transcript_coord] += 1
+                if is_unique:
+                    three_prime_positions['all']['start', transcript_coord] += 1
+
+                    nongenomic_length = trim.get_nongenomic_length(read)
+                    if nongenomic_length <= max_nongenomic_length:
+                        three_prime_positions[nongenomic_length]['start', transcript_coord] += 1
+                elif not read.is_secondary:
+                    three_prime_positions['all_nonunique']['start', transcript_coord] += 1
 
         gene_infos[transcript.name] = {'CDS_length': transcript.CDS_length,
                                        'five_prime_positions': five_prime_positions,
                                        'three_prime_positions': three_prime_positions,
                                        'nonunique': nonunique,
                                        'alternatively_spliced': alternatively_spliced,
+                                       'sequence': transcript_sequence,
                                       }
         transcript.delete_coordinate_maps()
 

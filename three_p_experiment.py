@@ -24,8 +24,6 @@ class ThreePExperiment(rna_experiment.RNAExperiment):
 
         ('extended', 'bam', '{name}_extended.bam'),
         ('extended_filtered', 'bam', '{name}_extended_filtered.bam'),
-
-        ('three_prime_read_positions', Serialize.read_positions, '{name}_three_prime_read_positions.hdf5'),
     ]
 
     specific_figure_files = []
@@ -38,7 +36,7 @@ class ThreePExperiment(rna_experiment.RNAExperiment):
          'nongenomic_lengths',
         ],
         ['metagene_positions',
-         'three_prime_read_positions',
+         'read_positions',
         ],
     ]
 
@@ -157,19 +155,20 @@ class ThreePExperiment(rna_experiment.RNAExperiment):
                                                               right_buffer=500,
                                                              )
 
-        self.three_prime_read_positions = {name: info['three_prime_positions']
-                                           for name, info in gene_infos.iteritems()}
+        self.read_positions = {name: info['three_prime_positions']
+                               for name, info in gene_infos.iteritems()}
 
-        self.write_file('three_prime_read_positions', self.three_prime_read_positions)
+        self.write_file('read_positions', self.read_positions)
         
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        read_positions = self.load_read_positions(modifier='three_prime')
+        read_positions = self.load_read_positions()
         
         processed_read_positions = {}
         for name in read_positions:
             gene = {'three_prime_genomic': read_positions[name][0],
                     'three_prime_nongenomic': read_positions[name]['all'] - read_positions[name][0],
+                    'three_prime_nonunique': three_prime_counts['all_nonunique'],
                     'sequence': read_positions[name]['sequence'],
                    }
             processed_read_positions[name] = gene

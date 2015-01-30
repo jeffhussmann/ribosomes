@@ -812,28 +812,25 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         piece_CDSs, max_gene_length = self.get_CDSs()
         gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['merged_mappings'],
                                                               piece_CDSs,
-                                                              relevant_lengths=self.relevant_lengths,
+                                                              self.relevant_lengths,
                                                              )
 
-        self.read_positions = {name: info['five_prime_positions']
-                               for name, info in gene_infos.iteritems()}
+        self.read_positions = {}
+        for name, info in gene_infos.iteritems():
+            five_prime_counts = info['five_prime_positions']
+            three_prime_counts = info['three_prime_positions']
+
+            all_positions = {'three_prime_genomic': three_prime_counts[0],
+                             'three_prime_nongenomic': three_prime_counts['all'] - three_prime_counts[0],
+                             'three_prime_nonunique': three_prime_counts['all_nonunique'],
+                             'sequence': info['sequence'],
+                            }
+            all_positions.update(five_prime_counts)
+
+            self.read_positions[name] = all_positions
 
         self.write_file('read_positions', self.read_positions)
         
-        self.three_prime_read_positions = {name: info['three_prime_positions']
-                                           for name, info in gene_infos.iteritems()}
-
-        self.write_file('three_prime_read_positions', self.three_prime_read_positions)
-        
-        #if self.adapter_type == 'polyA':
-        #    gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['unambiguous_bam'],
-        #                                                          piece_CDSs,
-        #                                                          relevant_lengths=self.relevant_lengths,
-        #                                                         )
-        #    self.unambiguous_read_positions = {name: info['position_counts']
-        #                                       for name, info in gene_infos.iteritems()}
-        #    self.write_file('unambiguous_read_positions', self.unambiguous_read_positions)
-
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
         read_positions = self.load_read_positions()
@@ -843,39 +840,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                                  )
 
         self.write_file('metagene_positions', metagene_positions)
-
-        three_prime_read_positions = self.load_read_positions(modifier='three_prime')
-        
-        processed_read_positions = {}
-        for name, counts in three_prime_read_positions.iteritems():
-            gene = {'three_prime_genomic': counts[0],
-                    'three_prime_nongenomic': counts['all'] - counts[0],
-                    'sequence': counts['sequence'],
-                   }
-            processed_read_positions[name] = gene
-    
-        three_prime_metagene_positions = positions.compute_metagene_positions(piece_CDSs,
-                                                                              processed_read_positions,
-                                                                              max_gene_length,
-                                                                             )
-
-        self.write_file('three_prime_metagene_positions', three_prime_metagene_positions)
-
-        #if self.adapter_type == 'polyA':
-        #    read_positions = self.load_read_positions(modifier='unambiguous')
-        #    metagene_positions = positions.compute_metagene_positions(read_positions, max_gene_length)
-
-        #    self.write_file('unambiguous_from_starts', metagene_positions)
-        
-    def get_recycling_ratios(self):
-        piece_simple_CDSs, _ = self.get_CDSs()
-        rpf_positions_dict = self.read_file('rpf_positions')
-        genome = mapping_tools.load_genome(self.file_names['genome'], explicit_path=True)
-        ratio_lists = ribosomes.recycling_ratios(rpf_positions_dict,
-                                                 piece_simple_CDSs,
-                                                 genome,
-                                                )
-        self.write_file('recycling_ratios', ratio_lists)
 
     def compute_codon_occupancy_counts(self):
         read_positions = self.load_read_positions()

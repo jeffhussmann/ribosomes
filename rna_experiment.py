@@ -17,9 +17,7 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
         ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
-        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
         ('metagene_positions', read_positions, '{name}_metagene_positions.hdf5'),
-        ('three_prime_metagene_positions', read_positions, '{name}_three_prime_metagene_positions.hdf5'),
     ]
 
     specific_figure_files = [

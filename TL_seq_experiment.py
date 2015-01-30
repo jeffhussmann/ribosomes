@@ -12,8 +12,6 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
 
     specific_results_files = [
         ('bam', 'bam', '{name}.bam'),
-
-        ('five_prime_read_positions', read_positions, '{name}_five_prime_read_positions.hdf5'),
     ]
 
     specific_figure_files = [
@@ -22,7 +20,7 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
     specific_outputs = [
         [#'bam',
         ],
-        ['five_prime_read_positions',
+        ['read_positions',
          'metagene_positions',
         ],
     ]
@@ -80,14 +78,14 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
                                                               right_buffer=500,
                                                              )
 
-        self.five_prime_read_positions = {name: info['five_prime_positions']
-                                          for name, info in gene_infos.iteritems()}
+        self.read_positions = {name: info['five_prime_positions']
+                               for name, info in gene_infos.iteritems()}
 
-        self.write_file('five_prime_read_positions', self.five_prime_read_positions)
+        self.write_file('read_positions', self.read_positions)
     
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        read_positions = self.load_read_positions(modifier='five_prime')
+        read_positions = self.load_read_positions()
         metagene_positions = positions.compute_metagene_positions(piece_CDSs,
                                                                   read_positions,
                                                                   max_gene_length,

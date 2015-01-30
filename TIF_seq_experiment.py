@@ -37,12 +37,10 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
         ('five_prime_tophat_dir', 'dir', 'tophat_five_prime'),
         ('five_prime_accepted_hits', 'bam', 'tophat_five_prime/accepted_hits.bam'),
         ('five_prime_unmapped', 'bam', 'tophat_five_prime/unmapped.bam'),
-        ('five_prime_read_positions', read_positions, '{name}_five_prime_read_positions.hdf5'),
 
         ('three_prime_tophat_dir', 'dir', 'tophat_three_prime'),
         ('three_prime_accepted_hits', 'bam', 'tophat_three_prime/accepted_hits.bam'),
         ('three_prime_unmapped', 'bam', 'tophat_three_prime/unmapped.bam'),
-        ('three_prime_read_positions', read_positions, '{name}_three_prime_read_positions.hdf5'),
 
         ('combined_extended', 'bam', '{name}_combined_extended.bam'),
         
@@ -66,16 +64,15 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
          'joint_lengths',
          'combined_extended',
         ],
-        ['five_prime_read_positions',
-         'three_prime_read_positions',
+        ['read_positions',
          'metagene_positions',
          'joint_positions',
         ],
     ]
 
     specific_work = [
-        ['extract_boundary_sequences',
-         'map_tophat',
+        [#'extract_boundary_sequences',
+         #'map_tophat',
          'combine_mappings',
         ],
         ['get_read_positions',
@@ -292,21 +289,24 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
         piece_CDSs, max_gene_length = self.get_CDSs()
         gene_infos = positions.get_Transcript_position_counts(self.merged_file_names['combined_extended'],
                                                               piece_CDSs,
-                                                              relevant_lengths=[],
+                                                              [],
                                                               left_buffer=500,
                                                               right_buffer=500,
                                                              )
 
-        self.five_prime_read_positions = {name: info['five_prime_positions']
-                                          for name, info in gene_infos.iteritems()}
+        self.read_positions = {}
+        for name, info in gene_infos.iteritems():
+            five_prime_counts = info['five_prime_positions']
+            three_prime_counts = info['three_prime_positions']
+            
+            all_positions = {'all': five_prime_counts['all'],
+                             'three_prime_genomic': three_prime_counts[0],
+                             'three_prime_nongenomic': three_prime_counts['all'] - three_prime_counts[0],
+                             'sequence': info['sequence'],
+                            }
+            self.read_positions[name] = all_positions
 
-        self.write_file('five_prime_read_positions', self.five_prime_read_positions)
-        
-
-        self.three_prime_read_positions = {name: info['three_prime_positions']
-                                          for name, info in gene_infos.iteritems()}
-
-        self.write_file('three_prime_read_positions', self.three_prime_read_positions)
+        self.write_file('read_positions', self.read_positions)
 
         joint_position_counts = {}
         for transcript in piece_CDSs:
@@ -322,20 +322,10 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
 
-        five_prime_read_positions = self.load_read_positions(modifier='five_prime')
-        three_prime_read_positions = self.load_read_positions(modifier='three_prime')
-
-        processed_read_positions = {}
-        for name in five_prime_read_positions:
-            gene = {'five_prime': five_prime_read_positions[name]['all'],
-                    'three_prime_genomic': three_prime_read_positions[name][0],
-                    'three_prime_nongenomic': three_prime_read_positions[name]['all'] - three_prime_read_positions[name][0],
-                    'sequence': five_prime_read_positions[name]['sequence'],
-                   }
-            processed_read_positions[name] = gene
+        read_positions = self.load_read_positions()
 
         metagene_positions = positions.compute_metagene_positions(piece_CDSs,
-                                                                  processed_read_positions,
+                                                                  read_positions,
                                                                   max_gene_length,
                                                                  )
         self.write_file('metagene_positions', metagene_positions)
