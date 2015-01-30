@@ -8,7 +8,7 @@ ctypedef np.int_t DTYPEINT_t
 
 def length_stratified_composition(seq_info_pairs, int max_seq_length):
     ''' Unnecessary code duplication. '''
-    cdef int i, q, b, seq_length
+    cdef int i, b, seq_length
     cdef char* seq_typed
     cdef char* bases = fastq.base_order[:5]
 
