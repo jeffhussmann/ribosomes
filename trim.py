@@ -79,28 +79,12 @@ full_linker = smRNA_linker + truseq_R2_rc
 adapter_prefix_length = 15
 max_distance = 1
 
-def trim_by_local_alignment_slow(adapter, seq):
-    alignment, = sw.generate_alignments(adapter,
-                                        seq,
-                                        'unpaired_adapter',
-                                        max_alignments=1,
-                                       )
-
-    score_diff = 2 * len(alignment['path']) - alignment['score']
-    adapter_start_in_seq = sw.first_target_index(alignment['path'])
-    if alignment['path'] and score_diff <= 10. / 22 * len(alignment['path']):
-        trim_at = adapter_start_in_seq
-    else:
-        trim_at = find_adapter(adapter[:adapter_prefix_length], max_distance, seq)
-
-    return trim_at
-
 def trim_by_local_alignment(adapter, seq):
     ''' Try to find a near-exact match. If this fails, do a local alignment. '''
     trim_at = find_adapter(adapter[:adapter_prefix_length], 1, seq)
 
     if trim_at > len(seq) - adapter_prefix_length:
-        alignment, = sw.generate_alignments_new(adapter,
+        alignment, = sw.generate_alignments(adapter,
                                             seq,
                                             'unpaired_adapter',
                                             max_alignments=1,
@@ -510,12 +494,6 @@ if __name__ == '__main__':
     seqs = utilities.progress_bar(len(seqs), seqs)
     adapter = full_linker
     count = 0
+    counts = Counter()
     for seq in seqs:
-        if trim_by_local_alignment_slow(adapter, seq) != trim_by_local_alignment(adapter, seq):
-            print find_adapter(adapter[:10], 1, seq)
-            print find_adapter(adapter[:10], 2, seq)
-            print trim_by_local_alignment_slow(adapter, seq)
-            print trim_by_local_alignment(adapter, seq)
-            print seq
-            raw_input()
-            count += 1
+        counts[trim_by_local_alignment(adapter, seq)] += 1
