@@ -32,9 +32,7 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
         ('R2_reverse_positions', array_1d, '{name}_R2_reverse_positions.txt'),
         ('polyA_lengths', array_1d, '{name}_polyA_lengths.txt'),
         ('joint_lengths', array_2d, '{name}_joint_lengths.txt'),
-        ('control_ids', counts, '{name}_control_ids.txt'),
-        ('left_ids', counts, '{name}_left_ids.txt'),
-        ('right_ids', counts, '{name}_right_ids.txt'),
+        ('id_counts', counts, '{name}_id_counts.txt'),
 
         ('five_prime_tophat_dir', 'dir', 'tophat_five_prime'),
         ('five_prime_accepted_hits', 'bam', 'tophat_five_prime/accepted_hits.bam'),
@@ -64,9 +62,7 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
          'R2_forward_positions',
          'R2_reverse_positions',
          'polyA_lengths',
-         'control_ids',
-         'left_ids',
-         'right_ids',
+         'id_counts',
          'joint_lengths',
          'combined_extended',
         ],
@@ -143,16 +139,21 @@ class TIFSeqExperiment(rna_experiment.RNAExperiment):
                         fives_fh.write(fastq.make_record(*five_payload_read))
                         threes_fh.write(fastq.make_record(*three_payload_read))
 
+        # Pop off of counters so that what is left at the end can be written
+        # directly to the id_counts file.
+        position_counts = counters.pop('positions')
         for orientation in orientations:
             key = '{0}_{1}'.format(orientation, 'positions')
-            array = counts_to_array(counters['positions'][orientation])
+            array = counts_to_array(position_counts[orientation])
             self.write_file(key, array)
 
-        self.write_file('left_ids', counters['left_ids'])
-        self.write_file('right_ids', counters['right_ids'])
-        self.write_file('control_ids', counters['control_ids'])
-        self.write_file('polyA_lengths', counts_to_array(counters['polyA_lengths']))
-        self.write_file('joint_lengths', counts_to_array(counters['joint_lengths'], dim=2))
+        polyA_lengths = counts_to_array(counters.pop('polyA_lengths'))
+        self.write_file('polyA_lengths', polyA_lengths)
+
+        joint_lengths = counts_to_array(counters.pop('joint_lengths'), dim=2)
+        self.write_file('joint_lengths', joint_lengths)
+        
+        self.write_file('id_counts', counters)
 
         self.summary.extend(
             [('Total read pairs', total_reads),

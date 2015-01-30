@@ -67,7 +67,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('other_ncRNA_bam', 'bam', '{name}_other_ncRNA.bam'),
         ('unambiguous_bam', 'bam', '{name}_unambiguous.bam'),
 
-        ('codon_to_examine', counts, '{name}_codon_to_examine.txt'),
+        ('codons_to_examine', counts, '{name}_codons_to_examine.txt'),
 
         ('phiX_bam', 'bam', '{name}_phiX.bam'),
 
@@ -164,7 +164,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'tRNA_bam',
          'other_ncRNA_bam',
          'mismatches',
-         'codon_to_examine',
+         'codons_to_examine',
         ],
         ['read_positions',
          'three_prime_read_positions',
@@ -249,12 +249,14 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         self.trim_function = trim.bound_trim[self.adapter_type]
 
-        codon_to_examine = kwargs.get('codon_to_examine')
-        if codon_to_examine:
-            gene_name, codon_number = codon_to_examine.split(',')
-            self.codon_to_examine = (gene_name, int(codon_number))
-        else:
-            self.codon_to_examine = None
+        self.codons_to_examine = []
+
+        locii = kwargs.get('codons_to_examine')
+        if locii:
+            locii = locii.split(';')
+            for locus in locii:
+                gene_name, codon_number = locus.split(',')
+                self.codons_to_examine.append((gene_name, int(codon_number)))
 
     def compute_base_composition(self):
         seq_info_pairs = composition.get_seq_info_pairs(self.file_names['clean_bam'])
@@ -280,20 +282,20 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                            lengths=self.relevant_lengths + ['all', 'all_from_right'],
                                           )
 
-    def examine_specific_codon(self):
-        if self.codon_to_examine == None:
-            triplets = Counter()
-        else:
-            gene_name, codon_number = self.codon_to_examine
+    def examine_locii(self):
+        locii = {}
+        
+        CDSs, _ = self.get_CDSs(force_all=True)
+        CDSs = {c.name: c for c in CDSs}
 
-            reads = fastq.reads(self.file_names['preprocessed_reads'])
-            CDSs, _ = self.get_CDSs(force_all=True)
-            CDSs = {c.name: c for c in CDSs}
+        for gene_name, codon_number in self.codons_to_examine:
             gene = CDSs[gene_name]
-
+            reads = fastq.reads(self.file_names['preprocessed_reads'])
             triplets = examine_specific_codon.count_triplets(reads, gene, codon_number)
 
-        self.write_file('codon_to_examine', triplets)
+            locii[gene_name, codon_number] = triplets
+
+        self.write_file('codons_to_examine', locii)
 
     def preprocess(self):
         reads = self.get_reads()
@@ -458,37 +460,48 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         long_polyA_counts = Counter()
         
         unmapped_reads = sam.bam_to_fastq(self.file_names['remapped_unmapped_bam'])
-        for read in unmapped_reads:
-            retrimmed_annotation = trim.TrimmedTwiceAnnotation.from_identifier(read.name)
-            unretrimmed_seq = read.seq + retrimmed_annotation['retrimmed_seq']
+        unretrimmed_reads = trim.untrim_reads(unmapped_reads, second_time=True)
+        synthetic_filtered_reads = self.filter_synthetic_sequences(unretrimmed_reads)
 
-            if predominantly_A(unretrimmed_seq):
-                long_polyA_lengths[len(unretrimmed_seq)] += 1
-                long_polyA_counts[unretrimmed_seq] += 1
-            else:
-                unmapped_lengths[len(unretrimmed_seq)] += 1
-                unmapped_seq_counts[unretrimmed_seq] += 1
+        def record_common(reads):
+            for read in reads:
+                if predominantly_A(read.seq):
+                    long_polyA_lengths[len(read.seq)] += 1
+                    long_polyA_counts[read.seq] += 1
+                else:
+                    unmapped_lengths[len(read.seq)] += 1
+                    unmapped_seq_counts[read.seq] += 1
+                yield read
+
+        synthetic_filtered_reads = record_common(synthetic_filtered_reads)
+        
+        seq_info_pairs = ((read.seq, False) for read in synthetic_filtered_reads)
+        all_array, _ = composition.length_stratified_composition(seq_info_pairs, self.max_read_length)
+        
+        self.write_file('unmapped_composition', all_array)
+        
 
         self.write_file('unmapped_lengths', unmapped_lengths)
         self.write_file('long_polyA_lengths', long_polyA_lengths)
         
-        common_unmapped = Counter(dict(unmapped_seq_counts.most_common(100)))
-        self.write_file('common_unmapped', common_unmapped)
+        non_long_polyA = Counter(dict(unmapped_seq_counts.most_common(100)))
+        long_polyA = Counter(dict(long_polyA_counts.most_common(100)))
         
-        common_long_polyA = Counter(dict(long_polyA_counts.most_common(100)))
-        self.write_file('common_long_polyA', common_long_polyA)
+        common_unmapped = {'non_long_polyA': non_long_polyA,
+                           'long_polyA': long_polyA,
+                           }
+        self.write_file('common_unmapped', common_unmapped)
 
     def visualize_unmapped(self):
         bowtie2_targets = [(self.file_names['genome'], self.file_names['bowtie2_index_prefix'], 'C,20,0'),
                           ]
-        sw_genome_dirs = ['/home/jah/genomes/truseq',
-                          '/home/jah/projects/ribosomes/data/stephanie_markers',
-                         ]
-        extra_targets = [fasta.Read('smRNA_linker', trim.smRNA_linker),
-                        ]
+        sw_genome_dirs = ['/home/jah/genomes/truseq']
+        extra_targets = [fasta.Read('smRNA_linker', trim.smRNA_linker)]
+        if self.synthetic_fasta:
+            extra_targets.extend(list(fasta.reads(self.synthetic_fasta)))
         
         def get_reads():
-            for i, (seq, count) in enumerate(self.read_file('common_unmapped').most_common()):
+            for i, (seq, count) in enumerate(self.read_file('common_unmapped')['non_long_polyA'].most_common()):
                 read = fastq.Read('{0}_{1}'.format(i, count),
                                   seq,
                                   fastq.encode_sanger([40]*len(seq)),
