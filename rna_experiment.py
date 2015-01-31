@@ -69,7 +69,11 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
             length = len(fastq.reads(file_name).next().seq)
             return length
         
-        max_length = max(length_from_file_name(fn) for fn in self.data_fns)
+        if self.data_fns:
+            max_length = max(length_from_file_name(fn) for fn in self.data_fns)
+        else:
+            max_length = 0
+
         return max_length
 
     def load_read_positions(self, modifier=None):
