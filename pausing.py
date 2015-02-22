@@ -75,7 +75,7 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
     num_before = 90
     num_after = 90
     
-    for gene_name in gene_names:
+    for gene_name in gene_names[:100]:
         counts = codon_counts[gene_name]['relaxed'][cds_slice]
         codons = codon_counts[gene_name]['identities'][cds_slice]
 
@@ -613,10 +613,7 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     ax.set_xticklabels(name_order, rotation=45, ha='right')
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
-def plot_codon_enrichments(relevant_experiments,
-                           stratified_mean_enrichments_dict,
-                           aa_to_highlight,
-                          ):
+def plot_codon_enrichments(relevant_experiments, stratified_mean_enrichments_dict, aa_to_highlight):
     fig, axs = plt.subplots(len(relevant_experiments), 1,
                             figsize=(16, 12 * len(relevant_experiments)),
                             squeeze=False,
@@ -627,7 +624,7 @@ def plot_codon_enrichments(relevant_experiments,
 
     for experiment, ax in zip(relevant_experiments, axs.flatten()):
         sample = experiment.name
-        colors_iter = cycle(colors)
+        colors_iter = iter(colors)
 
         for codon_id in codons.non_stop_codons:
             amino_acid = codons.full_forward_table[codon_id]
@@ -644,15 +641,17 @@ def plot_codon_enrichments(relevant_experiments,
 
             xs = []
             ys = []
-            for i in range(-60, 31):
-                xs.append(i)
-                ys.append(stratified_mean_enrichments_dict[sample]['codon', i][codon_id])
+            for i in range(-90, 91):
+                xs.append(i * 3)
+                codon_positions = (i * 3, i * 3 + 1, i * 3 + 2)
+                ys.append(stratified_mean_enrichments_dict[sample][codon_positions][codon_id])
 
             ax.plot(xs, ys, '.-', **kwargs)
 
         offset = -11
+        codon_positions = (offset * 3, offset * 3 + 1, offset * 3 + 2)
         xs = [offset]*len(codons.non_stop_codons)
-        ys = [stratified_mean_enrichments_dict[sample]['codon', offset][codon_id] for codon_id in codons.non_stop_codons]
+        ys = [stratified_mean_enrichments_dict[sample][codon_positions][codon_id] for codon_id in codons.non_stop_codons]
         labels = ['{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id]) for codon_id in codons.non_stop_codons]
 
         to_label = sorted(range(len(codons.non_stop_codons)), key=ys.__getitem__)
@@ -660,5 +659,3 @@ def plot_codon_enrichments(relevant_experiments,
         
         ax.set_title(sample)
         ax.legend(framealpha=0.5)
-
-    return fig

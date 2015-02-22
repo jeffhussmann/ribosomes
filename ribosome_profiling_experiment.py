@@ -830,11 +830,15 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         allowed_at_pause = set(codons.non_stop_codons)
         not_allowed_at_stall = set()
 
+        codon_counts_dict = {}
         around_lists_dict = {}
         stratified_mean_enrichments_dict = {}
 
         for experiment in relevant_experiments:
             name = experiment.name
+            codon_counts_dict[name] = experiment.read_file('buffered_codon_counts',
+                                                           specific_keys={'relaxed', 'identities'},
+                                                          )
             around_lists_dict[name] = pausing.metacodon_around_pauses(codon_counts_dict[name],
                                                                       allowed_at_pause,
                                                                       not_allowed_at_stall,
@@ -846,7 +850,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                              stratified_mean_enrichments_dict,
                                              'R',
                                             )
-        fig.savefig(self.figure_file_names['codon_enrichments']
+        fig.savefig(self.figure_file_names['codon_enrichments'])
 
     def plot_mismatches(self):
         type_counts = self.read_file('mismatches')
