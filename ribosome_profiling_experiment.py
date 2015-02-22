@@ -175,8 +175,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'codon_counts',
          'read_counts',
          'read_counts_exclude_edges',
-         'metacodon_counts',
-         'metanucleotide_counts',
         ],
     ]
     
@@ -195,7 +193,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'get_metagene_positions',
          'compute_total_read_counts',
          'compute_codon_occupancy_counts',
-         'compute_metacodon_counts',
         ],
     ]
 
@@ -211,7 +208,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'compute_mean_densities',
          'plot_starts_and_ends',
          'plot_frames',
-         'plot_metacodon_counts',
         ],
     ]
 
