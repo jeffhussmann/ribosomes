@@ -612,3 +612,53 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     ax.set_xticks(xs)
     ax.set_xticklabels(name_order, rotation=45, ha='right')
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
+
+def plot_codon_enrichments(relevant_experiments,
+                           stratified_mean_enrichments_dict,
+                           aa_to_highlight,
+                          ):
+    fig, axs = plt.subplots(len(relevant_experiments), 1,
+                            figsize=(16, 12 * len(relevant_experiments)),
+                            squeeze=False,
+                           )
+
+    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
+    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
+
+    for experiment, ax in zip(relevant_experiments, axs.flatten()):
+        sample = experiment.name
+        colors_iter = cycle(colors)
+
+        for codon_id in codons.non_stop_codons:
+            amino_acid = codons.full_forward_table[codon_id]
+
+            if amino_acid == aa_to_highlight:
+                kwargs = {'color': colors_iter.next(),
+                          'alpha': 1,
+                          'label': '{0} ({1})'.format(codon_id, amino_acid),
+                          }
+            else:
+                kwargs = {'color': 'black',
+                          'alpha': 0.1,
+                          }
+
+            xs = []
+            ys = []
+            for i in range(-60, 31):
+                xs.append(i)
+                ys.append(stratified_mean_enrichments_dict[sample]['codon', i][codon_id])
+
+            ax.plot(xs, ys, '.-', **kwargs)
+
+        offset = -11
+        xs = [offset]*len(codons.non_stop_codons)
+        ys = [stratified_mean_enrichments_dict[sample]['codon', offset][codon_id] for codon_id in codons.non_stop_codons]
+        labels = ['{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+
+        to_label = sorted(range(len(codons.non_stop_codons)), key=ys.__getitem__)
+        #pausing.label_scatter_plot(ax, xs, ys, labels, to_label[-10:], vector='orthogonal', initial_distance=100)
+        
+        ax.set_title(sample)
+        ax.legend(framealpha=0.5)
+
+    return fig
