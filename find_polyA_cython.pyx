@@ -1,7 +1,3 @@
-import numpy as np
-cimport numpy as np
-cimport cython
-
 def find_polyA(char* seq, int min_length):
     ''' Find the first polyA stretch at least min_length long in seq. 
         If there is no such stretch, return the index and length of 

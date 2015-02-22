@@ -62,19 +62,6 @@ def plot_metagene_positions(metagene_positions,
         
             if by_base:
                 for base in 'TCAG':
-                    #start_key = '{0}_{1}'.format(start_landmark, base)
-                    #end_key = '{0}_{1}'.format(end_landmark, base)
-                    #start_ys = metagene_positions[start_key]['all'][start_landmark, start_xs]
-                    #end_ys = metagene_positions[end_key]['all'][end_landmark, end_xs]
-
-                    #kwargs = {'label': base,
-                    #          'color': igv_colors[base],
-                    #          'marker': '.',
-                    #         }
-                    #
-                    #start_ax.plot(start_xs, start_ys, **kwargs)
-                    #end_ax.plot(end_xs, end_ys, **kwargs)
-                    
                     start_key = '{0}_{1}_uniform'.format(start_landmark, base)
                     end_key = '{0}_{1}_uniform'.format(end_landmark, base)
                     start_ys = metagene_positions[start_key]['all'][start_landmark, start_xs]
@@ -107,33 +94,23 @@ def plot_metagene_positions(metagene_positions,
                     start_ax.plot(start_xs, start_ys, **kwargs)
                     end_ax.plot(end_xs, end_ys, **kwargs)
 
-            start_ax.set_xlim(min(start_xs), max(start_xs))
-            start_xticks = [x for x in start_xs if x % tick_interval == 0]
-            start_ax.set_xticks(start_xticks)
-            for x in start_xticks:
-                start_ax.axvline(x, color='black', alpha=0.1)
-            start_ax.set_xlabel('Position of read relative to {0}'.format(start_landmark))
-            start_ax.set_ylabel('Number of uniquely mapped reads of specified length')
-
-            Sequencing.Visualize.add_commas_to_yticks(start_ax)
-            
-            end_ax.set_xlim(min(end_xs), max(end_xs))
-            end_xticks = [x for x in end_xs if x % tick_interval == 0]
-            end_ax.set_xticks(end_xticks)
-            for x in end_xticks:
-                end_ax.axvline(x, color='black', alpha=0.1)
-            end_ax.set_xlabel('Position of read relative to {0}'.format(end_landmark))
-            end_ax.set_ylabel('Number of uniquely mapped reads of specified length')
-            
-            Sequencing.Visualize.add_commas_to_yticks(end_ax)
-
-            start_ax.legend(loc='upper right', framealpha=0.5)
-            end_ax.legend(loc='upper right', framealpha=0.5)
-
             ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
-            start_ax.set_ylim(0, ymax)
-            end_ax.set_ylim(0, ymax)
 
+            for ax, xs, landmark in zip([start_ax, end_ax], [start_xs, end_xs], [start_landmark, end_landmark]):
+                ax.set_xlim(min(xs), max(xs))
+                xticks = [x for x in xs if x % tick_interval == 0]
+                ax.set_xticks(xticks)
+                for x in xticks:
+                    ax.axvline(x, color='black', alpha=0.1)
+                ax.set_xlabel('Position of read relative to {0}'.format(landmark))
+                ax.set_ylabel('Number of uniquely mapped reads of specified length')
+
+                Sequencing.Visualize.add_commas_to_yticks(ax)
+
+                ax.legend(loc='upper right', framealpha=0.5)
+
+                ax.set_ylim(0, ymax)
+        
         if title:
             fig.suptitle(title)
         

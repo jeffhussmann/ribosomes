@@ -14,6 +14,7 @@ import composition
 import codons
 import visualize
 import rna_experiment
+import pausing
 import examine_specific_codon
 from Sequencing import mapping_tools, fastq, sam, utilities, fasta, annotation
 import Sequencing.genomes as genomes
@@ -140,6 +141,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('metacodon_mean_enrichments', '{name}_metacodon_mean_enrichments.pdf'),
         ('metacodon_counts_nucleotide_resolution', '{name}_metacodon_counts_nucleotide_resolution.pdf'),
         ('metanucleotide_counts', '{name}_metanucleotide_counts.pdf'),
+        ('codon_enrichments', '{name}_codon_enrichments.pdf'),
     ]
 
     specific_outputs = [
@@ -821,6 +823,30 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                #codon_ids=[c for c in codons.non_stop_codons if c.startswith('AC')],
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
+
+    def plot_pausing(self):
+        relevant_experiments = [self]
+
+        allowed_at_pause = set(codons.non_stop_codons)
+        not_allowed_at_stall = set()
+
+        around_lists_dict = {}
+        stratified_mean_enrichments_dict = {}
+
+        for experiment in relevant_experiments:
+            name = experiment.name
+            around_lists_dict[name] = pausing.metacodon_around_pauses(codon_counts_dict[name],
+                                                                      allowed_at_pause,
+                                                                      not_allowed_at_stall,
+                                                                     )
+            stratified_mean_enrichments_dict[name] = pausing.compute_stratified_mean_enrichments(around_lists_dict[name])
+            del around_lists_dict[name]
+
+        fig = pausing.plot_codon_enrichments(relevant_experiments,
+                                             stratified_mean_enrichments_dict,
+                                             'R',
+                                            )
+        fig.savefig(self.figure_file_names['codon_enrichments']
 
     def plot_mismatches(self):
         type_counts = self.read_file('mismatches')
