@@ -187,9 +187,9 @@ def gerashchenko_nar_sorting_key(name):
 
     return concentration
 
-def get_gerashchenko_nar_experiments():
+def get_gerashchenko_nar_experiments(series='unstressed'):
     experiments = build_all_experiments(verbose=False)
-    relevant_exps = [exp for exp in experiments['gerashchenko_nar'].values() if 'unstressed' in exp.name]
+    relevant_exps = [exp for exp in experiments['gerashchenko_nar'].values() if series in exp.name]
     sorted_exps = sorted(relevant_exps, key=lambda exp: gerashchenko_nar_sorting_key(exp.name))
     return sorted_exps
 
