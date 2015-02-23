@@ -72,10 +72,10 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
     codons_around_list = []
     nucleotides_around_list = []
     
-    num_before = 90
-    num_after = 90
+    num_before = 60
+    num_after = 60
     
-    for gene_name in gene_names[:100]:
+    for gene_name in gene_names:
         counts = codon_counts[gene_name]['relaxed'][cds_slice]
         codons = codon_counts[gene_name]['identities'][cds_slice]
 
@@ -613,7 +613,12 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     ax.set_xticklabels(name_order, rotation=45, ha='right')
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
-def plot_codon_enrichments(relevant_experiments, stratified_mean_enrichments_dict, aa_to_highlight):
+def plot_codon_enrichments(relevant_experiments,
+                           stratified_mean_enrichments_dict,
+                           aa_to_highlight,
+                           min_x=-30,
+                           max_x=30,
+                          ):
     fig, axs = plt.subplots(len(relevant_experiments), 1,
                             figsize=(16, 12 * len(relevant_experiments)),
                             squeeze=False,
@@ -641,12 +646,13 @@ def plot_codon_enrichments(relevant_experiments, stratified_mean_enrichments_dic
 
             xs = []
             ys = []
-            for i in range(-90, 91):
-                xs.append(i * 3)
+            for i in range(min_x, max_x + 1):
+                xs.append(i)
                 codon_positions = (i * 3, i * 3 + 1, i * 3 + 2)
                 ys.append(stratified_mean_enrichments_dict[sample][codon_positions][codon_id])
 
             ax.plot(xs, ys, '.-', **kwargs)
+            ax.set_xlim(min_x, max_x)
 
         offset = -11
         codon_positions = (offset * 3, offset * 3 + 1, offset * 3 + 2)
@@ -659,3 +665,5 @@ def plot_codon_enrichments(relevant_experiments, stratified_mean_enrichments_dic
         
         ax.set_title(sample)
         ax.legend(framealpha=0.5)
+
+    return fig
