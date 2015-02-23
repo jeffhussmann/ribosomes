@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
 import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import os
 import pysam
@@ -210,6 +211,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'compute_mean_densities',
          'plot_starts_and_ends',
          'plot_frames',
+         'plot_pausing',
         ],
     ]
 
@@ -846,11 +848,19 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
             stratified_mean_enrichments_dict[name] = pausing.compute_stratified_mean_enrichments(around_lists_dict[name])
             del around_lists_dict[name]
 
-        fig = pausing.plot_codon_enrichments(relevant_experiments,
-                                             stratified_mean_enrichments_dict,
-                                             'R',
-                                            )
-        fig.savefig(self.figure_file_names['codon_enrichments'])
+        with PdfPages(self.figure_file_names['codon_enrichments']) as pdf:
+            for amino_acid in codons.full_back_table:
+                if amino_acid == '*':
+                    continue
+
+                fig = pausing.plot_codon_enrichments(relevant_experiments,
+                                                     stratified_mean_enrichments_dict,
+                                                     amino_acid,
+                                                     min_x=-60,
+                                                     max_x=60,
+                                                    )
+                pdf.savefig(figure=fig, bbox_inches='tight')
+                plt.close(fig)
 
     def plot_mismatches(self):
         type_counts = self.read_file('mismatches')
