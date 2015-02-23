@@ -667,3 +667,20 @@ def plot_codon_enrichments(relevant_experiments,
         ax.legend(framealpha=0.5)
 
     return fig
+
+def plot_codon_enrichments_all_amino_acids(relevant_experiments, figure_file_name):
+    stratified_mean_enrichments_dict = {exp.name: exp.read_file('stratified_mean_enrichments') for exp in relevant_experiments}
+    
+    with PdfPages(figure_file_name) as pdf:
+        for amino_acid in codons.full_back_table:
+            if amino_acid == '*':
+                continue
+
+            fig = pausing.plot_codon_enrichments(relevant_experiments,
+                                                 stratified_mean_enrichments_dict,
+                                                 amino_acid,
+                                                 min_x=-60,
+                                                 max_x=60,
+                                                )
+            pdf.savefig(figure=fig, bbox_inches='tight')
+            plt.close(fig)

@@ -113,6 +113,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('reciprocal_rates', 'pickle', '{name}_reciprocal_rates.pkl'),
         ('reciprocal_rates_exclude_50', 'pickle', '{name}_reciprocal_rates_exclude_50.pkl'),
 
+        ('stratified_mean_enrichments', 'pickle', '{name}_stratified_mean_enrichments.pkl'),
+
         ('yield', '', '{name}_yield.txt'),
     ]
 
@@ -209,6 +211,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ],
         ['compute_RPKMs',
          'compute_mean_densities',
+         'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
          'plot_frames',
          'plot_pausing',
@@ -826,41 +829,24 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
 
-    def plot_pausing(self):
-        relevant_experiments = [self]
-
+    def compute_stratified_mean_enrichments(self):
         allowed_at_pause = set(codons.non_stop_codons)
         not_allowed_at_stall = set()
 
-        codon_counts_dict = {}
-        around_lists_dict = {}
-        stratified_mean_enrichments_dict = {}
+        codon_counts = self.read_file('buffered_codon_counts',
+                                      specific_keys={'relaxed', 'identities'},
+                                     )
+        around_lists = pausing.metacodon_around_pauses(codon_counts,
+                                                       allowed_at_pause,
+                                                       not_allowed_at_stall,
+                                                      )
+        stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
+        self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
 
-        for experiment in relevant_experiments:
-            name = experiment.name
-            codon_counts_dict[name] = experiment.read_file('buffered_codon_counts',
-                                                           specific_keys={'relaxed', 'identities'},
-                                                          )
-            around_lists_dict[name] = pausing.metacodon_around_pauses(codon_counts_dict[name],
-                                                                      allowed_at_pause,
-                                                                      not_allowed_at_stall,
-                                                                     )
-            stratified_mean_enrichments_dict[name] = pausing.compute_stratified_mean_enrichments(around_lists_dict[name])
-            del around_lists_dict[name]
-
-        with PdfPages(self.figure_file_names['codon_enrichments']) as pdf:
-            for amino_acid in codons.full_back_table:
-                if amino_acid == '*':
-                    continue
-
-                fig = pausing.plot_codon_enrichments(relevant_experiments,
-                                                     stratified_mean_enrichments_dict,
-                                                     amino_acid,
-                                                     min_x=-60,
-                                                     max_x=60,
-                                                    )
-                pdf.savefig(figure=fig, bbox_inches='tight')
-                plt.close(fig)
+    def plot_pausing(self):
+        pausing.plot_codon_enrichments_all_amino_acids([self],
+                                                       self.figure_file_names['codon_enrichments'],
+                                                      )
 
     def plot_mismatches(self):
         type_counts = self.read_file('mismatches')
