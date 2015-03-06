@@ -835,9 +835,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         codon_counts = self.read_file('buffered_codon_counts',
                                       specific_keys={'relaxed', 'identities'},
                                      )
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts})
+
         around_lists = pausing.metacodon_around_pauses(codon_counts,
                                                        allowed_at_pause,
                                                        not_allowed_at_stall,
+                                                       gene_names,
                                                       )
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
