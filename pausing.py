@@ -7,6 +7,7 @@ import scipy.stats
 import brewer2mpl
 import matplotlib.pyplot as plt
 import matplotlib.cm
+from matplotlib.backends.backend_pdf import PdfPages
 import Sequencing.utilities
 import Sequencing.Visualize
 import itertools
@@ -676,11 +677,11 @@ def plot_codon_enrichments_all_amino_acids(relevant_experiments, figure_file_nam
             if amino_acid == '*':
                 continue
 
-            fig = pausing.plot_codon_enrichments(relevant_experiments,
-                                                 stratified_mean_enrichments_dict,
-                                                 amino_acid,
-                                                 min_x=-60,
-                                                 max_x=60,
-                                                )
+            fig = plot_codon_enrichments(relevant_experiments,
+                                         stratified_mean_enrichments_dict,
+                                         amino_acid,
+                                         min_x=-60,
+                                         max_x=60,
+                                        )
             pdf.savefig(figure=fig, bbox_inches='tight')
             plt.close(fig)
