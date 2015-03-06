@@ -61,9 +61,42 @@ def compute_pause_scores(codon_counts_dict, special_sets={}):
 
     return ratios_dict, raw_counts_dict
 
-def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall):
-    np.seterr(all='raise')
-    gene_names = codon_counts.keys()
+def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0):
+    all_gene_names = codon_counts_dict.itervalues().next().keys()
+    high_gene_names = []
+    
+    gene_means = defaultdict(list)
+    gene_medians = defaultdict(list)
+    
+    cds_slice = slice(('start_codon', 2), 'stop_codon')
+    
+    num_before = 90
+    num_after = 90
+    
+    def all_high(gene_name):
+        for exp_name in codon_counts_dict:
+            counts = codon_counts_dict[exp_name][gene_name]['relaxed'][cds_slice]
+
+            if len(counts) < num_before + num_after + 1:
+                return False
+            
+            gene_mean = np.mean(counts[num_before:-num_after])
+            gene_median = np.median(counts[num_before:-num_after])
+
+            gene_means[exp_name].append(gene_mean)
+            gene_medians[exp_name].append(gene_median)
+
+            if gene_mean < min_mean or gene_median < min_median:
+                return False
+
+        return True
+
+    high_gene_names = [name for name in all_gene_names if all_high(name)]
+
+    return high_gene_names, gene_means, gene_medians
+
+def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall, gene_names):
+    old_settings = np.seterr(all='raise')
 
     cds_slice = slice(('start_codon', 2), 'stop_codon')
     
@@ -72,8 +105,8 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
     codons_around_list = []
     nucleotides_around_list = []
     
-    num_before = 60
-    num_after = 60
+    num_before = 90
+    num_after = 90
     
     for gene_name in gene_names:
         counts = codon_counts[gene_name]['relaxed'][cds_slice]
@@ -81,41 +114,44 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
 
         median = np.median(counts)
         mean = np.mean(counts)
-        
-        if mean < 1:
-            continue
-        
+
         if len(counts) < num_before + num_after + 1:
-            continue
+            raise ValueError
             
         #denominators = means_of_rest(counts)
         denominators = np.mean(counts[num_before:-num_after])
-            
+
         if denominators == 0:
-            continue
+            raise ValueError(gene_name)
             
         ratios = np.true_divide(counts, denominators)
             
         for offset in range(num_before, len(counts) - num_after):
             if codons[offset] in allowed_at_pause and codons[offset - 10] not in not_allowed_at_stall:
                 around_slice = slice(offset - num_before, offset + num_after + 1)
-                counts_around = counts[around_slice]
-                ratios_around = ratios[around_slice]
+                
+                #counts_around = counts[around_slice]
+                #ratios_around = ratios[around_slice]
+                counts_around = counts[offset]
+                ratios_around = ratios[offset]
+                
                 codons_around = codons[around_slice]
                 nucleotides_around = np.array(list(''.join(codons_around)))
                 
                 counts_around_list.append(counts_around)
                 ratios_around_list.append(ratios_around)
-                codons_around_list.append(codons_around)
+                #codons_around_list.append(codons_around)
                 nucleotides_around_list.append(nucleotides_around)
                     
     around_lists = {'counts': np.asarray(counts_around_list),
                     'ratios': np.asarray(ratios_around_list),
-                    'codons': np.asarray(codons_around_list),
+                    #'codons': np.asarray(codons_around_list),
                     'nucleotides': np.asarray(nucleotides_around_list),
                     'num_before': num_before,
                     'num_after': num_after,
                    }
+    
+    np.seterr(**old_settings)
     
     return around_lists
 
@@ -138,7 +174,7 @@ def compute_stratified_mean_enrichments(around_lists):
     num_before = around_lists['num_before']
     num_after = around_lists['num_after']
     
-    ratios = around_lists['ratios'][:, num_before]
+    ratios = around_lists['ratios']
     
     masks = make_base_identity_masks(around_lists)
     
@@ -253,14 +289,67 @@ def scatter_enrichments(ratios_dict, x_name, y_name, set_name, draw_labels=True,
                                           ax,
                                           do_fit=False,
                                           show_p_value=False,
-                                          draw_diagonal=True,
                                           hists_height=0.2,
+                                          #color_by_density=False,
                                          )
+    smallest = min(min(sanitized['x']), min(sanitized['y']))
+    largest = max(max(sanitized['x']), max(sanitized['y']))
 
+    ax.set_xlim(smallest - 0.2, largest + 0.2)
+    ax.set_ylim(smallest - 0.2, largest + 0.2)
+
+    Sequencing.Visualize.draw_diagonal(ax)
+    
     if draw_labels:
         ax.set_xlabel('log2({0})'.format(x_name))
         ax.set_ylabel('log2({0})'.format(y_name))
-        ax.set_title('Consistency of position-specific enrichments ({0} codons)'.format(set_name))
+ 
+def scatter_all_codon_id_enrichments(stratified_lists_dict,
+                                     x_name,
+                                     y_name,
+                                     codon_positions,
+                                     just_hists=False,
+                                    ):
+    fig, axs = plt.subplots(16, 4, figsize=(4 * 4, 16 * 4))
+
+    for codon_id, ax in zip(codons.non_stop_codons, axs.flatten()):
+        lists = {'x': stratified_lists_dict[x_name][codon_positions][codon_id],
+                 'y': stratified_lists_dict[y_name][codon_positions][codon_id],
+                }
+
+
+        if just_hists:
+            sanitized = {key: np.log2(np.maximum(2**-7, lists[key])) for key in lists}
+            kwargs = {'bins': np.linspace(-7, 7, 50),
+                      'histtype': 'step',
+                     }
+            ax.hist(sanitized['x'], **kwargs)
+            ax.hist(sanitized['y'], **kwargs)
+        else:
+            smallest_nonzeros = {key: min(r for r in rs if r > 0) for key, rs in lists.items()}  
+            sanitized = {key: np.log2(np.maximum(smallest_nonzeros[key], lists[key])) for key in smallest_nonzeros}
+            
+            Sequencing.Visualize.enhanced_scatter(sanitized['x'],
+                                                  sanitized['y'],
+                                                  ax,
+                                                  do_fit=False,
+                                                  show_p_value=False,
+                                                  #color_by_density=False,
+                                                  #hists_height=0.2,
+                                                 )
+
+            smallest = min(min(sanitized['x']), min(sanitized['y']))
+            largest = max(max(sanitized['x']), max(sanitized['y']))
+
+            ax.set_xlim(smallest - 0.2, largest + 0.2)
+            ax.set_ylim(smallest - 0.2, largest + 0.2)
+
+            Sequencing.Visualize.draw_diagonal(ax)
+    
+        #ax.set_xlabel('log2({0})'.format(x_name))
+        #ax.set_ylabel('log2({0})'.format(y_name))
+
+        ax.set_title('{0}: {1:,}'.format(codon_id, len(sanitized['x'])))
 
 def get_jet_colors(n):
     jet_colors = [matplotlib.cm.jet(x) for x in np.linspace(0, 1, n)]
@@ -329,6 +418,7 @@ def plot_binned_base_compositions(binned_base_compositions, normalized=False, sh
                         horizontalalignment='center',
                         size=20,
                        )
+
 def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, min_x=-30, max_x=32, ax=None):
     if plot_A_site:
         xs = range(min_x, 0) + range(0, 3) + range(3, max_x + 1)
@@ -478,6 +568,9 @@ def label_scatter_plot(ax, xs, ys, labels, to_label, vector='orthogonal', initia
             norm = np.linalg.norm([x, y])
             x_offset = x * distance / norm
             y_offset = y * distance / norm
+        elif vector == 'sideways':
+            x_offset = -distance
+            y_offset
             
         text = ax.annotate(site,
                            xy=(x, y),
@@ -508,6 +601,48 @@ def label_scatter_plot(ax, xs, ys, labels, to_label, vector='orthogonal', initia
             distance += 10
             text, bbox = attempt_text(x, y, label, distance)
         bboxes.append(bbox)
+
+def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_conditions):
+    def attempt_text(y, label, distance, side):
+        if side == 'left':
+            x = 0
+            x_offset = -distance
+            ha = 'right'
+        elif side == 'right':
+            x = num_conditions - 1
+            x_offset = 1 + distance
+            ha = 'left'
+            
+        text = ax.annotate(label,
+                           xy=(x, y),
+                           xycoords=('data', 'data'),
+                           xytext=(x_offset, 0),
+                           textcoords=('axes fraction', 'offset points'),
+                           ha=ha,
+                           va='center',
+                           size=10,
+                           arrowprops={'arrowstyle': '->', 'alpha': 0.2},
+                          )
+        ax.figure.canvas.draw()
+        return text, text.get_window_extent()
+
+    ax.figure.canvas.draw()
+    bboxes = [ax.xaxis.get_label().get_window_extent(),
+              ax.yaxis.get_label().get_window_extent(),
+             ]
+
+    left_tuples = itertools.izip(start_ys, labels, itertools.repeat('left'))
+    right_tuples = itertools.izip(end_ys, labels, itertools.repeat('right'))
+    tuples = itertools.chain(left_tuples, right_tuples)
+
+    for y, label, side in tuples:
+        distance = 0.02
+        text, bbox = attempt_text(y, label, distance, side)
+        while any(bbox.fully_overlaps(other_bbox) for other_bbox in bboxes):
+            text.remove()
+            distance += 0.01
+            text, bbox = attempt_text(y, label, distance, side)
+        bboxes.append(bbox)
             
 def load_premal_elongation_times():
     expected_times = {}
@@ -525,21 +660,28 @@ def assign_colors_by_values(codon_to_ranks):
 def build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order):
     codon_slice = (position, position + 1, position + 2)
     all_ranks = []
+    all_values = []
     for name in name_order:
-        vals = [stratified_mean_enrichments_dict[name][codon_slice][codon] for codon in codons.non_stop_codons]
-        ranks = np.array(vals).argsort().argsort()
+        values = [stratified_mean_enrichments_dict[name][codon_slice][codon] for codon in codons.non_stop_codons]
+        ranks = np.array(values).argsort().argsort()
+        all_values.append(values)
         all_ranks.append(ranks)
+
+    all_values = np.array(all_values).T
     all_ranks = np.array(all_ranks).T
 
+    codon_to_values = {codon: values for codon, values in zip(codons.non_stop_codons, all_values)}
     codon_to_ranks = {codon: ranks for codon, ranks in zip(codons.non_stop_codons, all_ranks)}
-    return codon_to_ranks
+
+    return codon_to_ranks, codon_to_values
 
 def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
                                        position,
                                        name_order,
                                        highlight_movement=True,
+                                       force_highlight=set(),
                                        by_rank=False,
-                                       label_largest=0,
+                                       label_rules=(0, 'rank', abs),
                                        log_scale=True,
                                        force_label=set(),
                                       ):
@@ -547,17 +689,38 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
 
     codon_slice = (position, position + 1, position + 2)
 
-    codon_to_ranks = build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order)
+    codon_to_ranks, codon_to_values = build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order)
     codon_to_color = assign_colors_by_values(codon_to_ranks)
 
-    deltas = {codon_id: codon_to_ranks[codon_id][0] - codon_to_ranks[codon_id][-1] for codon_id in codons.non_stop_codons}
+    rank_deltas = {codon_id: codon_to_ranks[codon_id][0] - codon_to_ranks[codon_id][-1]
+                   for codon_id in codons.non_stop_codons}
     
+    log_deltas = {codon_id: np.log2(codon_to_values[codon_id][0] / codon_to_values[codon_id][-1])
+                  for codon_id in codons.non_stop_codons}
+
+    num_to_label, rank_or_log, transform = label_rules
+    if rank_or_log == 'rank':
+        deltas = rank_deltas
+    elif rank_or_log == 'log':
+        deltas = log_deltas
+
     xs = range(len(name_order))
         
     for codon_id in codons.non_stop_codons:
         if highlight_movement:
-            alpha = min(1, abs(deltas[codon_id]) / float(50))
-            width = abs(deltas[codon_id]) / float(30)
+            if rank_or_log == 'rank':
+                alpha = min(1, abs(rank_deltas[codon_id]) / float(50))
+                width = abs(rank_deltas[codon_id]) / float(30)
+            elif rank_or_log == 'log':
+                alpha = min(1, abs(log_deltas[codon_id]))
+                width = abs(log_deltas[codon_id] / 2)**2
+        elif force_highlight:
+            if codon_id in force_highlight:
+                alpha = 1
+                width = 2
+            else:
+                alpha = 0.1
+                width = 0.5
         else:
             alpha = 1
             width = 1
@@ -565,11 +728,25 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
         if by_rank:
             ys = codon_to_ranks[codon_id]
         else:
-            ys = [stratified_mean_enrichments_dict[name][codon_slice][codon_id] for name in name_order]
+            ys = codon_to_values[codon_id]
+
         ax.plot(xs, ys, '.-', color=codon_to_color[codon_id], alpha=alpha, lw=width)
              
-    sorted_deltas = sorted(deltas, key=lambda c: abs(deltas[c]), reverse=True)
-    for codon_id in set(sorted_deltas[:label_largest]) | set(force_label):
+    sorted_deltas = sorted(deltas, key=lambda c: transform(deltas[c]), reverse=True)
+    if rank_or_log == 'rank':
+        print 'Rank changes'
+        for codon_id in sorted_deltas[:num_to_label]:
+            print '{0}: {1:2>d}'.format(codon_id, deltas[codon_id])
+    elif rank_or_log == 'log':
+        print 'log_2 changes'
+        for codon_id in sorted_deltas[:num_to_label]:
+            print '{0}: {1:0.3f}'.format(codon_id, deltas[codon_id])
+    
+    start_ys  = []
+    end_ys = []
+    labels = []
+
+    for codon_id in set(sorted_deltas[:num_to_label]) | set(force_label):
         label = '{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id])
         
         if by_rank:
@@ -579,45 +756,31 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
             start_y = stratified_mean_enrichments_dict[name_order[0]][codon_slice][codon_id]
             end_y = stratified_mean_enrichments_dict[name_order[-1]][codon_slice][codon_id]
             
-        ax.annotate(label,
-                    xy=(0, start_y),
-                    xycoords=('data', 'data'),
-                    xytext=(-15, 0),
-                    textcoords='offset points',
-                    ha='right',
-                    va='center',
-                    size=10,
-                    arrowprops={'arrowstyle': '->', 'alpha': 0.3},
-                   )
-        
-        ax.annotate(label,
-                    xy=(len(name_order) - 1, end_y),
-                    xycoords=('data', 'data'),
-                    xytext=(15, 0),
-                    textcoords='offset points',
-                    ha='left',
-                    va='center',
-                    size=10,
-                    arrowprops={'arrowstyle': '->', 'alpha': 0.3},
-                   )
-        
+        start_ys.append(start_y)
+        end_ys.append(end_y)
+        labels.append(label)
+
     if by_rank:
         ax.set_yticks([])
         ax.set_ylim(-0.5, 61.5)
     else:
         if log_scale:
             ax.set_yscale('log', basey=2)
-            
+
+        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.2)
     
+    label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, len(name_order))
+
     ax.set_xticks(xs)
     ax.set_xticklabels(name_order, rotation=45, ha='right')
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
 def plot_codon_enrichments(relevant_experiments,
                            stratified_mean_enrichments_dict,
-                           aa_to_highlight,
+                           codons_to_highlight,
                            min_x=-30,
                            max_x=30,
+                           log_scale=False,
                           ):
     fig, axs = plt.subplots(len(relevant_experiments), 1,
                             figsize=(16, 12 * len(relevant_experiments)),
@@ -626,16 +789,19 @@ def plot_codon_enrichments(relevant_experiments,
 
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
     colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
+    colors_iter = itertools.cycle(iter(colors))
+
+    codon_to_color = {codon_id: colors_iter.next() for codon_id in codons_to_highlight}
+    codon_to_handle = {}
 
     for experiment, ax in zip(relevant_experiments, axs.flatten()):
         sample = experiment.name
-        colors_iter = iter(colors)
 
         for codon_id in codons.non_stop_codons:
-            amino_acid = codons.full_forward_table[codon_id]
+            if codon_id in codons_to_highlight:
+                amino_acid = codons.full_forward_table[codon_id]
 
-            if amino_acid == aa_to_highlight:
-                kwargs = {'color': colors_iter.next(),
+                kwargs = {'color': codon_to_color[codon_id],
                           'alpha': 1,
                           'label': '{0} ({1})'.format(codon_id, amino_acid),
                           }
@@ -651,7 +817,8 @@ def plot_codon_enrichments(relevant_experiments,
                 codon_positions = (i * 3, i * 3 + 1, i * 3 + 2)
                 ys.append(stratified_mean_enrichments_dict[sample][codon_positions][codon_id])
 
-            ax.plot(xs, ys, '.-', **kwargs)
+            handle, = ax.plot(xs, ys, '.-', **kwargs)
+            codon_to_handle[codon_id] = handle
             ax.set_xlim(min_x, max_x)
 
         offset = -11
@@ -664,7 +831,19 @@ def plot_codon_enrichments(relevant_experiments,
         #pausing.label_scatter_plot(ax, xs, ys, labels, to_label[-10:], vector='orthogonal', initial_distance=100)
         
         ax.set_title(sample)
-        ax.legend(framealpha=0.5)
+        handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
+        labels = [handle.get_label() for handle in handles]
+        ax.legend(handles, labels, framealpha=0.5)
+        if log_scale:
+            ax.set_yscale('log', basey=2)
+
+        tRNA_sites = [('A', 0, 'red'),
+                      ('P', -1, 'blue'),
+                      ('E', -2, 'green'),
+                     ]
+
+        for site, position, color in tRNA_sites: 
+            ax.axvline(position, color=color, alpha=0.2)
 
     return fig
 
