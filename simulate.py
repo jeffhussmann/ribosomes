@@ -1,8 +1,13 @@
 import heapq
 import numpy as np
+import logging
 import codons
 import positions
+import os
 from collections import Counter
+import Sequencing.Parallel
+import ribosome_profiling_experiment
+import Serialize.read_positions as read_positions
 
 class Message(object):
     def __init__(self, codon_sequence, initiation_rate, codon_rates):
@@ -107,25 +112,100 @@ class Ribosome(object):
         next_time = time + np.random.exponential(rate)
         heapq.heappush(self.message.events, (next_time, self))
 
-def produce_measurements(codon_counts, codon_rates, initiation_rate):
-    identities = codon_counts['identities']
-    codon_sequence = identities['start_codon':('stop_codon', 1)]
-    real_counts = codon_counts['relaxed']['start_codon':('stop_codon', 1)]
-    total_real_counts = sum(real_counts)
+class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
+    num_stages = 1
 
-    all_measurements = Counter()
-    while sum(all_measurements.values()) < total_real_counts:
-        message = Message(codon_sequence, initiation_rate, codon_rates)
-        message.evolve_to_steady_state()
-        all_measurements.update(message.collect_measurements())
+    specific_results_files = [
+        ('simulated_codon_counts', read_positions, '{name}_simulated_codon_counts.hdf5'),
+        ('stratified_mean_enrichments', 'pickle', '{name}_stratified_mean_enrichments.pkl'),
+    ]
 
-    simulated_counts = {'identities': identities,
-                        'relaxed': positions.PositionCounts(identities.landmarks,
-                                                            identities.left_buffer,
-                                                            identities.right_buffer,
-                                                           ),
-                       }
-    for key, value in all_measurements.items():
-        simulated_counts['relaxed']['start_codon', key] = value
+    specific_figure_files = []
 
-    return simulated_counts
+    specific_outputs = [
+        ['simulated_codon_counts',
+        ],
+    ]
+
+    specific_work = [
+        ['simulate'],
+    ]
+
+    specific_cleanup = [
+        ['compute_stratified_mean_enrichments',
+        ]
+    ]
+
+    def __init__(self, **kwargs):
+        super(SimulationExperiment, self).__init__(**kwargs)
+
+        self.template_description_fn = kwargs['template_description_fn']
+        self.template_experiment = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name(self.template_description_fn)
+
+    def simulate(self, **kwargs):
+        buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
+        
+        stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
+        codon_rates = stratified_mean_enrichments[0, 1, 2]
+        for codon in codons.stop_codons:
+            codon_rates[codon] = 1
+        
+        initiation_rates = {gene_name: 50 for gene_name in buffered_codon_counts} 
+
+        all_gene_names = sorted(buffered_codon_counts)
+        piece_gene_names = Sequencing.Parallel.piece_of_list(all_gene_names,
+                                                             self.num_pieces,
+                                                             self.which_piece,
+                                                            )
+        
+        simulated_codon_counts = {}
+        cds_slice = slice('start_codon', ('stop_codon', 1))
+        for gene_name in piece_gene_names:
+            logging.info('Starting {0}'.format(gene_name))
+            identities = buffered_codon_counts[gene_name]['identities']
+            codon_sequence = identities[cds_slice]
+
+            real_counts = buffered_codon_counts[gene_name]['relaxed'][cds_slice]
+            total_real_counts = sum(real_counts)
+
+            all_measurements = Counter()
+            while sum(all_measurements.values()) < total_real_counts * 0.01:
+                message = Message(codon_sequence, initiation_rates[gene_name], codon_rates)
+                message.evolve_to_steady_state()
+                all_measurements.update(message.collect_measurements())
+
+            simulated_counts = positions.PositionCounts(identities.landmarks,
+                                                        identities.left_buffer,
+                                                        identities.right_buffer,
+                                                       )
+
+            for key, value in all_measurements.items():
+                simulated_counts['start_codon', key] = value
+            
+            simulated_codon_counts[gene_name] = {'identities': identities,
+                                                 'relaxed': simulated_counts,
+                                                }
+            logging.info('{0} counts generated for {1}'.format(sum(all_measurements.values()), gene_name))
+
+        self.write_file('simulated_codon_counts', simulated_codon_counts)
+    
+    def compute_stratified_mean_enrichments(self):
+        allowed_at_pause = set(codons.non_stop_codons)
+        not_allowed_at_stall = set()
+
+        codon_counts = self.read_file('simulated_codon_counts',
+                                      specific_keys={'relaxed', 'identities'},
+                                     )
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts}, min_mean=0)
+
+        around_lists = pausing.metacodon_around_pauses(codon_counts,
+                                                       allowed_at_pause,
+                                                       not_allowed_at_stall,
+                                                       gene_names,
+                                                      )
+        stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
+        self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
+
+if __name__ == '__main__':
+    script_path = os.path.realpath(__file__)
+    Sequencing.Parallel.map_reduce.controller(SimulationExperiment, script_path)
