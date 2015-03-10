@@ -621,22 +621,22 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_co
                            ha=ha,
                            va='center',
                            size=10,
-                           arrowprops={'arrowstyle': '->', 'alpha': 0.2},
+                           arrowprops={'arrowstyle': '->', 'alpha': 0.5},
                           )
         ax.figure.canvas.draw()
         return text, text.get_window_extent()
 
     ax.figure.canvas.draw()
-    bboxes = [ax.xaxis.get_label().get_window_extent(),
-              ax.yaxis.get_label().get_window_extent(),
-             ]
+
+    starting_labels = [ax.xaxis.get_label(), ax.yaxis.get_label()] + ax.get_yticklabels()
+    bboxes = [label.get_window_extent() for label in starting_labels]
 
     left_tuples = itertools.izip(start_ys, labels, itertools.repeat('left'))
     right_tuples = itertools.izip(end_ys, labels, itertools.repeat('right'))
     tuples = itertools.chain(left_tuples, right_tuples)
 
     for y, label, side in tuples:
-        distance = 0.02
+        distance = 0.015
         text, bbox = attempt_text(y, label, distance, side)
         while any(bbox.fully_overlaps(other_bbox) for other_bbox in bboxes):
             text.remove()
@@ -733,14 +733,16 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
         ax.plot(xs, ys, '.-', color=codon_to_color[codon_id], alpha=alpha, lw=width)
              
     sorted_deltas = sorted(deltas, key=lambda c: transform(deltas[c]), reverse=True)
-    if rank_or_log == 'rank':
-        print 'Rank changes'
-        for codon_id in sorted_deltas[:num_to_label]:
-            print '{0}: {1:2>d}'.format(codon_id, deltas[codon_id])
-    elif rank_or_log == 'log':
-        print 'log_2 changes'
-        for codon_id in sorted_deltas[:num_to_label]:
-            print '{0}: {1:0.3f}'.format(codon_id, deltas[codon_id])
+
+    if num_to_label > 0:
+        if rank_or_log == 'rank':
+            print 'Rank changes'
+            for codon_id in sorted_deltas[:num_to_label]:
+                print '{0}: {1:2>d}'.format(codon_id, deltas[codon_id])
+        elif rank_or_log == 'log':
+            print 'log_2 changes'
+            for codon_id in sorted_deltas[:num_to_label]:
+                print '{0}: {1:0.3f}'.format(codon_id, deltas[codon_id])
     
     start_ys  = []
     end_ys = []
@@ -767,7 +769,13 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
         if log_scale:
             ax.set_yscale('log', basey=2)
 
-        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.2)
+        ax.tick_params(labelright=True)
+
+        big_bold = matplotlib.font_manager.FontProperties(size=12, weight='bold')
+        for label in ax.get_yticklabels():
+            label.set_fontproperties(big_bold)
+
+        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.3)
     
     label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, len(name_order))
 
