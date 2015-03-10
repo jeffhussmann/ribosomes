@@ -95,15 +95,22 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
 
     return high_gene_names, gene_means, gene_medians
 
-def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall, gene_names):
+def metacodon_around_pauses(codon_counts,
+                            allowed_at_pause,
+                            not_allowed_at_stall,
+                            gene_names,
+                            keep_count_context=False,
+                            TE_info=defaultdict(int),
+                           ):
     old_settings = np.seterr(all='raise')
 
     cds_slice = slice(('start_codon', 2), 'stop_codon')
     
     counts_around_list = []
     ratios_around_list = []
-    codons_around_list = []
+    #codons_around_list = []
     nucleotides_around_list = []
+    TE_info_list = []
     
     num_before = 90
     num_after = 90
@@ -111,6 +118,8 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
     for gene_name in gene_names:
         counts = codon_counts[gene_name]['relaxed'][cds_slice]
         codons = codon_counts[gene_name]['identities'][cds_slice]
+
+        gene_TE_info = TE_info[gene_name]
 
         median = np.median(counts)
         mean = np.mean(counts)
@@ -130,10 +139,12 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
             if codons[offset] in allowed_at_pause and codons[offset - 10] not in not_allowed_at_stall:
                 around_slice = slice(offset - num_before, offset + num_after + 1)
                 
-                #counts_around = counts[around_slice]
-                #ratios_around = ratios[around_slice]
-                counts_around = counts[offset]
-                ratios_around = ratios[offset]
+                if keep_count_context:
+                    counts_around = counts[around_slice]
+                    ratios_around = ratios[around_slice]
+                else:
+                    counts_around = counts[offset]
+                    ratios_around = ratios[offset]
                 
                 codons_around = codons[around_slice]
                 nucleotides_around = np.array(list(''.join(codons_around)))
@@ -142,9 +153,11 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
                 ratios_around_list.append(ratios_around)
                 #codons_around_list.append(codons_around)
                 nucleotides_around_list.append(nucleotides_around)
+                TE_info_list.append(gene_TE_info)
                     
     around_lists = {'counts': np.asarray(counts_around_list),
                     'ratios': np.asarray(ratios_around_list),
+                    'TE_info': np.asarray(TE_info_list),
                     #'codons': np.asarray(codons_around_list),
                     'nucleotides': np.asarray(nucleotides_around_list),
                     'num_before': num_before,
@@ -230,16 +243,37 @@ def make_base_identity_masks(around_lists):
 
 def split_into_bins(around_lists, quantize_at, num_quantiles): 
     quantize_at = 0
-    num_quantiles = 10
     
     ratios_around = around_lists['ratios']
+    num_before = around_lists['num_before']
 
-    quantiles = scipy.stats.mstats.mquantiles(ratios_around[:, 30 + quantize_at], prob=np.linspace(0, 1, num_quantiles + 1))
+    quantiles = scipy.stats.mstats.mquantiles(ratios_around[:, num_before + quantize_at],
+                                              prob=np.linspace(0, 1, num_quantiles + 1),
+                                             )
     first_nonzero = quantiles.nonzero()[0][0]
     quantiles = quantiles[first_nonzero - 1:]
 
     boundaries = zip(quantiles, quantiles[1:])
-    bins = [(ratios_around[:, 30 + quantize_at] >= start) & (ratios_around[:, 30 + quantize_at] < end) for start, end in boundaries]
+    bins = [(ratios_around[:, num_before + quantize_at] >= start) & (ratios_around[:, num_before + quantize_at] < end) for start, end in boundaries]
+    binned = [ratios_around[mask] for mask in bins]
+    
+    bins = {i: mask for i, mask in enumerate(bins)}
+    bins['all'] = slice(None)
+    
+    return bins, binned, quantiles
+
+def split_into_TE_bins(around_lists, num_quantiles): 
+    ratios_around = around_lists['ratios']
+    num_before = around_lists['num_before']
+
+    TEs = around_lists['TE_info'][:, 2]
+
+    quantiles = scipy.stats.mstats.mquantiles(TEs,
+                                              prob=np.linspace(0, 1, num_quantiles + 1),
+                                             )
+
+    boundaries = zip(quantiles, quantiles[1:])
+    bins = [(TEs >= start) & (TEs < end) for start, end in boundaries]
     binned = [ratios_around[mask] for mask in bins]
     
     bins = {i: mask for i, mask in enumerate(bins)}
