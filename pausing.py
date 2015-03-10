@@ -87,7 +87,7 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
             gene_means[exp_name].append(gene_mean)
             gene_medians[exp_name].append(gene_median)
 
-            if gene_mean < min_mean or gene_median < min_median:
+            if gene_mean <= min_mean or gene_median < min_median:
                 return False
 
         return True
@@ -96,15 +96,22 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
 
     return high_gene_names, gene_means, gene_medians
 
-def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall, gene_names):
+def metacodon_around_pauses(codon_counts,
+                            allowed_at_pause,
+                            not_allowed_at_stall,
+                            gene_names,
+                            keep_count_context=False,
+                            TE_info=defaultdict(int),
+                           ):
     old_settings = np.seterr(all='raise')
 
     cds_slice = slice(('start_codon', 2), 'stop_codon')
     
     counts_around_list = []
     ratios_around_list = []
-    codons_around_list = []
+    #codons_around_list = []
     nucleotides_around_list = []
+    TE_info_list = []
     
     num_before = 90
     num_after = 90
@@ -112,6 +119,8 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
     for gene_name in gene_names:
         counts = codon_counts[gene_name]['relaxed'][cds_slice]
         codons = codon_counts[gene_name]['identities'][cds_slice]
+
+        gene_TE_info = TE_info[gene_name]
 
         median = np.median(counts)
         mean = np.mean(counts)
@@ -131,10 +140,12 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
             if codons[offset] in allowed_at_pause and codons[offset - 10] not in not_allowed_at_stall:
                 around_slice = slice(offset - num_before, offset + num_after + 1)
                 
-                #counts_around = counts[around_slice]
-                #ratios_around = ratios[around_slice]
-                counts_around = counts[offset]
-                ratios_around = ratios[offset]
+                if keep_count_context:
+                    counts_around = counts[around_slice]
+                    ratios_around = ratios[around_slice]
+                else:
+                    counts_around = counts[offset]
+                    ratios_around = ratios[offset]
                 
                 codons_around = codons[around_slice]
                 nucleotides_around = np.array(list(''.join(codons_around)))
@@ -143,9 +154,11 @@ def metacodon_around_pauses(codon_counts, allowed_at_pause, not_allowed_at_stall
                 ratios_around_list.append(ratios_around)
                 #codons_around_list.append(codons_around)
                 nucleotides_around_list.append(nucleotides_around)
+                TE_info_list.append(gene_TE_info)
                     
     around_lists = {'counts': np.asarray(counts_around_list),
                     'ratios': np.asarray(ratios_around_list),
+                    'TE_info': np.asarray(TE_info_list),
                     #'codons': np.asarray(codons_around_list),
                     'nucleotides': np.asarray(nucleotides_around_list),
                     'num_before': num_before,
@@ -231,16 +244,37 @@ def make_base_identity_masks(around_lists):
 
 def split_into_bins(around_lists, quantize_at, num_quantiles): 
     quantize_at = 0
-    num_quantiles = 10
     
     ratios_around = around_lists['ratios']
+    num_before = around_lists['num_before']
 
-    quantiles = scipy.stats.mstats.mquantiles(ratios_around[:, 30 + quantize_at], prob=np.linspace(0, 1, num_quantiles + 1))
+    quantiles = scipy.stats.mstats.mquantiles(ratios_around[:, num_before + quantize_at],
+                                              prob=np.linspace(0, 1, num_quantiles + 1),
+                                             )
     first_nonzero = quantiles.nonzero()[0][0]
     quantiles = quantiles[first_nonzero - 1:]
 
     boundaries = zip(quantiles, quantiles[1:])
-    bins = [(ratios_around[:, 30 + quantize_at] >= start) & (ratios_around[:, 30 + quantize_at] < end) for start, end in boundaries]
+    bins = [(ratios_around[:, num_before + quantize_at] >= start) & (ratios_around[:, num_before + quantize_at] < end) for start, end in boundaries]
+    binned = [ratios_around[mask] for mask in bins]
+    
+    bins = {i: mask for i, mask in enumerate(bins)}
+    bins['all'] = slice(None)
+    
+    return bins, binned, quantiles
+
+def split_into_TE_bins(around_lists, num_quantiles): 
+    ratios_around = around_lists['ratios']
+    num_before = around_lists['num_before']
+
+    TEs = around_lists['TE_info'][:, 2]
+
+    quantiles = scipy.stats.mstats.mquantiles(TEs,
+                                              prob=np.linspace(0, 1, num_quantiles + 1),
+                                             )
+
+    boundaries = zip(quantiles, quantiles[1:])
+    bins = [(TEs >= start) & (TEs < end) for start, end in boundaries]
     binned = [ratios_around[mask] for mask in bins]
     
     bins = {i: mask for i, mask in enumerate(bins)}
@@ -622,22 +656,22 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_co
                            ha=ha,
                            va='center',
                            size=10,
-                           arrowprops={'arrowstyle': '->', 'alpha': 0.2},
+                           arrowprops={'arrowstyle': '->', 'alpha': 0.5},
                           )
         ax.figure.canvas.draw()
         return text, text.get_window_extent()
 
     ax.figure.canvas.draw()
-    bboxes = [ax.xaxis.get_label().get_window_extent(),
-              ax.yaxis.get_label().get_window_extent(),
-             ]
+
+    starting_labels = [ax.xaxis.get_label(), ax.yaxis.get_label()] + ax.get_yticklabels()
+    bboxes = [label.get_window_extent() for label in starting_labels]
 
     left_tuples = itertools.izip(start_ys, labels, itertools.repeat('left'))
     right_tuples = itertools.izip(end_ys, labels, itertools.repeat('right'))
     tuples = itertools.chain(left_tuples, right_tuples)
 
     for y, label, side in tuples:
-        distance = 0.02
+        distance = 0.015
         text, bbox = attempt_text(y, label, distance, side)
         while any(bbox.fully_overlaps(other_bbox) for other_bbox in bboxes):
             text.remove()
@@ -734,14 +768,16 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
         ax.plot(xs, ys, '.-', color=codon_to_color[codon_id], alpha=alpha, lw=width)
              
     sorted_deltas = sorted(deltas, key=lambda c: transform(deltas[c]), reverse=True)
-    if rank_or_log == 'rank':
-        print 'Rank changes'
-        for codon_id in sorted_deltas[:num_to_label]:
-            print '{0}: {1:2>d}'.format(codon_id, deltas[codon_id])
-    elif rank_or_log == 'log':
-        print 'log_2 changes'
-        for codon_id in sorted_deltas[:num_to_label]:
-            print '{0}: {1:0.3f}'.format(codon_id, deltas[codon_id])
+
+    if num_to_label > 0:
+        if rank_or_log == 'rank':
+            print 'Rank changes'
+            for codon_id in sorted_deltas[:num_to_label]:
+                print '{0}: {1:2>d}'.format(codon_id, deltas[codon_id])
+        elif rank_or_log == 'log':
+            print 'log_2 changes'
+            for codon_id in sorted_deltas[:num_to_label]:
+                print '{0}: {1:0.3f}'.format(codon_id, deltas[codon_id])
     
     start_ys  = []
     end_ys = []
@@ -768,7 +804,13 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
         if log_scale:
             ax.set_yscale('log', basey=2)
 
-        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.2)
+        ax.tick_params(labelright=True)
+
+        big_bold = matplotlib.font_manager.FontProperties(size=12, weight='bold')
+        for label in ax.get_yticklabels():
+            label.set_fontproperties(big_bold)
+
+        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.3)
     
     label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, len(name_order))
 
@@ -776,15 +818,15 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     ax.set_xticklabels(name_order, rotation=45, ha='right')
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
-def plot_codon_enrichments(relevant_experiments,
+def plot_codon_enrichments(names,
                            stratified_mean_enrichments_dict,
                            codons_to_highlight,
                            min_x=-30,
                            max_x=30,
                            log_scale=False,
                           ):
-    fig, axs = plt.subplots(len(relevant_experiments), 1,
-                            figsize=(16, 12 * len(relevant_experiments)),
+    fig, axs = plt.subplots(len(names), 1,
+                            figsize=(16, 12 * len(names)),
                             squeeze=False,
                            )
 
@@ -795,9 +837,7 @@ def plot_codon_enrichments(relevant_experiments,
     codon_to_color = {codon_id: colors_iter.next() for codon_id in codons_to_highlight}
     codon_to_handle = {}
 
-    for experiment, ax in zip(relevant_experiments, axs.flatten()):
-        sample = experiment.name
-
+    for sample, ax in zip(names, axs.flatten()):
         for codon_id in codons.non_stop_codons:
             if codon_id in codons_to_highlight:
                 amino_acid = codons.full_forward_table[codon_id]
