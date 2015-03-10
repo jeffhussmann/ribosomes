@@ -775,15 +775,15 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     ax.set_xticklabels(name_order, rotation=45, ha='right')
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
-def plot_codon_enrichments(relevant_experiments,
+def plot_codon_enrichments(names,
                            stratified_mean_enrichments_dict,
                            codons_to_highlight,
                            min_x=-30,
                            max_x=30,
                            log_scale=False,
                           ):
-    fig, axs = plt.subplots(len(relevant_experiments), 1,
-                            figsize=(16, 12 * len(relevant_experiments)),
+    fig, axs = plt.subplots(len(names), 1,
+                            figsize=(16, 12 * len(names)),
                             squeeze=False,
                            )
 
@@ -794,9 +794,7 @@ def plot_codon_enrichments(relevant_experiments,
     codon_to_color = {codon_id: colors_iter.next() for codon_id in codons_to_highlight}
     codon_to_handle = {}
 
-    for experiment, ax in zip(relevant_experiments, axs.flatten()):
-        sample = experiment.name
-
+    for sample, ax in zip(names, axs.flatten()):
         for codon_id in codons.non_stop_codons:
             if codon_id in codons_to_highlight:
                 amino_acid = codons.full_forward_table[codon_id]
