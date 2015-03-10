@@ -107,21 +107,25 @@ class Ribosome(object):
         next_time = time + np.random.exponential(rate)
         heapq.heappush(self.message.events, (next_time, self))
 
-def produce_measurements(codon_counts, codon_rates, initiation_rate, num_copies):
+def produce_measurements(codon_counts, codon_rates, initiation_rate):
     identities = codon_counts['identities']
     codon_sequence = identities['start_codon':('stop_codon', 1)]
+    real_counts = codon_counts['relaxed']['start_codon':('stop_codon', 1)]
+    total_real_counts = sum(real_counts)
 
     all_measurements = Counter()
-    for i in xrange(num_copies):
+    while sum(all_measurements.values()) < total_real_counts:
         message = Message(codon_sequence, initiation_rate, codon_rates)
         message.evolve_to_steady_state()
         all_measurements.update(message.collect_measurements())
 
-    codon_counts['relaxed'] = positions.PositionCounts(identities.landmarks,
-                                                         identities.left_buffer,
-                                                         identities.right_buffer,
-                                                        )
+    simulated_counts = {'identities': identities,
+                        'relaxed': positions.PositionCounts(identities.landmarks,
+                                                            identities.left_buffer,
+                                                            identities.right_buffer,
+                                                           ),
+                       }
     for key, value in all_measurements.items():
-        codon_counts['relaxed']['start_codon', key] = value
+        simulated_counts['relaxed']['start_codon', key] = value
 
-    return codon_counts
+    return simulated_counts
