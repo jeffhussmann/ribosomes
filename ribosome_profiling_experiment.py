@@ -1,7 +1,6 @@
 import matplotlib
 matplotlib.use('Agg', warn=False)
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import os
 import pysam
@@ -778,12 +777,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                 smooth=False,
                                                )
         
-        visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
-                                                     self.figure_file_names['mean_nucleotide_densities'],
-                                                     past_edge=10,
-                                                     plot_up_to=2000,
-                                                     smooth=False,
-                                                    )
+        #visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
+        #                                             self.figure_file_names['mean_nucleotide_densities'],
+        #                                             past_edge=10,
+        #                                             plot_up_to=2000,
+        #                                             smooth=False,
+        #                                            )
 
         #visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
         #                                        self.figure_file_names['mean_densities_anisomycin'],

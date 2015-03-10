@@ -160,8 +160,8 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         
         simulated_codon_counts = {}
         cds_slice = slice('start_codon', ('stop_codon', 1))
-        for gene_name in piece_gene_names:
-            logging.info('Starting {0}'.format(gene_name))
+        for i, gene_name in enumerate(piece_gene_names):
+            logging.info('Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names)))
             identities = buffered_codon_counts[gene_name]['identities']
             codon_sequence = identities[cds_slice]
 
@@ -169,7 +169,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
             total_real_counts = sum(real_counts)
 
             all_measurements = Counter()
-            while sum(all_measurements.values()) < total_real_counts * 0.01:
+            while sum(all_measurements.values()) < total_real_counts:
                 message = Message(codon_sequence, initiation_rates[gene_name], codon_rates)
                 message.evolve_to_steady_state()
                 all_measurements.update(message.collect_measurements())
@@ -185,7 +185,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
             simulated_codon_counts[gene_name] = {'identities': identities,
                                                  'relaxed': simulated_counts,
                                                 }
-            logging.info('{0} counts generated for {1}'.format(sum(all_measurements.values()), gene_name))
+            logging.info('{0:,} counts generated for {1}'.format(sum(all_measurements.values()), gene_name))
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
