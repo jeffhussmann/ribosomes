@@ -86,7 +86,7 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
             gene_means[exp_name].append(gene_mean)
             gene_medians[exp_name].append(gene_median)
 
-            if gene_mean < min_mean or gene_median < min_median:
+            if gene_mean <= min_mean or gene_median < min_median:
                 return False
 
         return True
