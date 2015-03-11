@@ -1,5 +1,6 @@
 import os
 import glob
+import numpy as np
 
 template = '''name {name}
 group {group}
@@ -67,6 +68,34 @@ def make_descriptions(group,
         bash_fh.write('python ribosome_profiling_experiment.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
     return bash_fn
+
+simulation_template = '''name {name}
+work_prefix /home/jah/
+scratch_prefix /home/jah/scratch/
+relative_results_dir projects/ribosomes/experiments/simulation/{name}/results
+template_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_3-AT/job/description.txt
+RPF_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_CHX/job/description.txt
+mRNA_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
+initiation_rate_numerator {initiation_rate_numerator}
+'''
+
+def make_simulation_descriptions():
+    initiation_rate_numerators = np.array([1, 5, 10, 20, 30, 50]) * 15
+    bash_fn = '/home/jah/projects/ribosomes/code/all_noCHX_simulation.sh'
+    with open(bash_fn, 'w') as bash_fh:
+        for initiation_rate_numerator in initiation_rate_numerators:
+            name = 'noCHX_{0}'.format(initiation_rate_numerator)
+            job_dir = '/home/jah/projects/ribosomes/experiments/simulation/{0}/job'.format(name)
+            if not os.path.isdir(job_dir):
+                os.makedirs(job_dir)
+            description_fn = '{0}/description.txt'.format(job_dir)
+            with open(description_fn, 'w') as description_fh:
+                contents = simulation_template.format(name=name,
+                                                      initiation_rate_numerator=initiation_rate_numerator,
+                                                     )
+                description_fh.write(contents)
+            bash_fh.write('echo {name}\n'.format(name=name))
+            bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, 12))
 
 if __name__ == '__main__':
     kwargs = {}
