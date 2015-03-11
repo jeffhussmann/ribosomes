@@ -3,6 +3,7 @@ import numpy as np
 import logging
 import codons
 import positions
+import pausing
 import os
 from collections import Counter
 import Sequencing.Parallel
