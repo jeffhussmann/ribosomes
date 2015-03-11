@@ -4,6 +4,7 @@ import logging
 import codons
 import positions
 import visualize
+import pausing
 import os
 from collections import Counter
 import Sequencing.Parallel
@@ -152,7 +153,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         self.RPF_experiment = experiment_from_fn(kwargs['RPF_description_fn'])
         self.mRNA_experiment = experiment_from_fn(kwargs['mRNA_description_fn'])
 
-        self.initiation_rate_numerator = kwargs['initiation_rate_numerator']
+        self.initiation_rate_numerator = int(kwargs['initiation_rate_numerator'])
 
         self.method = kwargs['method']
 
@@ -201,9 +202,8 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         
         simulated_codon_counts = {}
         cds_slice = slice('start_codon', ('stop_codon', 1))
-        for i, gene_name in enumerate(piece_gene_names[:3]):
+        for i, gene_name in enumerate(piece_gene_names):
             logging.info('Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names)))
-            print 'Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names))
             identities = buffered_codon_counts[gene_name]['identities']
             codon_sequence = identities[cds_slice]
 
@@ -211,10 +211,12 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
             total_real_counts = sum(real_counts)
 
             all_measurements = Counter()
+            num_messages = 0
             while sum(all_measurements.values()) < total_real_counts:
                 message = Message(codon_sequence, initiation_rates[gene_name], codon_rates)
                 message.evolve_to_steady_state()
                 all_measurements.update(message.collect_measurements())
+                num_messages += 1
 
             simulated_counts = positions.PositionCounts(identities.landmarks,
                                                         identities.left_buffer,
@@ -227,8 +229,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
             simulated_codon_counts[gene_name] = {'identities': identities,
                                                  'relaxed': simulated_counts,
                                                 }
-            logging.info('{0:,} counts generated for {1}'.format(sum(all_measurements.values()), gene_name))
-            print '{0:,} counts generated for {1}'.format(sum(all_measurements.values()), gene_name)
+            logging.info('{0:,} counts generated for {1} from {2:,} messages'.format(sum(all_measurements.values()), gene_name, num_messages))
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
