@@ -3,6 +3,7 @@ import numpy as np
 import logging
 import codons
 import positions
+import visualize
 import os
 from collections import Counter
 import Sequencing.Parallel
@@ -120,9 +121,12 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     specific_results_files = [
         ('simulated_codon_counts', read_positions, '{name}_simulated_codon_counts.hdf5'),
         ('stratified_mean_enrichments', 'pickle', '{name}_stratified_mean_enrichments.pkl'),
+        ('mean_densities', read_positions, '{name}_mean_densities.hdf5'),
     ]
 
-    specific_figure_files = []
+    specific_figure_files = [
+        ('mean_densities', '{name}_mean_densities.pdf'),
+    ]
 
     specific_outputs = [
         ['simulated_codon_counts',
@@ -130,11 +134,14 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     ]
 
     specific_work = [
-        ['simulate'],
+        ['produce_counts',
+        ],
     ]
 
     specific_cleanup = [
         ['compute_stratified_mean_enrichments',
+         'compute_mean_densities',
+         'plot_mean_densities',
         ]
     ]
 
@@ -146,6 +153,8 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         self.mRNA_experiment = experiment_from_fn(kwargs['mRNA_description_fn'])
 
         self.initiation_rate_numerator = kwargs['initiation_rate_numerator']
+
+        self.method = kwargs['method']
 
     def load_TEs(self):
         def experiment_to_RPKMs(experiment):
@@ -167,7 +176,13 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
         return TEs
 
-    def simulate(self, **kwargs):
+    def produce_counts(self):
+        if self.method == 'mechanistic':
+            self.simulate()
+        elif self.method == 'analytical':
+            self.distribute_analytically()
+
+    def simulate(self):
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
         stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
@@ -217,6 +232,46 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
+    def distribute_analytically(self):
+        buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
+        
+        stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
+        codon_rates = stratified_mean_enrichments[0, 1, 2]
+        for codon in codons.stop_codons:
+            codon_rates[codon] = 1
+        
+        all_gene_names = sorted(buffered_codon_counts)
+        piece_gene_names = Sequencing.Parallel.piece_of_list(all_gene_names,
+                                                             self.num_pieces,
+                                                             self.which_piece,
+                                                            )
+        
+        simulated_codon_counts = {}
+        cds_slice = slice('start_codon', ('stop_codon', 1))
+        for i, gene_name in enumerate(piece_gene_names):
+            identities = buffered_codon_counts[gene_name]['identities']
+            codon_sequence = identities[cds_slice]
+
+            real_counts = buffered_codon_counts[gene_name]['relaxed'][cds_slice]
+            total_real_counts = sum(real_counts)
+
+            rates_array = np.array([codon_rates[codon_id] for codon_id in codon_sequence])
+            fractions_array = rates_array / sum(rates_array)
+            
+            simulated_counts = positions.PositionCounts(identities.landmarks,
+                                                         identities.left_buffer,
+                                                         identities.right_buffer,
+                                                        )
+
+            for position, fraction in enumerate(fractions_array):
+                simulated_counts['start_codon', position] = np.random.binomial(total_real_counts, fraction)
+            
+            simulated_codon_counts[gene_name] = {'identities': identities,
+                                                 'relaxed': simulated_counts,
+                                                }
+
+        self.write_file('simulated_codon_counts', simulated_codon_counts)
+    
     def compute_stratified_mean_enrichments(self):
         allowed_at_pause = set(codons.non_stop_codons)
         not_allowed_at_stall = set()
@@ -233,6 +288,19 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
                                                       )
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
+    
+    def compute_mean_densities(self):
+        codon_counts = self.read_file('simulated_codon_counts')
+        mean_densities = positions.compute_averaged_codon_densities(codon_counts)
+        self.write_file('mean_densities', mean_densities)
+
+    def plot_mean_densities(self):
+        visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'), 0)],
+                                                self.figure_file_names['mean_densities'],
+                                                past_edge=10,
+                                                plot_up_to=1000,
+                                                smooth=False,
+                                               )
 
 if __name__ == '__main__':
     script_path = os.path.realpath(__file__)
