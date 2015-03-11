@@ -10,6 +10,8 @@ import Sequencing.Parallel
 import ribosome_profiling_experiment
 import Serialize.read_positions as read_positions
 
+experiment_from_fn = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
+
 class Message(object):
     def __init__(self, codon_sequence, initiation_rate, codon_rates):
         self.codon_sequence = codon_sequence
@@ -140,8 +142,31 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     def __init__(self, **kwargs):
         super(SimulationExperiment, self).__init__(**kwargs)
 
-        self.template_description_fn = kwargs['template_description_fn']
-        self.template_experiment = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name(self.template_description_fn)
+        self.template_experiment = experiment_from_fn(kwargs['template_description_fn'])
+        self.RPF_experiment = experiment_from_fn(kwargs['RPF_description_fn'])
+        self.mRNA_experiment = experiment_from_fn(kwargs['mRNA_description_fn'])
+
+        self.initiation_rate_numerator = kwargs['initiation_rate_numerator']
+
+    def load_TEs(self):
+        def experiment_to_RPKMs(experiment):
+            read_counts = experiment.read_file('read_counts')
+            counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
+            total = sum(counts.values())
+            RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
+            return RPKMs
+
+        transcripts, _ = self.RPF_experiment.get_CDSs()
+        CDS_lengths = {t.name: t.CDS_length for t in transcripts}
+
+        RPF_rpkms = experiment_to_RPKMs(self.RPF_experiment)
+        mRNA_rpkms = experiment_to_RPKMs(self.mRNA_experiment)
+              
+        TEs = {}
+        for gene_name in RPF_rpkms:
+            TEs[gene_name] = RPF_rpkms[gene_name] / mRNA_rpkms[gene_name]
+
+        return TEs
 
     def simulate(self, **kwargs):
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
@@ -151,7 +176,8 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         for codon in codons.stop_codons:
             codon_rates[codon] = 1
         
-        initiation_rates = {gene_name: 50 for gene_name in buffered_codon_counts} 
+        TEs = self.load_TEs()
+        initiation_rates = {gene_name: self.initiation_rate_numerator / TEs[gene_name] for gene_name in buffered_codon_counts} 
 
         all_gene_names = sorted(buffered_codon_counts)
         piece_gene_names = Sequencing.Parallel.piece_of_list(all_gene_names,
@@ -161,8 +187,9 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         
         simulated_codon_counts = {}
         cds_slice = slice('start_codon', ('stop_codon', 1))
-        for i, gene_name in enumerate(piece_gene_names):
+        for i, gene_name in enumerate(piece_gene_names[:3]):
             logging.info('Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names)))
+            print 'Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names))
             identities = buffered_codon_counts[gene_name]['identities']
             codon_sequence = identities[cds_slice]
 
@@ -187,6 +214,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
                                                  'relaxed': simulated_counts,
                                                 }
             logging.info('{0:,} counts generated for {1}'.format(sum(all_measurements.values()), gene_name))
+            print '{0:,} counts generated for {1}'.format(sum(all_measurements.values()), gene_name)
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     

@@ -20,7 +20,7 @@ from Sequencing import mapping_tools, fastq, sam, utilities, fasta, annotation
 import Sequencing.genomes as genomes
 import Sequencing.Visualize
 from Sequencing import visualize_structure
-from Sequencing.Parallel import map_reduce, piece_of_list, split_file
+from Sequencing.Parallel import map_reduce
 from Sequencing.Serialize import (array_1d,
                                   array_2d,
                                   array_3d,
