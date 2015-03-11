@@ -77,13 +77,16 @@ template_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/do
 RPF_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_CHX/job/description.txt
 mRNA_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
 initiation_rate_numerator {initiation_rate_numerator}
+method {method}
 '''
 
 def make_simulation_descriptions():
-    initiation_rate_numerators = np.array([1, 5, 10, 20, 30, 50]) * 15
+    initiation_rate_numerators = np.array([0, 1, 5, 10, 20, 30, 50]) * 15
+    methods = ['mechanistic'] * len(initiation_rate_numerators)
+    methods[0] = 'analytical'
     bash_fn = '/home/jah/projects/ribosomes/code/all_noCHX_simulation.sh'
     with open(bash_fn, 'w') as bash_fh:
-        for initiation_rate_numerator in initiation_rate_numerators:
+        for initiation_rate_numerator, method in zip(initiation_rate_numerators, methods):
             name = 'noCHX_{0}'.format(initiation_rate_numerator)
             job_dir = '/home/jah/projects/ribosomes/experiments/simulation/{0}/job'.format(name)
             if not os.path.isdir(job_dir):
@@ -92,6 +95,7 @@ def make_simulation_descriptions():
             with open(description_fn, 'w') as description_fh:
                 contents = simulation_template.format(name=name,
                                                       initiation_rate_numerator=initiation_rate_numerator,
+                                                      method=method,
                                                      )
                 description_fh.write(contents)
             bash_fh.write('echo {name}\n'.format(name=name))
