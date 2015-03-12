@@ -75,6 +75,8 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
     num_after = 90
     
     def all_high(gene_name):
+        to_return = True
+
         for exp_name in codon_counts_dict:
             counts = codon_counts_dict[exp_name][gene_name]['relaxed'][cds_slice]
 
@@ -88,9 +90,9 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
             gene_medians[exp_name].append(gene_median)
 
             if gene_mean <= min_mean or gene_median < min_median:
-                return False
+                to_return = False
 
-        return True
+        return to_return
 
     high_gene_names = [name for name in all_gene_names if all_high(name)]
 
