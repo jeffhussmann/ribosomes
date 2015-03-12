@@ -252,7 +252,8 @@ def split_into_bins(around_lists, quantize_at, num_quantiles):
                                               prob=np.linspace(0, 1, num_quantiles + 1),
                                              )
     first_nonzero = quantiles.nonzero()[0][0]
-    quantiles = quantiles[first_nonzero - 1:]
+    if first_nonzero > 0:
+        quantiles = quantiles[first_nonzero - 1:]
 
     boundaries = zip(quantiles, quantiles[1:])
     bins = [(ratios_around[:, num_before + quantize_at] >= start) & (ratios_around[:, num_before + quantize_at] < end) for start, end in boundaries]
