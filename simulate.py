@@ -24,6 +24,7 @@ class Message(object):
         self.ribosomes = {}
         self.current_id_number = 0
         self.current_event_number = 0
+        self.current_time = 0
         self.first_runoff_event_number = None
         
         self.initiate(0)
@@ -54,6 +55,7 @@ class Message(object):
                 self.first_runoff_event_number = self.current_event_number
         
         self.current_event_number += 1
+        self.current_time = next_time
 
     def __str__(self):
         description = 'Ribosomes:\n'
@@ -68,11 +70,12 @@ class Message(object):
 
     def evolve_to_steady_state(self):
         while self.first_runoff_event_number == None:
-            self.process_next_event()
+            event_outcome = self.process_next_event()
         
-        additional_events = np.random.randint(0, self.first_runoff_event_number)
+        measurement_time = np.random.uniform(self.current_time, 2 * self.current_time)
+        heapq.heappush(self.events, 'measure', measurement_time)
 
-        for i in xrange(additional_events):
+        while event_outcome != 'measure':
             self.process_next_event()
 
     def collect_measurements(self):
