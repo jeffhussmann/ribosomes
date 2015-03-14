@@ -99,8 +99,8 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
     return high_gene_names, gene_means, gene_medians
 
 def metacodon_around_pauses(codon_counts,
-                            allowed_at_pause,
-                            not_allowed_at_stall,
+                            relevant_at_pause,
+                            not_allowed_at_offset,
                             gene_names,
                             keep_count_context=False,
                             TE_info=defaultdict(int),
@@ -117,6 +117,16 @@ def metacodon_around_pauses(codon_counts,
     
     num_before = 90
     num_after = 90
+
+    def is_relevant(position, codons):
+        if codons[position] not in relevant_at_pause:
+            return False
+
+        for offset, not_allowed in not_allowed_at_offset.items():
+            if codons[position + offset] in not_allowed:
+                return False
+        
+        return True
     
     for gene_name in gene_names:
         counts = codon_counts[gene_name]['relaxed'][cds_slice]
@@ -138,16 +148,16 @@ def metacodon_around_pauses(codon_counts,
             
         ratios = np.true_divide(counts, denominators)
             
-        for offset in range(num_before, len(counts) - num_after):
-            if codons[offset] in allowed_at_pause and codons[offset - 10] not in not_allowed_at_stall:
-                around_slice = slice(offset - num_before, offset + num_after + 1)
+        for position in range(num_before, len(counts) - num_after):
+            if is_relevant(position, codons):
+                around_slice = slice(position - num_before, position + num_after + 1)
                 
                 if keep_count_context:
                     counts_around = counts[around_slice]
                     ratios_around = ratios[around_slice]
                 else:
-                    counts_around = counts[offset]
-                    ratios_around = ratios[offset]
+                    counts_around = counts[position]
+                    ratios_around = ratios[position]
                 
                 codons_around = codons[around_slice]
                 nucleotides_around = np.array(list(''.join(codons_around)))
@@ -270,7 +280,7 @@ def split_into_TE_bins(around_lists, num_quantiles):
     ratios_around = around_lists['ratios']
     num_before = around_lists['num_before']
 
-    TEs = around_lists['TE_info'][:, 2]
+    TEs = around_lists['TE_info']
 
     quantiles = scipy.stats.mstats.mquantiles(TEs,
                                               prob=np.linspace(0, 1, num_quantiles + 1),

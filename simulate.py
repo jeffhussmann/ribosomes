@@ -6,18 +6,19 @@ import positions
 import visualize
 import pausing
 import os
-from collections import Counter
+from collections import Counter, defaultdict
 import Sequencing.Parallel
 import ribosome_profiling_experiment
 import Serialize.read_positions as read_positions
 
 experiment_from_fn = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
 
+exponential = np.random.exponential
+
 class Message(object):
-    def __init__(self, codon_sequence, initiation_rate, codon_rates):
-        self.codon_sequence = codon_sequence
-        self.codon_rates = codon_rates
-        self.initiation_rate = initiation_rate
+    def __init__(self, codon_sequence, initiation_mean, codon_means, CHX_mean):
+        self.codon_mean_sequence = [codon_means[codon_id] for codon_id in codon_sequence]
+        self.initiation_mean = initiation_mean
         self.events = []
         self.left_edges = set()
         self.leftmost_ribosome = None
@@ -26,60 +27,98 @@ class Message(object):
         self.current_event_number = 0
         self.current_time = 0
         self.first_runoff_event_number = None
+
+        self.CHX_introduction_time = np.inf
+        self.CHX_mean = CHX_mean
         
         self.initiate(0)
 
     def initiate(self, time):
         if self.leftmost_ribosome and self.leftmost_ribosome.position - 5 <= 4:
             # Occluded from starting
-            pass
+            if self.leftmost_ribosome.arrested:
+                # The occlusion will never clear
+                pass
+            else:
+                self.register_next_initiation(time)
         else:
-            r = Ribosome(self)
-            self.leftmost_ribosome = r
-            r.register_advance_time(time)
-        
-        next_time = time + np.random.exponential(self.initiation_rate)
-        heapq.heappush(self.events, (next_time, 'initiate'))
+            ribosome = Ribosome(self)
+            self.leftmost_ribosome = ribosome
+            ribosome.register_next_advance_time(time)
+            if time > self.CHX_introduction_time:
+                ribosome.register_CHX_arrival_time(time)
+
+            self.register_next_initiation(time)
+    
+    def register_next_initiation(self, time):
+        next_initiation_time = time + exponential(self.initiation_mean)
+        heapq.heappush(self.events, (next_initiation_time, 'initiate', None)) 
 
     def process_next_event(self):
-        next_time, next_event = heapq.heappop(self.events)
-        if next_event == 'measure':
-            return 'measure'
-        elif next_event == 'initiate':
-            self.initiate(next_time)
+        if not self.events:
+            return 'empty'
         else:
-            ribosome = next_event
-            was_runoff = ribosome.advance(next_time)
-        
-            if was_runoff and self.first_runoff_event_number == None:
-                self.first_runoff_event_number = self.current_event_number
-        
-        self.current_event_number += 1
-        self.current_time = next_time
+            time, event, ribosome = heapq.heappop(self.events)
+            self.current_event_number += 1
+            self.current_time = time
+            
+            if event == 'steady_state':
+                pass
+            elif event == 'initiate':
+                self.initiate(time)
+            elif event == 'advance':
+                was_runoff = ribosome.advance(time)
+            
+                if was_runoff and self.first_runoff_event_number == None:
+                    self.first_runoff_event_number = self.current_event_number
+            elif event == 'CHX_arrival':
+                ribosome.arrested = True
+                ribosome.arrested_at = time
 
+            return event
+
+    def evolve_to_steady_state(self):
+        while self.first_runoff_event_number == None:
+            event = self.process_next_event()
+        
+        steady_state_time = np.random.uniform(self.current_time, 2 * self.current_time)
+        heapq.heappush(self.events, (steady_state_time, 'steady_state', None))
+
+        while event != 'steady_state':
+            event = self.process_next_event()
+
+        if self.CHX_mean != 0:
+            self.introduce_CHX(self.current_time)
+
+        while event != 'empty':
+            event = self.process_next_event()
+
+        return event
+
+    def introduce_CHX(self, introduction_time):
+        self.CHX_introduction_time = introduction_time
+
+        for ribosome in self.ribosomes.values():
+            ribosome.register_CHX_arrival_time(introduction_time)
+
+    def collect_measurements(self):
+        return Counter(r.position for r in self.ribosomes.itervalues())
+    
     def __str__(self):
         description = 'Ribosomes:\n'
         for i in self.ribosomes:
             description += '\t' + str(self.ribosomes[i]) + '\n'
 
         description += 'Events:\n'
-        for event in sorted(self.events):
-            description += '\t' + str(event) + '\n'
+        for time, event, ribosome in sorted(self.events):
+            if ribosome == None:
+                id_number = None
+            else:
+                id_number = ribosome.id_number
+            event_string = str((time, event, id_number))
+            description += '\t' + event_string + '\n'
 
         return description
-
-    def evolve_to_steady_state(self):
-        while self.first_runoff_event_number == None:
-            event_outcome = self.process_next_event()
-        
-        measurement_time = np.random.uniform(self.current_time, 2 * self.current_time)
-        heapq.heappush(self.events, 'measure', measurement_time)
-
-        while event_outcome != 'measure':
-            self.process_next_event()
-
-    def collect_measurements(self):
-        return Counter(r.position for r in self.ribosomes.itervalues())
 
 class Ribosome(object):
     def __init__(self, message):
@@ -89,35 +128,47 @@ class Ribosome(object):
         message.current_id_number += 1
         message.left_edges.add(-5)
         self.position = 0
+        self.arrested = False
+        self.arrested_at = np.inf
 
     def __str__(self):
-        return 'id_number: {0}, position: {1}'.format(self.id_number, self.position)
+        description = 'id_number: {0}, position: {1}, arrested: {2} ({3})'.format(self.id_number,
+                                                                                  self.position,
+                                                                                  self.arrested,
+                                                                                  self.arrested_at,
+                                                                                 )
+        return description
 
     def advance(self, time):
         was_runoff = False
 
-        if self.position + 5 in self.message.left_edges:
-            # Occluded from advancing
+        if self.arrested:
             pass
+        elif self.position + 5 in self.message.left_edges:
+            # Occluded from advancing
+            self.register_next_advance_time(time)
         else:
             self.message.left_edges.remove(self.position - 5)
-            if self.position == len(self.message.codon_sequence) - 1:
+            
+            if self.position == len(self.message.codon_mean_sequence) - 1:
                 self.message.ribosomes.pop(self.id_number)
                 was_runoff = True
             else:
                 self.position += 1
                 self.message.left_edges.add(self.position - 5)
-            
-        if not was_runoff:
-            self.register_advance_time(time)
 
+                self.register_next_advance_time(time)
+            
         return was_runoff
 
-    def register_advance_time(self, time):
-        codon_id = self.message.codon_sequence[self.position]
-        rate = self.message.codon_rates[codon_id]
-        next_time = time + np.random.exponential(rate)
-        heapq.heappush(self.message.events, (next_time, self))
+    def register_next_advance_time(self, time):
+        mean = self.message.codon_mean_sequence[self.position]
+        next_advance_time = time + exponential(mean)
+        heapq.heappush(self.message.events, (next_advance_time, 'advance', self))
+
+    def register_CHX_arrival_time(self, time):
+        CHX_arrival_time = time + exponential(self.message.CHX_mean)
+        heapq.heappush(self.message.events, (CHX_arrival_time, 'CHX_arrival', self)) 
 
 class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     num_stages = 1
@@ -153,30 +204,42 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         super(SimulationExperiment, self).__init__(**kwargs)
 
         self.template_experiment = experiment_from_fn(kwargs['template_description_fn'])
-        self.RPF_experiment = experiment_from_fn(kwargs['RPF_description_fn'])
-        self.mRNA_experiment = experiment_from_fn(kwargs['mRNA_description_fn'])
+        
+        if 'RPF_description_fn' in kwargs:
+            self.RPF_experiment = experiment_from_fn(kwargs['RPF_description_fn'])
+        else:
+            self.RPF_experiment = None
 
-        self.initiation_rate_numerator = int(kwargs['initiation_rate_numerator'])
+        if 'mRNA_description_fn' in kwargs:
+            self.mRNA_experiment = experiment_from_fn(kwargs['mRNA_description_fn'])
+        else:
+            self.mRNA_experiment = None
+
+        self.initiation_mean_numerator = int(kwargs['initiation_mean_numerator'])
+        self.CHX_mean = int(kwargs['CHX_mean'])
 
         self.method = kwargs['method']
 
     def load_TEs(self):
-        def experiment_to_RPKMs(experiment):
-            read_counts = experiment.read_file('read_counts')
-            counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
-            total = sum(counts.values())
-            RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
-            return RPKMs
+        if self.RPF_experiment and self.mRNA_experiment:
+            def experiment_to_RPKMs(experiment):
+                read_counts = experiment.read_file('read_counts')
+                counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
+                total = sum(counts.values())
+                RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
+                return RPKMs
 
-        transcripts, _ = self.RPF_experiment.get_CDSs()
-        CDS_lengths = {t.name: t.CDS_length for t in transcripts}
+            transcripts, _ = self.RPF_experiment.get_CDSs()
+            CDS_lengths = {t.name: t.CDS_length for t in transcripts}
 
-        RPF_rpkms = experiment_to_RPKMs(self.RPF_experiment)
-        mRNA_rpkms = experiment_to_RPKMs(self.mRNA_experiment)
-              
-        TEs = {}
-        for gene_name in RPF_rpkms:
-            TEs[gene_name] = RPF_rpkms[gene_name] / mRNA_rpkms[gene_name]
+            RPF_rpkms = experiment_to_RPKMs(self.RPF_experiment)
+            mRNA_rpkms = experiment_to_RPKMs(self.mRNA_experiment)
+                  
+            TEs = {}
+            for gene_name in RPF_rpkms:
+                TEs[gene_name] = RPF_rpkms[gene_name] / mRNA_rpkms[gene_name]
+        else:
+            TEs = defaultdict(lambda: 1)
 
         return TEs
 
@@ -190,12 +253,12 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
         stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
-        codon_rates = stratified_mean_enrichments[0, 1, 2]
+        codon_means = stratified_mean_enrichments[0, 1, 2]
         for codon in codons.stop_codons:
-            codon_rates[codon] = 1
+            codon_means[codon] = 1
         
         TEs = self.load_TEs()
-        initiation_rates = {gene_name: self.initiation_rate_numerator / TEs[gene_name] for gene_name in buffered_codon_counts} 
+        initiation_means = {gene_name: self.initiation_mean_numerator / TEs[gene_name] for gene_name in buffered_codon_counts} 
 
         all_gene_names = sorted(buffered_codon_counts)
         piece_gene_names = Sequencing.Parallel.piece_of_list(all_gene_names,
@@ -216,7 +279,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
             all_measurements = Counter()
             num_messages = 0
             while sum(all_measurements.values()) < total_real_counts:
-                message = Message(codon_sequence, initiation_rates[gene_name], codon_rates)
+                message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean)
                 message.evolve_to_steady_state()
                 all_measurements.update(message.collect_measurements())
                 num_messages += 1
@@ -236,13 +299,17 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
-    def distribute_analytically(self):
-        buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
-        
+    def load_codon_means(self):
         stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
-        codon_rates = stratified_mean_enrichments[0, 1, 2]
+        codon_means = stratified_mean_enrichments[0, 1, 2]
         for codon in codons.stop_codons:
-            codon_rates[codon] = 1
+            codon_means[codon] = 1
+
+        return codon_means
+    
+    def distribute_analytically(self):
+
+        buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
         all_gene_names = sorted(buffered_codon_counts)
         piece_gene_names = Sequencing.Parallel.piece_of_list(all_gene_names,
@@ -278,7 +345,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     
     def compute_stratified_mean_enrichments(self):
         allowed_at_pause = set(codons.non_stop_codons)
-        not_allowed_at_stall = set()
+        not_allowed_at_stall = {}
 
         codon_counts = self.read_file('simulated_codon_counts',
                                       specific_keys={'relaxed', 'identities'},
