@@ -206,7 +206,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         simulated_codon_counts = {}
         cds_slice = slice('start_codon', ('stop_codon', 1))
         for i, gene_name in enumerate(piece_gene_names):
-            logging.info('Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names)))
+            logging.info('Starting {0} ({1:,} / {2:,})'.format(gene_name, i, len(piece_gene_names) - 1))
             identities = buffered_codon_counts[gene_name]['identities']
             codon_sequence = identities[cds_slice]
 
