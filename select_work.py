@@ -1,15 +1,16 @@
 import os
 import glob
 import ribosome_profiling_experiment
+import simulate
 import subprocess
 import numpy as np
 import visualize
 import contaminants
 from collections import Counter
 
-experiment_from_file_name = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
-
 def build_all_experiments(verbose=True):
+    experiment_from_file_name = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
+    
     families = ['zinshteyn_plos_genetics',
                 'ingolia_science',
                 'weinberg',
@@ -42,6 +43,21 @@ def build_all_experiments(verbose=True):
                 print '\t', name
             description_file_name = '{0}/job/description.txt'.format(d)
             experiments[family][name] = experiment_from_file_name(description_file_name)
+
+    return experiments
+
+def build_all_simulation_experiments(verbose=False):
+    experiment_from_file_name = simulate.SimulationExperiment.from_description_file_name
+    
+    experiments = {}
+    prefix = '/home/jah/projects/ribosomes/experiments/simulation/'
+    dirs = [path for path in glob.glob('{}*'.format(prefix)) if os.path.isdir(path)]
+    for d in sorted(dirs):
+        _, name = os.path.split(d)
+        if verbose:
+            print '\t', name
+        description_file_name = '{0}/job/description.txt'.format(d)
+        experiments[name] = experiment_from_file_name(description_file_name)
 
     return experiments
 

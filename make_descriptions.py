@@ -2,7 +2,8 @@ import os
 import glob
 import numpy as np
 
-template = '''name {name}
+template = '''\
+name {name}
 group {group}
 work_prefix /home/jah/
 scratch_prefix /home/jah/scratch/
@@ -69,37 +70,73 @@ def make_descriptions(group,
 
     return bash_fn
 
-simulation_template = '''name {name}
+simulation_template = '''\
+name {name}
 work_prefix /home/jah/
 scratch_prefix /home/jah/scratch/
 relative_results_dir projects/ribosomes/experiments/simulation/{name}/results
-template_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_3-AT/job/description.txt
-RPF_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_CHX/job/description.txt
-mRNA_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
-initiation_rate_numerator {initiation_rate_numerator}
+template_description_fn /home/jah/projects/ribosomes/experiments/weinberg/RPF/job/description.txt
+initiation_mean_numerator {initiation_mean_numerator}
+CHX_mean {CHX_mean}
 method {method}
 '''
 
-def make_simulation_descriptions():
+TE_lines = '''\
+RPF_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_CHX/job/description.txt
+mRNA_description_fn /home/jah/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
+'''
+
+def make_noCHX_simulation_descriptions(num_pieces=12):
     initiation_rate_numerators = np.array([0, 1, 5, 10, 20, 30, 50]) * 15
     methods = ['mechanistic'] * len(initiation_rate_numerators)
     methods[0] = 'analytical'
     bash_fn = '/home/jah/projects/ribosomes/code/all_noCHX_simulation.sh'
     with open(bash_fn, 'w') as bash_fh:
-        for initiation_rate_numerator, method in zip(initiation_rate_numerators, methods):
-            name = 'noCHX_{0}'.format(initiation_rate_numerator)
+        for initiation_mean_numerator, method in zip(initiation_rate_numerators, methods):
+            name = 'noCHX_{0}'.format(initiation_mean_numerator)
+            
             job_dir = '/home/jah/projects/ribosomes/experiments/simulation/{0}/job'.format(name)
             if not os.path.isdir(job_dir):
                 os.makedirs(job_dir)
+            
             description_fn = '{0}/description.txt'.format(job_dir)
             with open(description_fn, 'w') as description_fh:
                 contents = simulation_template.format(name=name,
-                                                      initiation_rate_numerator=initiation_rate_numerator,
+                                                      initiation_mean_numerator=initiation_mean_numerator,
                                                       method=method,
+                                                      CHX_mean=0,
                                                      )
+                contents += TE_lines
                 description_fh.write(contents)
+            
             bash_fh.write('echo {name}\n'.format(name=name))
-            bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, 12))
+            bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
+
+def make_CHX_simulation_descriptions(num_pieces=12):
+    CHX_means = np.array([0, 10, 50, 100, 200])
+    max_str_len = max(len(str(m)) for m in CHX_means)
+
+    bash_fn = '/home/jah/projects/ribosomes/code/all_CHX_simulation.sh'
+    with open(bash_fn, 'w') as bash_fh:
+        for CHX_mean in CHX_means:
+            name = 'CHX_{0:0>{max_str_len}d}'.format(CHX_mean, max_str_len=max_str_len)
+            
+            job_dir = '/home/jah/projects/ribosomes/experiments/simulation/{0}/job'.format(name)
+            if not os.path.isdir(job_dir):
+                os.makedirs(job_dir)
+                
+            description_fn = '{0}/description.txt'.format(job_dir)
+            with open(description_fn, 'w') as description_fh:
+                contents = simulation_template.format(name=name,
+                                                      initiation_mean_numerator=150,
+                                                      CHX_mean=CHX_mean,
+                                                      method='mechanistic',
+                                                     )
+                contents += TE_lines
+                description_fh.write(contents)
+
+            bash_fh.write('echo {name}\n'.format(name=name))
+            bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
 if __name__ == '__main__':
     kwargs = {}
