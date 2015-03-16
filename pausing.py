@@ -3,7 +3,6 @@ import codons
 import numpy as np
 import itertools
 from collections import defaultdict, Counter
-import scipy.stats
 import brewer2mpl
 import matplotlib.pyplot as plt
 import matplotlib.cm
@@ -11,6 +10,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 import Sequencing.utilities
 import Sequencing.Visualize
 import itertools
+import scipy.stats
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
@@ -828,42 +828,74 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, len(name_order))
 
     ax.set_xticks(xs)
-    ax.set_xticklabels(name_order, rotation=45, ha='right')
+    ax.set_xticklabels(name_order, rotation=45, ha='right', size=12)
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
+def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
+                                        name_order,
+                                       ):
+    rhos = []
+    ps = []
+
+    tAIs = load_premal_elongation_times()
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+
+    for name in name_order:
+        e_values = [stratified_mean_enrichments_dict[name][0, 1, 2][codon] for codon in codons.non_stop_codons]
+        rho, p = scipy.stats.spearmanr(tAI_values, e_values)
+        rhos.append(rho)
+        ps.append(p)
+        print '{0:<30}\t{1:10.4f}\t{2:0.4e}'.format(name, rho, p)
+        
+    fig, ax = plt.subplots(figsize=(16, 12))
+    xs = np.arange(len(rhos))
+    p_ax = ax.twinx()
+    ax.plot(xs, rhos, 'o-', label=r'$\rho$')
+    ax.set_ylabel(r'Spearman $\rho$')
+    p_ax.plot(xs, np.maximum(1e-4, ps), 'o-', color='red', alpha=0.5, label='p value')
+    p_ax.set_ylim(1e-4, 1)
+    p_ax.set_yscale('log')
+    #p_ax.invert_yaxis()
+    p_ax.set_ylabel('p value')
+
+    ax.legend(loc='upper left', framealpha=0.5)
+    p_ax.legend(loc='upper right', framealpha=0.5)
+    
+    ax.set_xticks(xs)
+    ax.set_xticklabels(name_order, rotation=45, ha='right', size=12)
+    ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
+
+    ax.axhline(0, color='black', alpha=1)
+
+    ax.set_title('Rank correlation of measured A-site occupancy with estimated tRNA abundance')
+
+    ax.set_ylim(-0.5, 1)
+
+    p_ax.grid(alpha=0.7)
+    
+    big_bold = matplotlib.font_manager.FontProperties(size=12, weight='bold')
+    for label in ax.get_yticklabels() + p_ax.get_yticklabels():
+        label.set_fontproperties(big_bold)
+                                       
 def plot_codon_enrichments(names,
                            stratified_mean_enrichments_dict,
                            codons_to_highlight,
                            min_x=-30,
                            max_x=30,
                            log_scale=False,
+                           force_ylims=None,
+                           split_by_codon=False,
                           ):
-    fig, axs = plt.subplots(len(names), 1,
-                            figsize=(16, 12 * len(names)),
-                            squeeze=False,
-                           )
 
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
     colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
     colors_iter = itertools.cycle(iter(colors))
 
-    codon_to_color = {codon_id: colors_iter.next() for codon_id in codons_to_highlight}
-    codon_to_handle = {}
+    all_xs = {}
+    all_ys = {}
 
-    for sample, ax in zip(names, axs.flatten()):
+    for sample in names:
         for codon_id in codons.non_stop_codons:
-            if codon_id in codons_to_highlight:
-                amino_acid = codons.full_forward_table[codon_id]
-
-                kwargs = {'color': codon_to_color[codon_id],
-                          'alpha': 1,
-                          'label': '{0} ({1})'.format(codon_id, amino_acid),
-                          }
-            else:
-                kwargs = {'color': 'black',
-                          'alpha': 0.1,
-                          }
-
             xs = []
             ys = []
             for i in range(min_x, max_x + 1):
@@ -871,23 +903,70 @@ def plot_codon_enrichments(names,
                 codon_positions = (i * 3, i * 3 + 1, i * 3 + 2)
                 ys.append(stratified_mean_enrichments_dict[sample][codon_positions][codon_id])
 
-            handle, = ax.plot(xs, ys, '.-', **kwargs)
-            codon_to_handle[codon_id] = handle
-            ax.set_xlim(min_x, max_x)
+            all_xs[sample, codon_id] = xs
+            all_ys[sample, codon_id] = ys
+            
 
-        offset = -11
-        codon_positions = (offset * 3, offset * 3 + 1, offset * 3 + 2)
-        xs = [offset]*len(codons.non_stop_codons)
-        ys = [stratified_mean_enrichments_dict[sample][codon_positions][codon_id] for codon_id in codons.non_stop_codons]
-        labels = ['{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+    if split_by_codon:
+        sample_to_color = {name: colors_iter.next() for name in names}
+        fig, axs = plt.subplots(len(codons_to_highlight), 1,
+                                figsize=(16, 12 * len(codons_to_highlight)),
+                                squeeze=False,
+                               )
+        for codon_id, codon_ax in zip(codons_to_highlight, axs.flatten()):
+            amino_acid = codons.full_forward_table[codon_id]
+            for sample in names:
+                kwargs = {'color': sample_to_color[sample],
+                          'alpha': 1,
+                          'label': sample,
+                         }
+                codon_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
 
-        to_label = sorted(range(len(codons.non_stop_codons)), key=ys.__getitem__)
+            codon_ax.set_title('{0} ({1})'.format(codon_id, amino_acid))
+            codon_ax.legend(loc='upper left', framealpha=0.5)
+            codon_ax.axhline(1, color='black')
+
+    else:
+        codon_to_color = {codon_id: colors_iter.next() for codon_id in codons_to_highlight}
+        codon_to_handle = {}
+
+        fig, axs = plt.subplots(len(names), 1,
+                                figsize=(16, 12 * len(names)),
+                                squeeze=False,
+                               )
+        for sample, sample_ax in zip(names, axs.flatten()):
+            for codon_id in codons.non_stop_codons:
+                if codon_id in codons_to_highlight:
+                    amino_acid = codons.full_forward_table[codon_id]
+
+                    kwargs = {'color': codon_to_color[codon_id],
+                              'alpha': 1,
+                              'label': '{0} ({1})'.format(codon_id, amino_acid),
+                              }
+                else:
+                    kwargs = {'color': 'black',
+                              'alpha': 0.1,
+                              }
+
+                handle, = sample_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
+                codon_to_handle[codon_id] = handle
+
+        #offset = -11
+        #codon_positions = (offset * 3, offset * 3 + 1, offset * 3 + 2)
+        #xs = [offset]*len(codons.non_stop_codons)
+        #ys = [stratified_mean_enrichments_dict[sample][codon_positions][codon_id] for codon_id in codons.non_stop_codons]
+        #labels = ['{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+
+        #to_label = sorted(range(len(codons.non_stop_codons)), key=ys.__getitem__)
         #pausing.label_scatter_plot(ax, xs, ys, labels, to_label[-10:], vector='orthogonal', initial_distance=100)
         
-        ax.set_title(sample)
-        handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
-        labels = [handle.get_label() for handle in handles]
-        ax.legend(handles, labels, framealpha=0.5)
+            sample_ax.set_title(sample)
+            handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
+            labels = [handle.get_label() for handle in handles]
+            sample_ax.legend(handles, labels, framealpha=0.5)
+
+    for ax in axs.flatten():
+        ax.set_xlim(min_x, max_x)
         if log_scale:
             ax.set_yscale('log', basey=2)
 
@@ -898,6 +977,9 @@ def plot_codon_enrichments(names,
 
         for site, position, color in tRNA_sites: 
             ax.axvline(position, color=color, alpha=0.2)
+    
+        if force_ylims:
+            ax.set_ylim(force_ylims)
 
     return fig
 
