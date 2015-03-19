@@ -113,6 +113,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('reciprocal_rates_exclude_50', 'pickle', '{name}_reciprocal_rates_exclude_50.pkl'),
 
         ('stratified_mean_enrichments', 'pickle', '{name}_stratified_mean_enrichments.pkl'),
+        ('stratified_mean_enrichments_anisomycin', 'pickle', '{name}_stratified_mean_enrichments_anisomycin.pkl'),
 
         ('yield', '', '{name}_yield.txt'),
     ]
@@ -829,21 +830,42 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                               )
 
     def compute_stratified_mean_enrichments(self):
-        allowed_at_pause = set(codons.non_stop_codons)
-        not_allowed_at_stall = set()
+        relevant_at_pause = set(codons.non_stop_codons)
+        not_allowed_at_offset = {}
 
         codon_counts = self.read_file('buffered_codon_counts',
-                                      specific_keys={'relaxed', 'identities'},
+                                      specific_keys={'relaxed',
+                                                     'identities',
+                                                     'anisomycin',
+                                                    },
                                      )
-        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts})
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
+                                                                   min_mean=0.1,
+                                                                  )
+        print 'relaxed', len(gene_names)
 
         around_lists = pausing.metacodon_around_pauses(codon_counts,
-                                                       allowed_at_pause,
-                                                       not_allowed_at_stall,
+                                                       relevant_at_pause,
+                                                       not_allowed_at_offset,
                                                        gene_names,
                                                       )
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
+        
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
+                                                                   min_mean=0.1,
+                                                                   count_type='anisomycin',
+                                                                  )
+        print 'anisomycin', len(gene_names)
+
+        around_lists = pausing.metacodon_around_pauses(codon_counts,
+                                                       relevant_at_pause,
+                                                       not_allowed_at_offset,
+                                                       gene_names,
+                                                       count_type='anisomycin',
+                                                      )
+        stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
+        self.write_file('stratified_mean_enrichments_anisomycin', stratified_mean_enrichments)
 
     def plot_pausing(self):
         pausing.plot_codon_enrichments_all_amino_acids([self],

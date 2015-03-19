@@ -62,7 +62,7 @@ def compute_pause_scores(codon_counts_dict, special_sets={}):
 
     return ratios_dict, raw_counts_dict
 
-def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0):
+def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0, count_type='relaxed'):
     all_gene_names = codon_counts_dict.itervalues().next().keys()
     high_gene_names = []
     
@@ -78,7 +78,7 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0)
         to_return = True
 
         for exp_name in codon_counts_dict:
-            counts = codon_counts_dict[exp_name][gene_name]['relaxed'][cds_slice]
+            counts = codon_counts_dict[exp_name][gene_name][count_type][cds_slice]
 
             if len(counts) < num_before + num_after + 1:
                 return False
@@ -104,6 +104,7 @@ def metacodon_around_pauses(codon_counts,
                             gene_names,
                             keep_count_context=False,
                             TE_info=defaultdict(int),
+                            count_type='relaxed',
                            ):
     old_settings = np.seterr(all='raise')
 
@@ -129,7 +130,7 @@ def metacodon_around_pauses(codon_counts,
         return True
     
     for gene_name in gene_names:
-        counts = codon_counts[gene_name]['relaxed'][cds_slice]
+        counts = codon_counts[gene_name][count_type][cds_slice]
         codons = codon_counts[gene_name]['identities'][cds_slice]
 
         gene_TE_info = TE_info[gene_name]
