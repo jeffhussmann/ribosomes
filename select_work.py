@@ -35,7 +35,7 @@ def build_all_experiments(verbose=True):
         if verbose:
             print family
         experiments[family] = {}
-        prefix = '/home/jah/projects/ribosomes/experiments/{0}/'.format(family)
+        prefix = '{0}/projects/ribosomes/experiments/{1}/'.format(os.environ['HOME'], family)
         dirs = [path for path in glob.glob('{}*'.format(prefix)) if os.path.isdir(path)]
         for d in sorted(dirs):
             _, name = os.path.split(d)
