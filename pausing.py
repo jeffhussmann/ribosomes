@@ -983,6 +983,9 @@ def plot_codon_enrichments(names,
 
         for site, position, color in tRNA_sites + read_borders: 
             ax.axvline(position, color=color, alpha=0.2)
+
+        for p in range(10, max_x, 10):
+            ax.axvline(p, ls=':', color='black', alpha=0.2)
     
         if force_ylims:
             ax.set_ylim(force_ylims)
