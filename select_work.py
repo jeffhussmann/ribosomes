@@ -22,6 +22,7 @@ def build_all_experiments(verbose=True):
                 'artieri',
                 'artieri_gr_2',
                 'lareau_elife',
+                'belgium_2015_03_16',
                 'belgium_2014_12_10',
                 'belgium_2014_10_27',
                 'belgium_2014_08_07',
