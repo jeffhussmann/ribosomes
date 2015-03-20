@@ -856,13 +856,14 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
         
     fig, ax = plt.subplots(figsize=(16, 12))
     xs = np.arange(len(rhos))
-    p_ax = ax.twinx()
     ax.plot(xs, rhos, 'o-', label=r'$\rho$')
     ax.set_ylabel(r'Spearman $\rho$', color='blue', size=16)
+
+    p_ax = ax.twinx()
     p_ax.plot(xs, np.maximum(1e-14, ps), 'o-', color='red', alpha=0.5, label='p value')
+    p_ax.plot(xs, ps, 'o-', color='red', alpha=0.5, label='p value')
     p_ax.set_ylim(1e-8, 1)
     p_ax.set_yscale('log')
-    #p_ax.invert_yaxis()
     p_ax.set_ylabel('p value', color='red', size=16)
 
     ax.legend(loc='upper left', framealpha=0.5)
@@ -874,7 +875,7 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
 
     ax.axhline(0, color='black', alpha=1)
 
-    ax.set_title('Rank correlation of mean occupancy based on codon id at offset {0} from A-site with estimated tRNA abundance'.format(codon_position))
+    ax.set_title('Rank correlation of mean occupancy based on codon id at offset {0} from A-site with estimated tRNA scarcity'.format(codon_position))
 
     ax.set_ylim(-0.5, 1)
 
@@ -972,7 +973,8 @@ def plot_codon_enrichments(names,
             sample_ax.set_title(sample)
             handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
             labels = [handle.get_label() for handle in handles]
-            sample_ax.legend(handles, labels, framealpha=0.5)
+            if len(codons_to_highlight) > 0:
+                sample_ax.legend(handles, labels, framealpha=0.5)
 
     for ax in axs.flatten():
         ax.set_xlim(min_x, max_x)
@@ -984,8 +986,15 @@ def plot_codon_enrichments(names,
                       ('E', -2, 'green'),
                      ]
 
-        for site, position, color in tRNA_sites: 
+        read_borders = [('left', -5, 'black'),
+                        ('right', 4, 'black'),
+                       ]
+
+        for site, position, color in tRNA_sites + read_borders: 
             ax.axvline(position, color=color, alpha=0.2)
+
+        for p in range(10, max_x, 10):
+            ax.axvline(p, ls=':', color='black', alpha=0.2)
     
         if force_ylims:
             ax.set_ylim(force_ylims)
