@@ -62,7 +62,13 @@ def compute_pause_scores(codon_counts_dict, special_sets={}):
 
     return ratios_dict, raw_counts_dict
 
-def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0, count_type='relaxed'):
+def get_highly_expressed_gene_names(codon_counts_dict,
+                                    min_mean=1,
+                                    min_median=0,
+                                    count_type='relaxed',
+                                    num_before=90,
+                                    num_after=90,
+                                   ):
     all_gene_names = codon_counts_dict.itervalues().next().keys()
     high_gene_names = []
     
@@ -70,9 +76,6 @@ def get_highly_expressed_gene_names(codon_counts_dict, min_mean=1, min_median=0,
     gene_medians = defaultdict(list)
     
     cds_slice = slice(('start_codon', 2), 'stop_codon')
-    
-    num_before = 90
-    num_after = 90
     
     def all_high(gene_name):
         to_return = True
@@ -105,6 +108,8 @@ def metacodon_around_pauses(codon_counts,
                             keep_count_context=False,
                             TE_info=defaultdict(int),
                             count_type='relaxed',
+                            num_before=90,
+                            num_after=90,
                            ):
     old_settings = np.seterr(all='raise')
 
@@ -116,9 +121,6 @@ def metacodon_around_pauses(codon_counts,
     nucleotides_around_list = []
     TE_info_list = []
     
-    num_before = 90
-    num_after = 90
-
     def is_relevant(position, codons):
         if codons[position] not in relevant_at_pause:
             return False
