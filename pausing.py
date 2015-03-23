@@ -11,6 +11,7 @@ import Sequencing.utilities
 import Sequencing.Visualize
 import itertools
 import scipy.stats
+import os
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
@@ -697,7 +698,7 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_co
             
 def load_premal_elongation_times():
     expected_times = {}
-    fn = '/home/jah/projects/translation_elongation/data/S.cer.code'
+    fn = '{0}/projects/translation_elongation/data/S.cer.code'.format(os.environ['HOME'])
     for line in open(fn):
         codon, _, copy_number, wobble = line.strip().split()
         expected_times[codon] = 1. / (int(copy_number) * float(wobble))
