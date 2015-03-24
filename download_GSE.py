@@ -157,10 +157,10 @@ def dump_fastqs(sra_fns, gzip=False):
             # Split into two files and include read number (out of pair) in the
             # seq name line.
             fastq_dump_command.extend(['--split-3',
-                                       '--defline-seq', '@$ac.$si.$ri',
+                                       '--defline-seq', '@$sn.$ri',
                                       ])
         elif layout == 'single':
-            fastq_dump_command.extend(['--defline-seq', '@$ac.$si'])
+            fastq_dump_command.extend(['--defline-seq', '@$sn'])
         else:
             raise ValueError('layout not known')
 
