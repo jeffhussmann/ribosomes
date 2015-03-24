@@ -1,35 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from Sequencing import Serialize
+import Serialize
 import positions
 import brewer2mpl
 from scipy.optimize import leastsq
 from itertools import cycle
-
-mRNA_experiments = [
-    ##('test', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/test_read_positions.txt'),
-    #('Weinberg (RiboZero)', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions_all.txt'),
-    #('Weinberg (dynabeads)', '/home/jah/projects/arlen/experiments/weinberg/Dynabeads/results/Dynabeads_read_positions_all.txt'),
-    ('Ingolia', '/home/jah/projects/arlen/experiments/ingolia_science/mRNA-rich-1/results/mRNA-rich-1_read_positions_all.txt'),
-    #('McManus', '/home/jah/projects/arlen/experiments/mcmanus_gr/S._cerevisiae_RNA-seq_Rep_1/results/S._cerevisiae_RNA-seq_Rep_1_read_positions_all.txt'),
-    #('Guydosh', '/home/jah/projects/arlen/experiments/guydosh_cell/wild-type_mRNA-Seq/results/wild-type_mRNA-Seq_read_positions_all.txt'),
-    #('Gerashchenko', '/home/jah/projects/arlen/experiments/gerashchenko_pnas/Initial_rep1_mRNA/results/Initial_rep1_mRNA_read_positions_all.txt'),
-    #('Arlen', '/home/jah/projects/arlen/experiments/belgium_8_6_13/WT_cDNA_mRNA/results/WT_cDNA_mRNA_read_positions_all.txt'),
-    #('Zinshteyn', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_positions_all.txt'),
-    #('Weinberg (dynabeads)', '/home/jah/projects/arlen/experiments/weinberg/Dynabeads/results/Dynabeads_read_positions_all.txt'),
-    
-    ('Weinberg (RiboZero)', '/home/jah/projects/arlen/experiments/weinberg/mRNA/results/mRNA_read_positions_all.txt'),
-    ('Weinberg (Unselected)', '/home/jah/projects/arlen/experiments/weinberg/Unselected/results/Unselected_read_positions_all.txt'),
-
-
-    #('Zinshteyn_mRNA_1', '/home/jah/projects/arlen/experiments/zinshteyn_plos_genetics/WT_RNA-seq_1/results/WT_RNA-seq_1_read_positions_all.txt'),
-    #('Weinberg (unselected)', '/home/jah/projects/arlen/experiments/weinberg/Unselected/results/Unselected_read_positions_all.txt'),
-    
-    #('Nagalakshmi_RH_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_ori/results/RH_ori_read_positions.txt'),
-    #('Nagalakshmi_RH_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/RH_bio/results/RH_bio_read_positions.txt'),
-    #('Nagalakshmi_dT_ori', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_ori/results/dT_ori_read_positions.txt'),
-    #('Nagalakshmi_dT_bio', '/home/jah/projects/arlen/experiments/nagalakshmi_science/dT_bio/results/dT_bio_read_positions.txt'),
-]
+import h5py
+import select_work
+from Sequencing import utilities
 
 def smoothed(array, window_size):
     smoothed_array = np.zeros_like(array)
@@ -41,61 +19,123 @@ def smoothed(array, window_size):
         smoothed_array[i] = array[i:].sum() / float(len(array) - i)
     return smoothed_array
 
-def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
-    # Generators that yields arrays of counts
-    def counts_from_read_positions_fn(read_positions_fn, from_end):
-        gene_infos = Serialize.read_file(read_positions_fn, 'read_positions')
-        for gene_name in gene_infos:
-            #if gene_name == 'YLR256W':
-            #    continue
-            if gene_name in {'YLR249W', 'YPL106C', 'YGL008C'}:
-                continue
-            if from_end:
-                counts = gene_infos[gene_name]['all'].relative_to_end
-            else:
-                counts = gene_infos[gene_name]['all']
-            yield counts
+# Generators that yields arrays of counts
+def counts_from_read_positions_fn(read_positions_fn, key='all'):
+    hdf5_file = h5py.File(read_positions_fn, 'r')
+    progress = utilities.progress_bar(len(hdf5_file), hdf5_file)
+    for gene_name in progress:
+        #if gene_name == 'YLR256W':
+        #    continue
+        #if gene_name in {'YLR249W', 'YPL106C', 'YGL008C'}:
+        #    continue
+        if key == 'nonzero':
+            gene = Serialize.read_positions.build_gene(hdf5_file[gene_name], specific_keys={'all', '0'})
+            nonzero_counts = gene['all'] - gene[0]
+            yield gene_name, nonzero_counts
+        else:
+            gene = Serialize.read_positions.build_gene(hdf5_file[gene_name], specific_keys={str(key)})
+            counts = gene[key]
+            yield gene_name, counts
 
+def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
     colors = cycle(bmap.mpl_colors[:5] + bmap.mpl_colors[6:])
 
-    experiments = [(name, counts_from_read_positions_fn(fn, from_end)) for name, fn in mRNA_experiments]
+    experiments = select_work.build_all_experiments(verbose=False)
+    mRNA_experiments = [#('WT_mRNA_1', 'polyA', 0, experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        #('WT_mRNA_1', 'polyA', 'nonzero', experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        #('WT_mRNA_1', 'stop_codon', 0, experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        #('WT_mRNA_1', 'stop_codon', 'nonzero', experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        #('WT_mRNA_1', 'start', 'all', experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        #('WT_mRNA_1', 'start_codon', 'all', experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        #('WT_cDNA_mRNA', 'cap', 'all', experiments['belgium_2013_08_06']['WT_cDNA_mRNA']),
+                        #('WT_cDNA_mRNA', 'start_codon', 'all', experiments['belgium_2013_08_06']['WT_cDNA_mRNA']),
+                        #('R98S_1_mRNA', 'cap', 'all', experiments['belgium_2014_12_10']['R98S_1_mRNA']),
+                        #('R98S_1_mRNA', 'start_codon', 'all', experiments['belgium_2014_12_10']['R98S_1_mRNA']),
+                        ##('WT_mRNA_1 3\'', experiments['belgium_2014_12_10']['WT_1_mRNA']),
+                        ##('WT_mRNA_2 3\'', experiments['belgium_2014_12_10']['WT_2_mRNA']),
+                        ##('WT_cDNA_mRNA 3\'', experiments['belgium_2013_08_06']['WT_cDNA_mRNA']),
+                        #('RiboZero', 'polyA', 0, experiments['weinberg']['RiboZero']),
+                        #('RiboZero', 'polyA', 'nonzero', experiments['weinberg']['RiboZero']),
+                        ('RiboZero', 'start', 'all', experiments['weinberg']['RiboZero']),
+                        ('RiboZero', 'start_codon', 'all', experiments['weinberg']['RiboZero']),
+                        ##('RiboZero', 'stop_codon', 0, experiments['weinberg']['RiboZero']),
+                        ##('RiboZero', 'stop_codon', 'nonzero', experiments['weinberg']['RiboZero']),
+                        #('Dynabeads', 'polyA', 0, experiments['weinberg']['Dynabeads']),
+                        #('Dynabeads', 'polyA', 'nonzero', experiments['weinberg']['Dynabeads']),
+                        #('Dynabeads', 'cap', 'all', experiments['weinberg']['Dynabeads']),
+                        #('Dynabeads', 'start_codon', 'all', experiments['weinberg']['Dynabeads']),
+                        ##('Dynabeads', 'stop_codon', 0, experiments['weinberg']['Dynabeads']),
+                        ##('Dynabeads', 'stop_codon', 'nonzero', experiments['weinberg']['Dynabeads']),
+                       ]
 
-    plot_to = 2000
+    plot_to = 500
     fig_cumulative, ax_cumulative = plt.subplots()
 
-    xs = np.arange(-49, plot_to)
+    edge_buffer = 200
     if from_end:
-        xs = -xs
+        xs = np.arange(-plot_to, edge_buffer)
+    else:
+        xs = np.arange(-edge_buffer, plot_to)
 
-    for (name, counts_generator), color in zip(experiments, colors):
-        print name
 
-        expected_counts = positions.PositionCounts(100000, 100, 100, dtype=float)
-        actual_counts = positions.PositionCounts(100000, 100, 100, dtype=float)
+    unexpected_counts = {}
 
-        for counts in counts_generator:
-            if not min_length <= counts.extent_length <= max_length:
+    for (name, landmark, key, experiment), color in zip(mRNA_experiments, colors):
+        print name, landmark, key
+
+        if from_end:
+            counts_generator = counts_from_read_positions_fn(experiment.file_names['three_prime_read_positions'], key=key)
+        else:
+            counts_generator = counts_from_read_positions_fn(experiment.file_names['read_positions'], key='all')
+
+
+        landmarks = {'start': 0, 'start_codon': 0, 'stop_codon': 90000, 'end': 90000}
+        expected_counts = positions.PositionCounts(landmarks, 400, 400, dtype=float)
+        actual_counts = positions.PositionCounts(landmarks, 400, 400, dtype=float)
+
+        for gene_name, counts in counts_generator:
+            if not min_length <= counts.CDS_length <= max_length:
                 continue
-            num_positions = counts.extent_length
-            edge_slice = slice(-49, counts.extent_length)
+
+            num_positions = counts.CDS_length + edge_buffer
+            
+            if from_end:
+                edge_slice = (landmark, slice(-counts.CDS_length, edge_buffer))
+            else:
+                edge_slice = (landmark, slice(-edge_buffer, counts.CDS_length))
+                unexpected_slice = (landmark, slice(-edge_buffer, 0))
+
             r_g = counts[edge_slice].sum()
             uniform_counts = np.ones(num_positions) * r_g / num_positions
 
             actual_counts[edge_slice] += counts[edge_slice]
-            expected_counts[:num_positions] += uniform_counts
+            expected_counts[edge_slice] += uniform_counts
+
+            unexpected_counts[gene_name] = counts[unexpected_slice].sum()
 
         print actual_counts.sum()
         print expected_counts.sum()
-        ax_cumulative.plot(xs, expected_counts[-49:plot_to] / expected_counts[0], '--', color=color) 
-        #ax_cumulative.plot(xs, actual_counts[-49:plot_to] / expected_counts[0], 'o', color=color, markersize=1, markeredgewidth=0, label='{0}, actual'.format(name)) 
-        ax_cumulative.plot(xs, smoothed(actual_counts[-49:plot_to], 15) / expected_counts[0], '-', label='{0}'.format(name), color=color) 
-        ax_cumulative.set_ylim(0.8, 1.5)
+
+        most_unexpected = sorted(unexpected_counts, key=unexpected_counts.get, reverse=True)
+
+        for n in most_unexpected[:10]:
+            print n, unexpected_counts[n]
+
+        if from_end:
+            plot_slice = (landmark, slice(-plot_to, edge_buffer))
+        else:
+            plot_slice = ('start_codon', slice(-edge_buffer, plot_to))
+
+        ax_cumulative.plot(xs, expected_counts[plot_slice], '--', color=color) 
+        ax_cumulative.plot(xs, actual_counts[plot_slice], 'o-', color=color, markersize=2, markeredgewidth=0, label='{0}, {1}, {2}, actual'.format(name, landmark, key)) 
+        #ax_cumulative.plot(xs, smoothed(actual_counts[-49:plot_to], 15) / expected_counts[0], '-', label='{0}'.format(name), color=color) 
+        #ax_cumulative.set_ylim(0.8, 1.5)
 
     #ax_cumulative.plot(xs, np.zeros(plot_to), 'k--')
     ax_cumulative.legend(loc='upper left', framealpha=0.5)
     if from_end:
-        xlabel = 'Position relative to end of CDS'
+        xlabel = 'Position relative to {0}'.format(landmark)
     else:
         xlabel = 'Position relative to start of CDS'
     ax_cumulative.set_xlabel(xlabel)
@@ -104,8 +144,8 @@ def plot_mRNA_metagene_unaveraged(from_end, min_length, max_length):
     #ax_cumulative.set_title('Read counts in the final {0} bases of CDSs at least {0} long'.format(min_length))
 
     fig_cumulative.set_size_inches(18, 12)
-    plt.savefig('mRNA_bias_comparison_4.png')
-    plt.savefig('mRNA_bias_comparison.pdf')
+    #plt.savefig('mRNA_bias_comparison_4.png')
+    #plt.savefig('mRNA_bias_comparison.pdf')
 
 def end_bias(from_end, min_length, max_length):
     # Generators that yields arrays of counts

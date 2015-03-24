@@ -1,6 +1,7 @@
 import os
 import glob
 import ribosome_profiling_experiment
+import simulate
 import subprocess
 import numpy as np
 import visualize
@@ -8,6 +9,8 @@ import contaminants
 from collections import Counter
 
 def build_all_experiments(verbose=True):
+    experiment_from_file_name = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
+    
     families = ['zinshteyn_plos_genetics',
                 'ingolia_science',
                 'weinberg',
@@ -17,10 +20,16 @@ def build_all_experiments(verbose=True):
                 'guydosh_cell',
                 'mcmanus_gr',
                 'artieri',
+                'artieri_gr_2',
                 'lareau_elife',
+                'belgium_2015_03_16',
+                'belgium_2014_12_10',
+                'belgium_2014_10_27',
                 'belgium_2014_08_07',
                 'belgium_2014_03_05',
                 'belgium_2013_08_06',
+                'pop_msb',
+                'gardin_elife',
                ]
     experiments = {}
     for family in families:
@@ -34,7 +43,22 @@ def build_all_experiments(verbose=True):
             if verbose:
                 print '\t', name
             description_file_name = '{0}/job/description.txt'.format(d)
-            experiments[family][name] = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name(description_file_name)
+            experiments[family][name] = experiment_from_file_name(description_file_name)
+
+    return experiments
+
+def build_all_simulation_experiments(verbose=False):
+    experiment_from_file_name = simulate.SimulationExperiment.from_description_file_name
+    
+    experiments = {}
+    prefix = '/home/jah/projects/ribosomes/experiments/simulation/'
+    dirs = [path for path in glob.glob('{}*'.format(prefix)) if os.path.isdir(path)]
+    for d in sorted(dirs):
+        _, name = os.path.split(d)
+        if verbose:
+            print '\t', name
+        description_file_name = '{0}/job/description.txt'.format(d)
+        experiments[name] = experiment_from_file_name(description_file_name)
 
     return experiments
 
@@ -145,13 +169,11 @@ def make_mismatch_position_plots():
 
 def make_multipage_pdf(figure_name):
     all_experiments = build_all_experiments(verbose=False)
-    all_fn = '/home/jah/projects/ribosomes/results/everything_{0}.pdf'.format(figure_name)
+    all_fn = '/home/jah/projects/ribosomes/results/gerashchenko_{0}.pdf'.format(figure_name)
     fns = []
-    for group in sorted(all_experiments):
-        for name in sorted(all_experiments[group]):
-            if 'jeff' in name:
-                continue
-            fns.append(all_experiments[group][name].figure_file_names[figure_name])
+    for name in sorted(all_experiments['gerashchenko_nar'], key=gerashchenko_nar_sorting_key):
+        print name
+        fns.append(all_experiments['gerashchenko_nar'][name].figure_file_names[figure_name])
 
     pdftk_command = ['pdftk'] + fns + ['cat', 'output', all_fn]
     subprocess.check_call(pdftk_command)
@@ -166,6 +188,27 @@ def get_read_lengths():
             if experiment.max_read_length == 76:
                 print group, name
     print read_lengths.most_common()
+
+def gerashchenko_nar_sorting_key(name):
+    _, concentration = name.split('_', 1)
+    concentration, _ = concentration.split('CHX')
+    if concentration == 'no':
+        concentration = 0
+    else:
+        concentration = concentration.strip('_x')
+        if '_' in concentration:
+            num, denom = concentration.split('_')
+            concentration = float(num) / float(denom)
+        else:
+            concentration = int(concentration)
+
+    return concentration
+
+def get_gerashchenko_nar_experiments(series='unstressed'):
+    experiments = build_all_experiments(verbose=False)
+    relevant_exps = [exp for exp in experiments['gerashchenko_nar'].values() if series in exp.name]
+    sorted_exps = sorted(relevant_exps, key=lambda exp: gerashchenko_nar_sorting_key(exp.name))
+    return sorted_exps
 
 def make_averaged_codon_densities_plot():
     experiments = build_all_experiments(verbose=False)

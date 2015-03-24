@@ -1,88 +1,63 @@
 import ribosomes
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
 import gtf
 import explore_UTRs
-from Sequencing import Serialize
-import scipy.stats
+import select_work
+import Sequencing.Visualize
+from collections import Counter
 
 bad_gene_names = {'YER109C', 'YOR031W'}
 
-#RPKMs = {}
-#for experiment in RPKM_fns:
-#    RPKMs[experiment] = {}
-#    for kind in RPKM_fns[experiment]:
-#        RPKMs[experiment][kind] = ribosomes.read_RPKMs_file(RPKM_fns[experiment][kind])
-#
-#random_experiment = RPKMs.keys().pop()
-#random_type = RPKMs[random_experiment].keys().pop()
-#gene_names = sorted(RPKMs[random_experiment][random_type].keys())
-#gene_names = [name for name in gene_names if name not in bad_gene_names]
-#
-#arrays = {}
-#for experiment in RPKM_fns:
-#    arrays[experiment] = {}
-#    for kind in RPKMs[experiment]:
-#        dictionary = RPKMs[experiment][kind]
-#        arrays[experiment][kind] = np.asarray([dictionary[name] for name in gene_names]) + 1e-3
-#
-#TEs = {}
-#for experiment in arrays:
-#    TEs[experiment] = {}
-#    for kind in RPKMs[experiment]:
-#        if kind != 'RPF':
-#            TEs[experiment][kind] = np.log2(arrays[experiment]['RPF']) - np.log2(arrays[experiment][kind])
+experiments = select_work.build_all_experiments(verbose=False)
 
-def colored_scatter(x_list, y_list, x_label, y_label, title, ax_scatter):
-    sampled_points = np.vstack([x_list[:10000], y_list[:10000]])
-    points = np.vstack([x_list, y_list])
-    kernel = scipy.stats.gaussian_kde(sampled_points)
-    colors = kernel(points)
+d = {'belgium_2014_12_10': {'WT_1': {'mRNA': 'WT_1_mRNA',
+                                     'RPF': 'WT_1_FP',
+                                    },
+                            'WT_2': {'mRNA': 'WT_2_mRNA',
+                                     'RPF': 'WT_2_FP',
+                                    },
+                            'R98S_1': {'mRNA': 'R98S_1_mRNA',
+                                       'RPF': 'R98S_1_FP'
+                                      },
+                            'R98S_2': {'mRNA': 'R98S_2_mRNA',
+                                       'RPF': 'R98S_2_FP'
+                                      },
+                           },
+     'weinberg': {'Unselected': {'mRNA': 'Unselected',
+                                 'RPF': 'RPF',
+                                },
+                  'Dynabeads': {'mRNA': 'Dynabeads',
+                                'RPF': 'RPF',
+                               },
+                 },
+    }
 
-    ax_scatter.scatter(x_list, y_list, c=colors, cmap=matplotlib.cm.jet, s=4, linewidths=(0.1,))
-    #ax_scatter.set_aspect(1.)
+random_group = d.keys().pop()
+random_condition = d[random_group].keys().pop()
+random_experiment = experiments[random_group][d[random_group][random_condition]['RPF']]
 
-    #divider = make_axes_locatable(ax_scatter)
-    #ax_hist_x = divider.append_axes('top', 1.2, pad=0.1, sharex=ax_scatter)
-    #ax_hist_y = divider.append_axes('right', 1.2, pad=0.1, sharey=ax_scatter)
+transcripts, _ = random_experiment.get_CDSs()
+gene_names = [t.name for t in transcripts]
+CDS_lengths = [t.CDS_length for t in transcripts]
 
-    #plt.setp(ax_hist_x.get_xticklabels() + ax_hist_x.get_yticklabels(),
-    #         visible=False)
-    #plt.setp(ax_hist_x.get_xticklines() + ax_hist_x.get_yticklines(),
-    #         visible=False)
-    #plt.setp(ax_hist_y.get_xticklabels() + ax_hist_y.get_yticklabels(),
-    #         visible=False)
-    #plt.setp(ax_hist_y.get_xticklines() + ax_hist_y.get_yticklines(),
-    #         visible=False)
-    
-    ax_scatter.set_xlabel(x_label)
-    ax_scatter.set_ylabel(y_label)
+def experiment_to_read_counts(experiment):
+    read_counts = experiment.read_file('read_counts')
+    array = np.asarray([read_counts[gene]['expression'][0] for gene in gene_names])
+    nonzero_array = np.maximum(array, 0.1)
+    return nonzero_array
 
-    ax_scatter.set_title(title)
+counts = {}
 
-    fit = np.polyfit(x_list, y_list, 1)
-    beta, _ = fit
-    fit_fn = np.poly1d(fit)
-    xs = ax_scatter.get_xlim()
-    ax_scatter.plot(xs, fit_fn(xs), color='black', alpha=0.7)
-    ax_scatter.set_xlim(min(x_list), max(x_list))
-    
-    r, p = scipy.stats.pearsonr(x_list, y_list)
-    ax_scatter.annotate('r = {:0.2f}, p={:0.2e}'.format(r, p),
-                        xy=(1, 0),
-                        xycoords='axes fraction',
-                        xytext=(-10, 15),
-                        textcoords='offset points',
-                        horizontalalignment='right',
-                       )
-    ax_scatter.annotate(r'$\beta$ = {:0.2f}'.format(beta),
-                        xy=(1, 0),
-                        xycoords='axes fraction',
-                        xytext=(-10, 30),
-                        textcoords='offset points',
-                        horizontalalignment='right',
-                       )
+for group in d:
+    counts[group] = {}
+    for condition in d[group]:
+        counts[group][condition] = {}
+        for kind in d[group][condition]:
+            sample = d[group][condition][kind]
+            experiment = experiments[group][sample]
+            counts[group][condition][kind] = experiment_to_read_counts(experiment)
+
 
 def make_counts_array_file():
     fn = 'all_counts.txt'
@@ -128,6 +103,247 @@ def filtered_low_counts(min_count):
     at_least = np.all(array[:, 1:] > min_count, axis=1)
     filtered = np.asarray([row for row, accept in zip(array, at_least) if accept])
     return fields, filtered
+
+def where_all_at_least(array, min_count):
+    where_at_least = np.where(np.min(array, axis=0) > min_count)
+
+    return where_at_least
+
+def ratios_vs_length_conditions(min_count=10):
+    ''' Examine correlations between CDS length and ratio of expression between
+    replicates as a way of searching for systematic bias between replicates.
+    '''
+    pairs = [(('belgium_2014_12_10', 'WT_1'),
+              ('belgium_2014_12_10', 'WT_2'),
+             ),
+             (('belgium_2014_12_10', 'R98S_1'),
+              ('belgium_2014_12_10', 'R98S_2'),
+             ),
+            ]
+
+    fig, axs = plt.subplots(2, 2, figsize=(12, 16))
+
+    for ax_row, (first, second) in zip(axs, pairs):
+        first_group, first_condition = first
+        second_group, second_condition = second
+        
+        for kind, ax in zip(['mRNA', 'RPF'], ax_row):
+            first_counts = counts[first_group][first_condition][kind]
+            second_counts = counts[second_group][second_condition][kind]
+
+            where_at_least = where_all_at_least(np.asarray([first_counts, second_counts]), min_count)
+
+            log_lengths = np.log10(np.asarray(CDS_lengths))[where_at_least]
+            log_ratio = (np.log10(first_counts) - np.log10(second_counts))[where_at_least]
+
+            title = kind
+            Sequencing.Visualize.enhanced_scatter(log_lengths, log_ratio, 'log10(CDS_length)', 'log10({0} / {1})'.format(first_condition, second_condition), title, ax)
+
+            ax.set_ylim(-2, 1)
+
+def ratios_vs_base_composition(base, min_count=10):
+    ''' Examine correlations between base composition and ratio of expression
+    between replicates as a way of searching for systematic bias between replicates.
+    '''
+    pairs = [#(('belgium_2014_12_10', 'WT_1'),
+             # ('belgium_2014_12_10', 'WT_2'),
+             #),
+             #(('belgium_2014_12_10', 'R98S_1'),
+             # ('belgium_2014_12_10', 'R98S_2'),
+             #),
+             (('weinberg', 'Dynabeads'),
+              ('weinberg', 'Unselected'),
+             ),
+            ]
+
+    base_fractions = []
+    for t in transcripts:
+        t.build_coordinate_maps()
+        base_counts = Counter(t.get_coding_sequence(translate=False))
+        if sum(base_counts.values()) == 0:
+            print t.name
+        fraction = base_counts[base] / float(sum(base_counts.values()))
+        base_fractions.append(fraction)
+        t.delete_coordinate_maps()
+
+    fig, axs = plt.subplots(len(pairs), 2, figsize=(12, 16))
+
+    if len(axs.shape) == 1:
+        axs = axs[np.newaxis, :]
+
+    for ax_row, (first, second) in zip(axs, pairs):
+        first_group, first_condition = first
+        second_group, second_condition = second
+        
+        for kind, ax in zip(['mRNA', 'RPF'], ax_row):
+            first_counts = counts[first_group][first_condition][kind]
+            second_counts = counts[second_group][second_condition][kind]
+
+            where_at_least = where_all_at_least(np.asarray([first_counts, second_counts]), min_count)
+
+            fractions = np.asarray(base_fractions)[where_at_least]
+            log_ratio = (np.log10(first_counts) - np.log10(second_counts))[where_at_least]
+
+            title = kind
+            Sequencing.Visualize.enhanced_scatter(fractions,
+                                                  log_ratio,
+                                                  'fraction({0})'.format(base),
+                                                  'log10({0} / {1})'.format(first_condition, second_condition),
+                                                  title,
+                                                  ax,
+                                                  force_aspect=False,
+                                                 )
+
+            ax.set_ylim(-2, 1)
+
+def ratios_vs_ratios(min_count=10):
+    ''' Examine correlations between WT replicate ratios and R98S replicate
+    ratios.
+    '''
+    def plot_pair_ratios(experiments, counts, pairings, axs):
+        for kind, ax in zip(['mRNA', 'RPF'], axs):
+            
+            all_array = np.asarray(counts[kind])
+            where_at_least = where_all_at_least(all_array, min_count)
+
+            (first_num, first_denom), (second_num, second_denom) = pairings
+            first_ratios = (np.log10(counts[kind][first_num]) - np.log10(counts[kind][first_denom]))[where_at_least]
+            second_ratios = (np.log10(counts[kind][second_num]) - np.log10(counts[kind][second_denom]))[where_at_least]
+
+            first_indices = np.argsort(first_ratios)
+            second_indices = np.argsort(second_ratios)
+
+            names = np.asarray(gene_names)[where_at_least]
+
+            print kind
+            for index in first_indices[:10]:
+                print names[index], first_ratios[index], second_ratios[index]
+            
+            print
+            for index in first_indices[:10]:
+                print names[index], first_ratios[index], second_ratios[index]
+
+            title = kind
+            x_label = 'log10({0} / {1})'.format(experiments[first_num][1],
+                                                experiments[first_denom][1],
+                                               )
+            y_label = 'log10({0} / {1})'.format(experiments[second_num][1],
+                                                experiments[second_denom][1],
+                                               )
+            Sequencing.Visualize.enhanced_scatter(first_ratios,
+                                                  second_ratios,
+                                                  x_label,
+                                                  y_label,
+                                                  title,
+                                                  ax,
+                                                 )
+
+            ax.set_aspect('equal')
+            x_min, x_max = ax.get_xlim()
+            ax.set_xlim(x_min - 0.1, x_max + 0.1)
+            y_min, y_max = ax.get_ylim()
+            ax.set_ylim(y_min - 0.1, y_max + 0.1)
+
+        return second_indices
+        
+    experiments = [('belgium_2014_12_10', 'WT_1'),
+                   ('belgium_2014_12_10', 'R98S_1'),
+                   ('belgium_2014_12_10', 'WT_2'),
+                   ('belgium_2014_12_10', 'R98S_2'),
+                  ]
+    
+    condition_pairings = [(0, 1), (2, 3)]
+    replicate_pairings = [(0, 2), (1, 3)]
+
+    exp_counts = {kind: [counts[group][condition][kind] for group, condition in experiments]
+                  for kind in ['RPF', 'mRNA']}
+
+    fig, axs = plt.subplots(2, 2, figsize=(12, 16))
+    plot_pair_ratios(experiments, exp_counts, condition_pairings, axs[0])
+    second_indices = plot_pair_ratios(experiments, exp_counts, replicate_pairings, axs[1])
+    return second_indices
+
+def plot_counts(kind):
+    names = [('belgium_2014_12_10', 'WT_1'),
+             ('belgium_2014_12_10', 'WT_2'),
+             ('belgium_2014_12_10', 'R98S_1'),
+             ('belgium_2014_12_10', 'R98S_2'),
+            ]
+
+    values = []
+    for group, condition in names:
+        value = np.log10(counts[group][condition][kind])
+        values.append(value)
+
+    labels = [condition for group, condition in names]
+    full_labels = ['{0} : {1}'.format(group, condition) for group, condition in names]
+
+    fig = plt.figure(figsize=(9 * len(names), 9 * len(names)))
+    for r in range(len(names)):
+        for c in range(r, len(names)):
+            ax = fig.add_subplot(len(names), len(names), r * len(names) + c + 1)
+
+            xs = values[c]
+            ys = values[r]
+
+            if r == c:
+                x_label = full_labels[c]
+                y_label= full_labels[r]
+            else:
+                x_label = labels[c]
+                y_label= labels[r]
+
+            Sequencing.Visualize.enhanced_scatter(xs, ys, x_label, y_label, '', ax, lims=(-1.1, 6))
+
+    plt.savefig('/home/jah/projects/ribosomes/results/counts_test_{0}.png'.format(kind), bbox_inches='tight')
+
+def compare_TEs():
+    names = [('belgium_2014_12_10', 'WT_1'),
+             ('belgium_2014_12_10', 'WT_2'),
+             ('belgium_2014_12_10', 'R98S_1'),
+             ('belgium_2014_12_10', 'R98S_2'),
+            ]
+
+    all_mRNA_counts = []
+    all_RPF_counts = []
+    for group, condition in names:
+        mRNA_counts = counts[group][condition]['mRNA']
+        RPF_counts = counts[group][condition]['RPF']
+
+        all_mRNA_counts.append(mRNA_counts)
+        all_RPF_counts.append(RPF_counts)
+
+    where_at_least = where_all_at_least(np.asarray(all_mRNA_counts + all_RPF_counts), 10)
+
+    all_TEs = []
+    for i, (group, condition) in enumerate(names):
+        mRNA_normalized = np.true_divide(all_mRNA_counts[i], all_mRNA_counts[i].sum())
+        RPF_normalized = np.true_divide(all_RPF_counts[i], all_RPF_counts[i].sum())
+        TEs = (np.log2(RPF_normalized) - np.log2(mRNA_normalized))[where_at_least]
+        all_TEs.append(TEs)
+    
+    labels = [condition for group, condition in names]
+    full_labels = ['{1} TE (log2 (mRNA RPKM / RPF RPKM))'.format(group, condition) for group, condition in names]
+    
+    fig = plt.figure(figsize=(9 * len(names), 9 * len(names)))
+    
+    for r in range(len(names)):
+        for c in range(r, len(names)):
+            ax = fig.add_subplot(len(names), len(names), r * len(names) + c + 1)
+
+            xs = all_TEs[c]
+            ys = all_TEs[r]
+
+            if r == c:
+                x_label = full_labels[c]
+                y_label= full_labels[r]
+            else:
+                x_label = labels[c]
+                y_label= labels[r]
+
+            Sequencing.Visualize.enhanced_scatter(xs, ys, x_label, y_label, '', ax, lims=(-4, 4))
+
+    fig.savefig('/home/jah/projects/ribosomes/results/TE_correlations.png', bbox_inches='tight')
 
 def TE_vs_length():
     fields, filtered = filtered_low_counts(500)

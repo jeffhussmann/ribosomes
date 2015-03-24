@@ -11,28 +11,24 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
     num_stages = 2
 
     specific_results_files = [
-        ('sorted_by_name', 'bam', '{name}_by_name.bam'),
         ('bam', 'bam', '{name}.bam'),
-
-        ('five_prime_read_positions', read_positions, '{name}_five_prime_read_positions.hdf5'),
     ]
 
     specific_figure_files = [
     ]
 
     specific_outputs = [
-        ['bam',
+        [#'bam',
         ],
-        ['five_prime_read_positions',
-         'from_starts_and_ends',
+        ['read_positions',
+         'metagene_positions',
         ],
     ]
 
     specific_work = [
-        ['preprocess',
-         'map_tophat',
-         'sort_by_name',
-         'count_mappings',
+        [#'preprocess',
+         #'map_tophat',
+         #'combine_mappings',
         ],
         ['get_read_positions',
          'get_metagene_positions',
@@ -48,12 +44,29 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
     def __init__(self, **kwargs):
         super(TLSeqExperiment, self).__init__(**kwargs)
         
+    def preprocess(self):                                                                                 
+        ''' tophat can't handle named pipes, so need to make a file. '''                                                                                               
+        reads = self.get_reads()                                                                          
+        total_reads = 0                                                                                   
+                                                                                                          
+        with open(self.file_names['preprocessed_reads'], 'w') as preprocessed_file:                       
+            for read in reads:                                                                            
+                total_reads += 1                                                                          
+                record = fastq.make_record(*read)                                                         
+                preprocessed_file.write(record)                                                           
+                                                                                                          
+        self.summary.extend(                                                                                  
+            [('Total reads', total_reads),                                                                
+            ],                                                                                            
+        )                                                                                                 
+    
     def map_tophat(self):
         mapping_tools.map_tophat([self.file_names['preprocessed_reads']],
                                  self.file_names['bowtie2_index_prefix'],
                                  self.file_names['genes'],
                                  self.file_names['transcriptome_index'],
                                  self.file_names['tophat_dir'],
+                                 no_sort=True,
                                 )
 
     def get_read_positions(self):
@@ -65,70 +78,60 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
                                                               right_buffer=500,
                                                              )
 
-        self.five_prime_read_positions = {name: info['position_counts']
-                                          for name, info in gene_infos.iteritems()}
+        self.read_positions = {name: info['five_prime_positions']
+                               for name, info in gene_infos.iteritems()}
 
-        self.write_file('five_prime_read_positions', self.five_prime_read_positions)
+        self.write_file('read_positions', self.read_positions)
     
     def get_metagene_positions(self):
         piece_CDSs, max_gene_length = self.get_CDSs()
-        read_positions = self.load_read_positions(modifier='five_prime')
-        processed_read_positions = {}
-        for name in read_positions:
-            gene = {'five_prime': read_positions[name]['all']}
-            processed_read_positions[name] = gene
-        from_starts_and_ends = positions.compute_metagene_positions(read_positions, max_gene_length)
+        read_positions = self.load_read_positions()
+        metagene_positions = positions.compute_metagene_positions(piece_CDSs,
+                                                                  read_positions,
+                                                                  max_gene_length,
+                                                                 )
 
-        self.write_file('from_starts_and_ends', from_starts_and_ends)
+        self.write_file('metagene_positions', metagene_positions)
     
     def plot_starts_and_ends(self):
-        from_starts_and_ends = self.read_file('from_starts_and_ends')
+        metagene_positions = self.read_file('metagene_positions')
 
-        visualize.plot_metagene_positions(from_starts_and_ends['from_starts'],
-                                          from_starts_and_ends['from_ends'],
-                                          self.figure_file_names['starts_and_ends_zoomed_out'],
-                                          zoomed_out=True,
+        visualize.plot_metagene_positions(metagene_positions,
+                                          self.figure_file_names['starts_and_ends'],
+                                          ['all'],
                                          )
 
-    def sort_by_name(self):
-        accepted_fn = self.file_names['accepted_hits']
-        accepted_prefix, _ = os.path.splitext(accepted_fn)
-        accepted_sorted_fn = '{}_sorted.bam'.format(accepted_prefix)
-
-        unmapped_fn = self.file_names['unmapped_bam']
-        unmapped_prefix, _ = os.path.splitext(unmapped_fn)
-        unmapped_sorted_fn = '{}_sorted.bam'.format(unmapped_prefix)
-
-        merged_fn = self.file_names['sorted_by_name']
-
-        sam.sort_bam(accepted_fn, accepted_sorted_fn, by_name=True)
-        sam.sort_bam(unmapped_fn, unmapped_sorted_fn, by_name=True)
-        pysam.merge('-nf', merged_fn, accepted_sorted_fn, unmapped_sorted_fn)
-
-        os.rename(self.file_names['accepted_hits'], self.file_names['bam'])
-
-    def count_mappings(self):
+    def combine_mappings(self):
         num_unmapped = 0
         num_nonunique = 0
         num_unique = 0
 
-        mappings = pysam.Samfile(self.file_names['sorted_by_name'])
+        mappings = pysam.Samfile(self.file_names['accepted_hits'])
+        unmapped = pysam.Samfile(self.file_names['unmapped_bam'])
+        merged = sam.merge_by_name(mappings, unmapped)
+        grouped = utilities.group_by(merged, lambda m: m.qname)
 
-        groups = utilities.group_by(mappings, lambda m: m.qname)
-        for qname, group in groups:
-            unmapped = any(m.is_unmapped for m in group)
-            if unmapped:
-                num_unmapped += 1
-                continue
+        alignment_sorter = sam.AlignmentSorter(mappings.references,
+                                               mappings.lengths,
+                                               self.file_names['bam'],
+                                              )
+        with alignment_sorter:
+            for qname, group in grouped:
+                unmapped = any(m.is_unmapped for m in group)
+                if unmapped:
+                    num_unmapped += 1
+                    continue
 
-            nonunique = len(group) > 1 or any(m.mapq < 40 for m in group)
-            if nonunique:
-                num_nonunique += 1
-                continue
+                nonunique = len(group) > 1 or any(m.mapq < 40 for m in group)
+                if nonunique:
+                    num_nonunique += 1
+                else:
+                    num_unique += 1
 
-            num_unique += 1
+                for mapping in group:
+                    alignment_sorter.write(mapping)
             
-        self.log.extend(
+        self.summary.extend(
             [('Unmapped', num_unmapped),
              ('Nonunique', num_nonunique),
              ('Unique', num_unique),
@@ -136,9 +139,9 @@ class TLSeqExperiment(rna_experiment.RNAExperiment):
         )
     
     def get_total_eligible_reads(self):
-        log_pairs = self.read_file('log')
-        log_dict = {name: values[0] for name, values in log_pairs}
-        total_mapped_reads = log_dict['Nonunique'] + log_dict['Unique']
+        summary_pairs = self.read_file('summary')
+        summary_dict = {name: values[0] for name, values in summary_pairs}
+        total_mapped_reads = summary_dict['Nonunique'] + summary_dict['Unique']
         return total_mapped_reads
 
 if __name__ == '__main__':

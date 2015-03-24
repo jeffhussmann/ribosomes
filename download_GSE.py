@@ -28,7 +28,6 @@ def get_xml(paper_dir, accession):
     tar_command = ['tar', 'xzf', tgz_fn, '-C', paper_dir]
     subprocess.check_call(tar_command)
     os.remove(tgz_fn)
-    os.remove(xml_fn)
 
     return xml_fn
 
@@ -171,12 +170,12 @@ def dump_fastqs(sra_fns, gzip=False):
                                   ])
         
         subprocess.check_call(fastq_dump_command)
-        #os.remove(sra_fn)
+        os.remove(sra_fn)
 
 experiments = {
     # Yeast
     # Ribosome profiling
-    'guydosh_cell': ('GSE52968', lambda name: 'wild' not in name and 'disome' in name),
+    'guydosh_cell': ('GSE52968', lambda name: True),
     'brar_science': ('GSE34082', lambda name: 'mRNA' in name and 'exponential' in name),
     'artieri': ('GSE50049', lambda name: 'Mixed_parental' in name),
     'mcmanus_gr': ('GSE52119', lambda name: 'S._cerevisiae' in name),
@@ -184,7 +183,9 @@ experiments = {
     'zinshteyn_plos_genetics': ('GSE45366', lambda name: 'WT' in name),
     'lareau_elife': ('GSE58321', lambda name: True),
     'baudin-baillieu_cell_reports': ('GSE41590', lambda name: True),
-    'gerashchenko_nar': ('GSE59573', lambda name: 'unstressed' in name),
+    'gerashchenko_nar': ('GSE59573', lambda name: 'oxidative' in name),
+    'pop_msb': ('GSE63789', lambda name: True),
+    'gardin_elife': ('GSE51164', lambda name: True),
     # UTR boundary identification
     'arribere_gr': ('GSE39074', lambda name: 'S288C' in name and '_TLSeq' in name),
     'pelechano_nature': ('GSE39128', lambda name: name.startswith('nypd')),
@@ -215,6 +216,11 @@ non_GSE_experiments = {
                  ],
     'artieri_gr_2': [('non_multiplexed', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByStudy/sra/SRP/SRP033/SRP033885']),
                     ],
+    'gardin_elife': [('Sc-His_mRNA-seq', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByExp/sra/SRX/SRX645/SRX645892']),
+                     ('Sc-His_Footprint-seq', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByExp/sra/SRX/SRX645/SRX645893']),
+                     ('Sc-Lys_mRNA-seq', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByExp/sra/SRX/SRX645/SRX645894']),
+                     ('Sc-Lys_Footprint-seq', ['ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByExp/sra/SRX/SRX645/SRX645895']),
+                    ],
 }
 
 if __name__ == '__main__':
@@ -226,15 +232,18 @@ if __name__ == '__main__':
     args = parser.parse_args()
     paper_dir = '{0}/{1}'.format(args.papers_dir.rstrip('/'), args.paper_name)
 
+    samples = []
     if args.paper_name in experiments:
         accession, condition = experiments[args.paper_name]
         xml_fn = get_xml(paper_dir, accession)
-        samples = extract_samples_from_xml(xml_fn, condition=condition)
+        samples.extend(extract_samples_from_xml(xml_fn, condition=condition))
         os.remove(xml_fn)
-    elif args.paper_name in non_GSE_experiments:
-        samples = non_GSE_experiments[args.paper_name]
+    if args.paper_name in non_GSE_experiments:
+        samples.extend(non_GSE_experiments[args.paper_name])
+    if not samples:
+        raise ValueError('No samples found for {0}'.format(args.paper_name))
 
-    for sample in samples:
+    for sample in sorted(samples):
         print sample[0]
 
     if not args.list:

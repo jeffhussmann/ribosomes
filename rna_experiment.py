@@ -1,11 +1,14 @@
 import glob
+import numpy as np
 from Sequencing.Parallel import map_reduce, split_file, piece_of_list
 from Serialize import read_positions
 from Sequencing import fastq
 from itertools import chain
 import gtf
+import gff
 import os
 from collections import defaultdict
+import logging
 
 class RNAExperiment(map_reduce.MapReduceExperiment):
     specific_results_files = [ 
@@ -14,12 +17,12 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         ('accepted_hits', 'bam', 'tophat/accepted_hits.bam'),
         ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
-        ('from_starts_and_ends', read_positions, '{name}_from_starts_and_ends.hdf5'),
+        ('metagene_positions', read_positions, '{name}_metagene_positions.hdf5'),
     ]
 
     specific_figure_files = [
         ('starts_and_ends', '{name}_starts_and_ends.pdf'),
-        ('starts_and_ends_zoomed_out', '{name}_starts_and_ends_zoomed_out.pdf'),
+        ('three_prime_starts_and_ends', '{name}_three_prime_starts_and_ends.pdf'),
     ]
     
     specific_outputs = []
@@ -34,27 +37,43 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         self.organism_dir = kwargs['organism_dir'].rstrip('/')
         self.transcripts_file_name = kwargs.get('transcripts_file_name', None)
         
+        # As part of the process of determining gene annotation boundaries,
+        # experiments need to be run on placeholder gene models.
+        # This is controlled by setting bootstrap to a file name suffix.
+        self.bootstrap = kwargs.get('bootstrap', '')
+        
         self.organism_files = [
             ('bowtie2_index_prefix', 'genome/genome'),
             ('genome', 'genome'),
-            ('genes', 'transcriptome/genes.gtf'),
-            ('transcriptome_index', 'transcriptome/bowtie2_index/genes'),
+            ('genes', 'transcriptome/genes{0}.gff'.format(self.bootstrap)),
+            ('transcriptome_index', 'transcriptome/bowtie2_index/genes{0}'.format(self.bootstrap)),
             ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
             ('oligos', 'contaminant/subtraction_oligos.fasta'),
             ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
         ]
-        
+
         self.data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
         
         for key, tail in self.organism_files:
             self.file_names[key] = '{0}/{1}'.format(self.organism_dir, tail)
-
+        
+        self.min_length = 12
+        self.max_read_length = kwargs.get('max_read_length', None)
+        if self.max_read_length == None:
+            self.max_read_length = self.get_max_read_length()
+        else:
+            self.max_read_length = int(self.max_read_length)
+        
     def get_max_read_length(self):
         def length_from_file_name(file_name):
             length = len(fastq.reads(file_name).next().seq)
             return length
         
-        max_length = max(length_from_file_name(fn) for fn in self.data_fns)
+        if self.data_fns:
+            max_length = max(length_from_file_name(fn) for fn in self.data_fns)
+        else:
+            max_length = 0
+
         return max_length
 
     def load_read_positions(self, modifier=None):
@@ -74,20 +93,32 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         return getattr(self, attribute_name)
 
     def get_reads(self):
-        ''' Returns a generator over the reads in a piece of each data file.
+        ''' A generator over the reads in a piece of each data file.
             Can handle a mixture of different fastq encodings across (but not
             within) files.
         '''
-        file_pieces = [split_file.piece(file_name,
-                                        self.num_pieces,
-                                        self.which_piece,
-                                        'fastq',
-                                       )
-                       for file_name in self.data_fns]
-        read_pieces = [fastq.reads(piece, standardize_names=True, ensure_sanger_encoding=True)
-                       for piece in file_pieces]
-        reads = chain.from_iterable(read_pieces)
-        return reads
+        total_reads = 0
+        for file_name in self.data_fns:
+            total_reads_from_file = 0
+            file_piece = split_file.piece(file_name,
+                                          self.num_pieces,
+                                          self.which_piece,
+                                          'fastq',
+                                         )
+            for read in fastq.reads(file_piece, standardize_names=True, ensure_sanger_encoding=True):
+                yield read
+                
+                total_reads += 1
+                total_reads_from_file += 1
+                if total_reads % 10000 == 0:
+                    logging.info('{0:,} reads processed'.format(total_reads))
+
+            head, tail = os.path.split(file_name)
+            self.summary.append(('Reads in {0}'.format(tail), total_reads_from_file))
+
+        logging.info('{0:,} total reads processed'.format(total_reads))
+        
+        self.summary.append(('Total reads', total_reads))
     
     def get_read_pairs(self):
         data_fns = glob.glob(self.data_dir + '/*.fastq') + glob.glob(self.data_dir + '/*.fq')
@@ -117,37 +148,41 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
 
         return all_read_pairs
 
-    def preprocess(self):
-        ''' Needs to exist to make files to feed to mapping programs. Would be
-            better off as named pipes.
-        '''
-        reads = self.get_reads()
-        total_reads = 0
-
-        with open(self.file_names['preprocessed_reads'], 'w') as preprocessed_file:
-            for read in reads:
-                total_reads += 1
-                record = fastq.make_record(*read)
-                preprocessed_file.write(record)
-
-        self.log.extend(
-            [('Total reads', total_reads),
-            ],
-        )
+    def trim_reads(self, reads):
+        trimmed_lengths = np.zeros(self.max_read_length + 1, int)
+        too_short_lengths = np.zeros(self.max_read_length + 1, int)
     
-    def get_CDSs(self):
+        for trimmed_read in self.trim_function(reads):
+            length = len(trimmed_read.seq)
+            if length < self.min_length:
+                too_short_lengths[length] += 1
+            else:
+                trimmed_lengths[length] += 1
+                yield trimmed_read
+
+        self.write_file('trimmed_lengths', trimmed_lengths)
+        self.write_file('too_short_lengths', too_short_lengths)
+
+    def get_CDSs(self, force_all=False):
+        all_CDSs = gff.get_CDSs(self.file_names['genes'],
+                                self.file_names['genome'],
+                               )
+
         if self.transcripts_file_name == None:
-            CDSs = gtf.get_CDSs(self.file_names['genes'])
+            CDSs = all_CDSs
         else:
-            all_CDSs = gtf.get_CDSs(self.file_names['genes'])
             transcripts = {line.strip() for line in open(self.transcripts_file_name)}
             CDSs = [t for t in all_CDSs if t.name in transcripts]
         
         max_gene_length = 0
         for CDS in CDSs:
             CDS.build_coordinate_maps()
-            max_gene_length = max(max_gene_length, CDS.CDS_length)
+            max_gene_length = max(max_gene_length, CDS.transcript_length)
             CDS.delete_coordinate_maps()
         
-        piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
+        if force_all:
+            piece_CDSs = CDSs
+        else:
+            piece_CDSs = piece_of_list(CDSs, self.num_pieces, self.which_piece)
+
         return piece_CDSs, max_gene_length
