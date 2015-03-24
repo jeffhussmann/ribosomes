@@ -221,6 +221,7 @@ if __name__ == '__main__':
     parser.add_argument('paper_name')
     parser.add_argument('papers_dir', help='base directory')
     parser.add_argument('--list', help='only list samples, don\'t download', action='store_true')
+    parser.add_argument('--gzip', help='gzip fastqs', action='store_true')
     args = parser.parse_args()
     paper_dir = '{0}/{1}'.format(args.papers_dir, args.paper_name)
 
@@ -236,4 +237,4 @@ if __name__ == '__main__':
 
     if not args.list:
         sra_fns = download_samples(paper_dir, samples)
-        dump_fastqs(sra_fns, gzip=False)
+        dump_fastqs(sra_fns, gzip=args.gzip)
