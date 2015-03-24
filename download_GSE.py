@@ -104,7 +104,7 @@ def get_run_info(run, paper_dir, verbose=False):
     os.remove(xml_fn)
     return info
 
-def download_samples(paper_dir, samples):
+def download_samples(paper_dir, samples, condition=lambda x: True):
     '''Downloads samples using ascp.
 
     Requires the environment variable ASCP_KEY to be set to a path to the key.
@@ -127,8 +127,9 @@ def download_samples(paper_dir, samples):
             for line in ls:
                 run = line.split()[-1]
                 sra_id, _ = os.path.splitext(run)
-                info = get_run_info(run, paper_dir)
-                print run, info
+                info = get_run_info(run, paper_dir, verbose=True)
+                if not condition(info):
+                    continue
                 run_url = '{0}/{1}/{1}.sra'.format(sample_URL, sra_id)
                 parsed_run_url = urlparse.urlparse(run_url)
                 ascp_command = ['ascp',
