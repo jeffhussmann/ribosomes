@@ -224,12 +224,13 @@ if __name__ == '__main__':
     parser.add_argument('--list', help='only list samples, don\'t download', action='store_true')
     parser.add_argument('--gzip', help='gzip fastqs', action='store_true')
     args = parser.parse_args()
-    paper_dir = '{0}/{1}'.format(args.papers_dir, args.paper_name)
+    paper_dir = '{0}/{1}'.format(args.papers_dir.rstrip('/'), args.paper_name)
 
     if args.paper_name in experiments:
         accession, condition = experiments[args.paper_name]
         xml_fn = get_xml(paper_dir, accession)
         samples = extract_samples_from_xml(xml_fn, condition=condition)
+        os.remove(xml_fn)
     elif args.paper_name in non_GSE_experiments:
         samples = non_GSE_experiments[args.paper_name]
 
