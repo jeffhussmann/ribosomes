@@ -71,7 +71,7 @@ def extract_samples_from_xml(xml_fn, condition=lambda x: True):
                 samples.append((sample_name, sample_URLs))
     return samples
 
-def get_run_info(run, paper_dir):
+def get_run_info(run, paper_dir, verbose=False):
     url = 'http://www.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?retmode=xml&run={}'.format(run)
     xml_fn = '{0}/{1}.xml'.format(paper_dir, run)
 
@@ -82,6 +82,7 @@ def get_run_info(run, paper_dir):
     root = tree.getroot()
 
     info = {}
+    info['run'] = run
     info['size'] = int(root.find('RUN').attrib['size'])
 
     layout = root.find('EXPERIMENT').find('DESIGN').find('LIBRARY_DESCRIPTOR').find('LIBRARY_LAYOUT')
@@ -93,6 +94,13 @@ def get_run_info(run, paper_dir):
     else:
         info['layout'] = 'unknown'
     
+    if verbose:
+        print 'Run info for {0}:'.format(run)
+        print '\tlayout = {0}'.format(info['layout'])
+        if 'nominal_length' in info:
+            print '\tnominal length = {0:,}'.format(info['nominal_length'])
+        print '\tsize = {0:,}'.format(info['size'])
+
     os.remove(xml_fn)
     return info
 
