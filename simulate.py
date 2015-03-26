@@ -222,22 +222,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
     def load_TEs(self):
         if self.RPF_experiment and self.mRNA_experiment:
-            def experiment_to_RPKMs(experiment):
-                read_counts = experiment.read_file('read_counts')
-                counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
-                total = sum(counts.values())
-                RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
-                return RPKMs
-
-            transcripts, _ = self.RPF_experiment.get_CDSs()
-            CDS_lengths = {t.name: t.CDS_length for t in transcripts}
-
-            RPF_rpkms = experiment_to_RPKMs(self.RPF_experiment)
-            mRNA_rpkms = experiment_to_RPKMs(self.mRNA_experiment)
-                  
-            TEs = {}
-            for gene_name in RPF_rpkms:
-                TEs[gene_name] = RPF_rpkms[gene_name] / mRNA_rpkms[gene_name]
+            TEs = pausing.load_TEs(self.RPF_experiment, self.mRNA_experiment)
         else:
             TEs = defaultdict(lambda: 1)
 
@@ -308,7 +293,6 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         return codon_means
     
     def distribute_analytically(self):
-
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
         all_gene_names = sorted(buffered_codon_counts)
