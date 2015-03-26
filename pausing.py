@@ -103,7 +103,7 @@ def metacodon_around_pauses(codon_counts,
                             not_allowed_at_offset,
                             gene_names,
                             keep_count_context=False,
-                            TE_info=defaultdict(int),
+                            TEs=defaultdict(int),
                             count_type='relaxed',
                            ):
     old_settings = np.seterr(all='raise')
@@ -114,7 +114,7 @@ def metacodon_around_pauses(codon_counts,
     ratios_around_list = []
     #codons_around_list = []
     nucleotides_around_list = []
-    TE_info_list = []
+    TE_list = []
     
     num_before = 90
     num_after = 90
@@ -133,7 +133,7 @@ def metacodon_around_pauses(codon_counts,
         counts = codon_counts[gene_name][count_type][cds_slice]
         codons = codon_counts[gene_name]['identities'][cds_slice]
 
-        gene_TE_info = TE_info[gene_name]
+        gene_TE = TEs[gene_name]
 
         median = np.median(counts)
         mean = np.mean(counts)
@@ -167,11 +167,11 @@ def metacodon_around_pauses(codon_counts,
                 ratios_around_list.append(ratios_around)
                 #codons_around_list.append(codons_around)
                 nucleotides_around_list.append(nucleotides_around)
-                TE_info_list.append(gene_TE_info)
+                TE_list.append(gene_TE)
                     
     around_lists = {'counts': np.asarray(counts_around_list),
                     'ratios': np.asarray(ratios_around_list),
-                    'TE_info': np.asarray(TE_info_list),
+                    'TEs': np.asarray(TE_list),
                     #'codons': np.asarray(codons_around_list),
                     'nucleotides': np.asarray(nucleotides_around_list),
                     'num_before': num_before,
@@ -279,9 +279,8 @@ def split_into_bins(around_lists, quantize_at, num_quantiles):
 
 def split_into_TE_bins(around_lists, num_quantiles): 
     ratios_around = around_lists['ratios']
-    num_before = around_lists['num_before']
 
-    TEs = around_lists['TE_info']
+    TEs = around_lists['TEs']
 
     quantiles = scipy.stats.mstats.mquantiles(TEs,
                                               prob=np.linspace(0, 1, num_quantiles + 1),
@@ -1017,3 +1016,130 @@ def plot_codon_enrichments_all_amino_acids(relevant_experiments, figure_file_nam
                                         )
             pdf.savefig(figure=fig, bbox_inches='tight')
             plt.close(fig)
+
+def load_TEs(RPF_experiment, mRNA_experiment):
+    def experiment_to_RPKMs(experiment):
+        read_counts = experiment.read_file('read_counts')
+        counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
+        total = sum(counts.values())
+        RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
+        return RPKMs
+
+    transcripts, _ = RPF_experiment.get_CDSs()
+    CDS_lengths = {t.name: t.CDS_length for t in transcripts}
+
+    RPF_rpkms = experiment_to_RPKMs(RPF_experiment)
+    mRNA_rpkms = experiment_to_RPKMs(mRNA_experiment)
+          
+    TEs = {gene_name: RPF_rpkms[gene_name] / mRNA_rpkms[gene_name] for gene_name in RPF_rpkms}
+    return TEs
+
+def compute_binned_means(around_lists, quantize_at, num_bins):
+    num_before = around_lists['num_before']
+    
+    if quantize_at == 'TE':
+        bins, binned, quantiles = split_into_TE_bins(around_lists, num_bins)
+    else:
+        bins, binned, quantiles = split_into_bins(around_lists, quantize_at, num_bins)
+    
+    offsets = np.arange(-40, 41)
+
+    all_binned_means = np.asarray([np.mean(b, axis=0) for b in binned])
+    binned_means = {offset: all_binned_means[:, num_before + offset] for offset in offsets}
+    
+    if quantize_at == 'TE':
+        binned_means['TE'] = [np.mean(around_lists['TEs'][bins[i]]) for i in np.arange(num_bins)]
+        
+    return binned_means, quantiles
+
+def plot_offset_relationships(around_lists,
+                              quantize_at,
+                              num_bins,
+                              offsets_to_highlight=[0, -10, -20, -30, -40, 10],
+                             ):
+    fig, ax = plt.subplots(figsize=(16, 12))
+    
+    binned_means, quantiles = compute_binned_means(around_lists, quantize_at, num_bins)
+    
+    if quantize_at == 'TE':
+        xs = binned_means['TE']
+    else:
+        xs = binned_means[quantize_at]
+
+    for offset in offsets_to_highlight:
+        ax.plot(xs, binned_means[offset], 'o-', label='{0:+}'.format(offset))
+        
+    for offset in binned_means:
+        if offset in offsets_to_highlight or offset == 'TE':
+            continue
+            
+        ax.plot(xs, binned_means[offset], '.-', color='black', alpha=0.1)
+        
+    for q in quantiles[1:-1]:
+        ax.axvline(q, color='black', alpha=0.2)
+
+    ax.set_xscale('log', basex=2)
+    ax.set_yscale('log', basey=2)
+
+    if quantize_at == 'TE':
+        ax.set_xlabel('(arbitrary scaling of) average ribosome density per message') 
+    else:
+        ax.set_xlabel('Average enrichment in bin at His')
+        
+    ax.set_ylabel('Average enrichment in bin at offset')
+    ax.legend(loc='upper right', framealpha=0.5)
+    
+def scatter_offset_relationships(around_lists,
+                                 x_offset,
+                                 y_offset,
+                                 num_bins,
+                                 log_scales=True,
+                                 aspect_equal=True,
+                                ):
+    fig, ax = plt.subplots(figsize=(14, 14))
+    
+    binned_means, quantiles = compute_binned_means(around_lists, x_offset, num_bins)
+    num_before = around_lists['num_before']
+    ratios = {offset: around_lists['ratios'][:, num_before + offset] for offset in binned_means if offset != 'TE'}
+    if x_offset == 'TE':
+        ratios['TE'] = around_lists['TEs']
+        
+    smallest_nonzeros = {offset: min(r for r in rs if r > 0) for offset, rs in ratios.items()}
+    
+    def sanitize(offset):
+        values = np.maximum(smallest_nonzeros[offset], ratios[offset])
+        if log_scales:
+            values = np.log2(values)
+        return values
+        
+    sanitized = {offset: sanitize(offset) for offset in smallest_nonzeros}
+    
+    Sequencing.Visualize.enhanced_scatter(sanitized[x_offset],
+                                          sanitized[y_offset],
+                                          ax,
+                                          do_fit=False,
+                                          hists_height=0.2,
+                                         )
+
+    if x_offset == 'TE':
+        ax.set_xlabel('(arbitrary scaling of) average ribosome density per message')
+    else:
+        ax.set_xlabel('log2(enrichment at {0})'.format(x_offset))
+    
+    ax.set_ylabel('log2(enrichment at {0})'.format(y_offset))
+    
+    x_means = binned_means[x_offset]
+    y_means = binned_means[y_offset]
+    if log_scales:
+        x_means = np.log2(x_means)
+        y_means = np.log2(y_means)
+    
+    if aspect_equal:
+        ax.set_aspect(1.)
+    
+    ax.plot(x_means, y_means, 'o-', label='0', color='black')
+
+    for q in quantiles[1:-1]:
+        if log_scales:
+            q = np.log2(q)
+        ax.axvline(q, color='black', alpha=0.2)
