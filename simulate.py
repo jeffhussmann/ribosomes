@@ -90,8 +90,8 @@ class Message(object):
         if self.CHX_mean != 0:
             self.introduce_CHX(self.current_time)
 
-        while event != 'empty':
-            event = self.process_next_event()
+            while event != 'empty':
+                event = self.process_next_event()
 
         return event
 
