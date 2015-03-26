@@ -330,17 +330,27 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     def compute_stratified_mean_enrichments(self):
         allowed_at_pause = set(codons.non_stop_codons)
         not_allowed_at_stall = {}
+        
+        num_before = 90
+        num_after = 90
 
         codon_counts = self.read_file('simulated_codon_counts',
                                       specific_keys={'relaxed', 'identities'},
                                      )
-        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts}, min_mean=0)
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
+                                                                   min_mean=0.1,
+                                                                   num_before=num_before,
+                                                                   num_after=num_after,
+                                                                  )
 
         around_lists = pausing.metacodon_around_pauses(codon_counts,
                                                        allowed_at_pause,
                                                        not_allowed_at_stall,
                                                        gene_names,
+                                                       num_before=num_before,
+                                                       num_after=num_after,
                                                       )
+
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
     
