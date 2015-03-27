@@ -6,5 +6,6 @@
 *_cython.c
 *.pkl
 all*.sh
+everything.sh
 scratch.py
 build/
