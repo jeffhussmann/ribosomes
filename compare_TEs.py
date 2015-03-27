@@ -58,7 +58,6 @@ for group in d:
             experiment = experiments[group][sample]
             counts[group][condition][kind] = experiment_to_read_counts(experiment)
 
-
 def make_counts_array_file():
     fn = 'all_counts.txt'
     read_counts = {}

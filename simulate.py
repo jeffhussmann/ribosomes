@@ -90,8 +90,8 @@ class Message(object):
         if self.CHX_mean != 0:
             self.introduce_CHX(self.current_time)
 
-        while event != 'empty':
-            event = self.process_next_event()
+            while event != 'empty':
+                event = self.process_next_event()
 
         return event
 
@@ -222,22 +222,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
     def load_TEs(self):
         if self.RPF_experiment and self.mRNA_experiment:
-            def experiment_to_RPKMs(experiment):
-                read_counts = experiment.read_file('read_counts')
-                counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
-                total = sum(counts.values())
-                RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
-                return RPKMs
-
-            transcripts, _ = self.RPF_experiment.get_CDSs()
-            CDS_lengths = {t.name: t.CDS_length for t in transcripts}
-
-            RPF_rpkms = experiment_to_RPKMs(self.RPF_experiment)
-            mRNA_rpkms = experiment_to_RPKMs(self.mRNA_experiment)
-                  
-            TEs = {}
-            for gene_name in RPF_rpkms:
-                TEs[gene_name] = RPF_rpkms[gene_name] / mRNA_rpkms[gene_name]
+            TEs = pausing.load_TEs(self.RPF_experiment, self.mRNA_experiment)
         else:
             TEs = defaultdict(lambda: 1)
 
@@ -345,17 +330,27 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     def compute_stratified_mean_enrichments(self):
         allowed_at_pause = set(codons.non_stop_codons)
         not_allowed_at_stall = {}
+        
+        num_before = 90
+        num_after = 90
 
         codon_counts = self.read_file('simulated_codon_counts',
                                       specific_keys={'relaxed', 'identities'},
                                      )
-        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts}, min_mean=0)
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
+                                                                   min_mean=0.1,
+                                                                   num_before=num_before,
+                                                                   num_after=num_after,
+                                                                  )
 
         around_lists = pausing.metacodon_around_pauses(codon_counts,
                                                        allowed_at_pause,
                                                        not_allowed_at_stall,
                                                        gene_names,
+                                                       num_before=num_before,
+                                                       num_after=num_after,
                                                       )
+
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
     

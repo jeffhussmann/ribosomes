@@ -70,7 +70,7 @@ def extract_samples_from_xml(xml_fn, condition=lambda x: True):
                 samples.append((sample_name, sample_URLs))
     return samples
 
-def get_run_info(run, paper_dir):
+def get_run_info(run, paper_dir, verbose=False):
     url = 'http://www.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?retmode=xml&run={}'.format(run)
     xml_fn = '{0}/{1}.xml'.format(paper_dir, run)
 
@@ -81,6 +81,7 @@ def get_run_info(run, paper_dir):
     root = tree.getroot()
 
     info = {}
+    info['run'] = run
     info['size'] = int(root.find('RUN').attrib['size'])
 
     layout = root.find('EXPERIMENT').find('DESIGN').find('LIBRARY_DESCRIPTOR').find('LIBRARY_LAYOUT')
@@ -92,10 +93,17 @@ def get_run_info(run, paper_dir):
     else:
         info['layout'] = 'unknown'
     
+    if verbose:
+        print 'Run info for {0}:'.format(run)
+        print '\tlayout = {0}'.format(info['layout'])
+        if 'nominal_length' in info:
+            print '\tnominal length = {0:,}'.format(info['nominal_length'])
+        print '\tsize = {0:,}'.format(info['size'])
+
     os.remove(xml_fn)
     return info
 
-def download_samples(paper_dir, samples):
+def download_samples(paper_dir, samples, condition=lambda x: True):
     '''Downloads samples using ascp.
 
     Requires the environment variable ASCP_KEY to be set to a path to the key.
@@ -118,8 +126,9 @@ def download_samples(paper_dir, samples):
             for line in ls:
                 run = line.split()[-1]
                 sra_id, _ = os.path.splitext(run)
-                info = get_run_info(run, paper_dir)
-                print run, info
+                info = get_run_info(run, paper_dir, verbose=True)
+                if not condition(info):
+                    continue
                 run_url = '{0}/{1}/{1}.sra'.format(sample_URL, sra_id)
                 parsed_run_url = urlparse.urlparse(run_url)
                 ascp_command = ['ascp',
@@ -148,10 +157,10 @@ def dump_fastqs(sra_fns, gzip=False):
             # Split into two files and include read number (out of pair) in the
             # seq name line.
             fastq_dump_command.extend(['--split-3',
-                                       '--defline-seq', '@$ac.$si.$ri',
+                                       '--defline-seq', '@$sn.$ri',
                                       ])
         elif layout == 'single':
-            fastq_dump_command.extend(['--defline-seq', '@$ac.$si'])
+            fastq_dump_command.extend(['--defline-seq', '@$sn'])
         else:
             raise ValueError('layout not known')
 
@@ -219,14 +228,16 @@ if __name__ == '__main__':
     parser.add_argument('paper_name')
     parser.add_argument('papers_dir', help='base directory')
     parser.add_argument('--list', help='only list samples, don\'t download', action='store_true')
+    parser.add_argument('--gzip', help='gzip fastqs', action='store_true')
     args = parser.parse_args()
-    paper_dir = '{0}/{1}'.format(args.papers_dir, args.paper_name)
+    paper_dir = '{0}/{1}'.format(args.papers_dir.rstrip('/'), args.paper_name)
 
     samples = []
     if args.paper_name in experiments:
         accession, condition = experiments[args.paper_name]
         xml_fn = get_xml(paper_dir, accession)
         samples.extend(extract_samples_from_xml(xml_fn, condition=condition))
+        os.remove(xml_fn)
     if args.paper_name in non_GSE_experiments:
         samples.extend(non_GSE_experiments[args.paper_name])
     if not samples:
@@ -237,4 +248,4 @@ if __name__ == '__main__':
 
     if not args.list:
         sra_fns = download_samples(paper_dir, samples)
-        dump_fastqs(sra_fns, gzip=False)
+        dump_fastqs(sra_fns, gzip=args.gzip)
