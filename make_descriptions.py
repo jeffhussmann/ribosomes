@@ -108,20 +108,19 @@ def make_noCHX_simulation_descriptions(num_pieces=12):
                                                       CHX_mean=0,
                                                       home=os.environ['HOME'],
                                                      )
-                contents += TE_lines
+                contents += TE_lines.format(home=os.environ['HOME'])
                 description_fh.write(contents)
             
             bash_fh.write('echo {name}\n'.format(name=name))
             bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
-def make_CHX_simulation_descriptions(num_pieces=12):
+def make_CHX_simulation_descriptions(initiation_mean_numerator, variable_TEs, num_pieces=12):
     CHX_means = np.array([0, 10, 50, 100, 200])
-    max_str_len = max(len(str(m)) for m in CHX_means)
 
     bash_fn = '{home}/projects/ribosomes/code/all_CHX_simulation.sh'.format(home=os.environ['HOME'])
     with open(bash_fn, 'w') as bash_fh:
         for CHX_mean in CHX_means:
-            name = 'CHX_{0:0>{max_str_len}d}'.format(CHX_mean, max_str_len=max_str_len)
+            name = 'CHX_{0:0>3d}_{1:0>3d}_{2}'.format(CHX_mean, initiation_mean_numerator, 'variable' if variable_TEs else 'fixed')
             
             job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
             if not os.path.isdir(job_dir):
@@ -130,12 +129,13 @@ def make_CHX_simulation_descriptions(num_pieces=12):
             description_fn = '{0}/description.txt'.format(job_dir)
             with open(description_fn, 'w') as description_fh:
                 contents = simulation_template.format(name=name,
-                                                      initiation_mean_numerator=150,
+                                                      initiation_mean_numerator=initiation_mean_numerator,
                                                       CHX_mean=CHX_mean,
                                                       method='mechanistic',
                                                       home=os.environ['HOME'],
                                                      )
-                contents += TE_lines
+                if variable_TEs:
+                    contents += TE_lines.format(home=os.environ['HOME'])
                 description_fh.write(contents)
 
             bash_fh.write('echo {name}\n'.format(name=name))
@@ -155,6 +155,7 @@ if __name__ == '__main__':
     fns.append(make_descriptions('belgium_2014_08_07', 'linker', stephanie_markers=True, **kwargs))
     fns.append(make_descriptions('belgium_2014_10_27', 'linker_local', stephanie_markers=True, **kwargs))
     fns.append(make_descriptions('belgium_2014_12_10', 'linker_local', codons_to_examine=arlen_locii, stephanie_markers=True, **kwargs))
+    fns.append(make_descriptions('belgium_2015_03_16', 'linker_local', codons_to_examine=arlen_locii, stephanie_markers=True, **kwargs))
     fns.append(make_descriptions('dunn_elife', 'linker_local', **kwargs))
     fns.append(make_descriptions('gerashchenko_pnas', 'polyA', max_read_length=44, **kwargs))
     fns.append(make_descriptions('gerashchenko_nar', 'nothing', max_read_length=50, **kwargs))

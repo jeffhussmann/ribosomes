@@ -51,7 +51,7 @@ def build_all_simulation_experiments(verbose=False):
     experiment_from_file_name = simulate.SimulationExperiment.from_description_file_name
     
     experiments = {}
-    prefix = '/home/jah/projects/ribosomes/experiments/simulation/'
+    prefix = '{0}/projects/ribosomes/experiments/simulation/'.format(os.environ['HOME'])
     dirs = [path for path in glob.glob('{}*'.format(prefix)) if os.path.isdir(path)]
     for d in sorted(dirs):
         _, name = os.path.split(d)
