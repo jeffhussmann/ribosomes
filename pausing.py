@@ -863,9 +863,8 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
     ax.set_ylabel(r'Spearman $\rho$', color='blue', size=16)
 
     p_ax = ax.twinx()
-    p_ax.plot(xs, np.maximum(1e-14, ps), 'o-', color='red', alpha=0.5, label='p value')
     p_ax.plot(xs, ps, 'o-', color='red', alpha=0.5, label='p value')
-    p_ax.set_ylim(1e-8, 1)
+    p_ax.set_ylim(1e-10, 1)
     p_ax.set_yscale('log')
     p_ax.set_ylabel('p value', color='red', size=16)
 
