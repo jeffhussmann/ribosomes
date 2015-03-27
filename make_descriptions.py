@@ -138,7 +138,11 @@ def make_CHX_simulation_descriptions(num_pieces=12):
             bash_fh.write('echo {name}\n'.format(name=name))
             bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
-arlen_locii = [('YLR075W', 98), ('YHR170W', 379)]
+arlen_locii = [('YLR075W', 98),
+               ('YLR075W', 104),
+               ('YLR075W', 106),
+               ('YHR170W', 379),
+              ]
 
 if __name__ == '__main__':
     kwargs = {}
