@@ -308,7 +308,6 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         return codon_means
     
     def distribute_analytically(self):
-
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
         all_gene_names = sorted(buffered_codon_counts)
