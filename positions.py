@@ -31,7 +31,7 @@ class PositionCounts(object):
         self.landmark_to_index = {name: left_buffer + (landmarks[name] - leftmost_value)
                                   for name in landmarks}
        
-        if data == None:
+        if data is None:
             self.data = np.zeros(length, dtype)
         else:
             if len(data) != length:
