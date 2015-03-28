@@ -610,7 +610,11 @@ def plot_codon_effects(stratified_mean_enrichments, relevant_codons, fancy=True,
     to_label = [i for i, d in enumerate(xs - ys) if abs(d) > 2.5]
     label_scatter_plot(ax, xs, ys, labels, to_label)
     
-def label_scatter_plot(ax, xs, ys, labels, to_label, vector='orthogonal', initial_distance=50):
+def label_scatter_plot(ax, xs, ys, labels, to_label,
+                       vector='orthogonal',
+                       initial_distance=50,
+                       arrow_alpha=0.2,
+                      ):
     def attempt_text(x, y, site, distance):
         if vector == 'orthogonal':
             x_offset = np.sign(x - y) * distance
@@ -630,15 +634,16 @@ def label_scatter_plot(ax, xs, ys, labels, to_label, vector='orthogonal', initia
                            textcoords='offset points',
                            ha='center',
                            size=10,
-                           arrowprops={'arrowstyle': '->', 'alpha': 0.2},
+                           arrowprops={'arrowstyle': '->',
+                                       'alpha': arrow_alpha,
+                                      },
                           )
         ax.figure.canvas.draw()
         return text, text.get_window_extent()
 
     ax.figure.canvas.draw()
-    bboxes = [ax.xaxis.get_label().get_window_extent(),
-              ax.yaxis.get_label().get_window_extent(),
-             ]
+    starting_labels = [ax.xaxis.get_label(), ax.yaxis.get_label()] + ax.get_yticklabels() + ax.get_xticklabels()
+    bboxes = [label.get_window_extent() for label in starting_labels]
 
     tuples = itertools.izip(np.asarray(xs)[to_label],
                             np.asarray(ys)[to_label],
