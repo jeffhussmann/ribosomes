@@ -829,9 +829,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
 
-    def compute_stratified_mean_enrichments(self):
+    def compute_stratified_mean_enrichments(self, min_mean=1):
         relevant_at_pause = set(codons.non_stop_codons)
         not_allowed_at_offset = {}
+
+        num_before = 90
+        num_after = 90
 
         codon_counts = self.read_file('buffered_codon_counts',
                                       specific_keys={'relaxed',
@@ -840,7 +843,9 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                     },
                                      )
         gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
-                                                                   min_mean=0.1,
+                                                                   min_mean=min_mean,
+                                                                   num_before=num_before,
+                                                                   num_after=num_after,
                                                                   )
         print 'relaxed', len(gene_names)
 
@@ -848,13 +853,17 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                        relevant_at_pause,
                                                        not_allowed_at_offset,
                                                        gene_names,
+                                                       num_before=num_before,
+                                                       num_after=num_after,
                                                       )
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
         
         gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
-                                                                   min_mean=0.1,
+                                                                   min_mean=min_mean,
                                                                    count_type='anisomycin',
+                                                                   num_before=num_before,
+                                                                   num_after=num_after,
                                                                   )
         print 'anisomycin', len(gene_names)
 
@@ -863,6 +872,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                        not_allowed_at_offset,
                                                        gene_names,
                                                        count_type='anisomycin',
+                                                       num_before=num_before,
+                                                       num_after=num_after,
                                                       )
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments_anisomycin', stratified_mean_enrichments)

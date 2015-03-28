@@ -30,6 +30,8 @@ class Message(object):
 
         self.CHX_introduction_time = np.inf
         self.CHX_mean = CHX_mean
+
+        self.enforced_advance_mean = None
         
         self.initiate(0)
 
@@ -44,7 +46,8 @@ class Message(object):
         else:
             ribosome = Ribosome(self)
             self.leftmost_ribosome = ribosome
-            ribosome.register_next_advance_time(time)
+            ribosome.register_next_advance_time(time, self.enforced_advance_mean)
+
             if time > self.CHX_introduction_time:
                 ribosome.register_CHX_arrival_time(time)
 
@@ -62,18 +65,20 @@ class Message(object):
             self.current_event_number += 1
             self.current_time = time
             
-            if event == 'steady_state':
-                pass
-            elif event == 'initiate':
+            if event == 'initiate':
                 self.initiate(time)
             elif event == 'advance':
-                was_runoff = ribosome.advance(time)
+                was_runoff = ribosome.advance(time, self.enforced_advance_mean)
             
                 if was_runoff and self.first_runoff_event_number == None:
                     self.first_runoff_event_number = self.current_event_number
             elif event == 'CHX_arrival':
                 ribosome.arrested = True
                 ribosome.arrested_at = time
+            elif event == 'steady_state':
+                pass
+            elif event == 'harvest':
+                pass
 
             return event
 
@@ -87,19 +92,24 @@ class Message(object):
         while event != 'steady_state':
             event = self.process_next_event()
 
-        if self.CHX_mean != 0:
-            self.introduce_CHX(self.current_time)
-
-        while event != 'empty':
-            event = self.process_next_event()
-
-        return event
-
-    def introduce_CHX(self, introduction_time):
-        self.CHX_introduction_time = introduction_time
+    def introduce_CHX(self):
+        self.CHX_introduction_time = self.current_time
 
         for ribosome in self.ribosomes.values():
             ribosome.register_CHX_arrival_time(introduction_time)
+            
+        event = None
+        while event != 'empty':
+            event = self.process_next_event()
+
+    def evolve_strange_CHX_model(self):
+        self.enforced_advance_mean = 1
+        harvest_time = self.current_time + self.CHX_mean
+        heapq.heappush(self.events, (harvest_time, 'harvest', None))
+        
+        event = None
+        while event != 'harvest':
+            event = self.process_next_event()
 
     def collect_measurements(self):
         return Counter(r.position for r in self.ribosomes.itervalues())
@@ -139,14 +149,14 @@ class Ribosome(object):
                                                                                  )
         return description
 
-    def advance(self, time):
+    def advance(self, time, enforced_mean):
         was_runoff = False
 
         if self.arrested:
             pass
         elif self.position + 5 in self.message.left_edges:
             # Occluded from advancing
-            self.register_next_advance_time(time)
+            self.register_next_advance_time(time, enforced_mean)
         else:
             self.message.left_edges.remove(self.position - 5)
             
@@ -157,12 +167,16 @@ class Ribosome(object):
                 self.position += 1
                 self.message.left_edges.add(self.position - 5)
 
-                self.register_next_advance_time(time)
+                self.register_next_advance_time(time, enforced_mean)
             
         return was_runoff
 
-    def register_next_advance_time(self, time):
-        mean = self.message.codon_mean_sequence[self.position]
+    def register_next_advance_time(self, time, enforced_mean):
+        if enforced_mean is None:
+            mean = self.message.codon_mean_sequence[self.position]
+        else:
+            mean = enforced_mean
+
         next_advance_time = time + exponential(mean)
         heapq.heappush(self.message.events, (next_advance_time, 'advance', self))
 
@@ -218,26 +232,13 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         self.initiation_mean_numerator = int(kwargs['initiation_mean_numerator'])
         self.CHX_mean = int(kwargs['CHX_mean'])
 
+        self.strange_CHX_model = 'strange_CHX_model' in kwargs
+
         self.method = kwargs['method']
 
     def load_TEs(self):
         if self.RPF_experiment and self.mRNA_experiment:
-            def experiment_to_RPKMs(experiment):
-                read_counts = experiment.read_file('read_counts')
-                counts = {gene_name: read_counts[gene_name]['expression'][0] for gene_name in read_counts}
-                total = sum(counts.values())
-                RPKMs = {gene_name: max(0.1, (1.e9 / total) * counts[gene_name] / CDS_lengths[gene_name]) for gene_name in counts}
-                return RPKMs
-
-            transcripts, _ = self.RPF_experiment.get_CDSs()
-            CDS_lengths = {t.name: t.CDS_length for t in transcripts}
-
-            RPF_rpkms = experiment_to_RPKMs(self.RPF_experiment)
-            mRNA_rpkms = experiment_to_RPKMs(self.mRNA_experiment)
-                  
-            TEs = {}
-            for gene_name in RPF_rpkms:
-                TEs[gene_name] = RPF_rpkms[gene_name] / mRNA_rpkms[gene_name]
+            TEs = pausing.load_TEs(self.RPF_experiment, self.mRNA_experiment)
         else:
             TEs = defaultdict(lambda: 1)
 
@@ -278,9 +279,15 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
             all_measurements = Counter()
             num_messages = 0
-            while sum(all_measurements.values()) < total_real_counts:
+            while sum(all_measurements.values()) < total_real_counts * 0.01:
                 message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean)
                 message.evolve_to_steady_state()
+
+                if self.strange_CHX_model:
+                    message.evolve_strange_CHX_model()
+                else:
+                    message.introduce_CHX()
+
                 all_measurements.update(message.collect_measurements())
                 num_messages += 1
 
@@ -308,7 +315,6 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         return codon_means
     
     def distribute_analytically(self):
-
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
         all_gene_names = sorted(buffered_codon_counts)
@@ -346,17 +352,27 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     def compute_stratified_mean_enrichments(self):
         allowed_at_pause = set(codons.non_stop_codons)
         not_allowed_at_stall = {}
+        
+        num_before = 90
+        num_after = 90
 
         codon_counts = self.read_file('simulated_codon_counts',
                                       specific_keys={'relaxed', 'identities'},
                                      )
-        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts}, min_mean=0)
+        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
+                                                                   min_mean=0.1,
+                                                                   num_before=num_before,
+                                                                   num_after=num_after,
+                                                                  )
 
         around_lists = pausing.metacodon_around_pauses(codon_counts,
                                                        allowed_at_pause,
                                                        not_allowed_at_stall,
                                                        gene_names,
+                                                       num_before=num_before,
+                                                       num_after=num_after,
                                                       )
+
         stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
     
