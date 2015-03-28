@@ -114,32 +114,37 @@ def make_noCHX_simulation_descriptions(num_pieces=12):
             bash_fh.write('echo {name}\n'.format(name=name))
             bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
-def make_CHX_simulation_descriptions(initiation_mean_numerator, variable_TEs, num_pieces=12):
+def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
     CHX_means = np.array([0, 10, 50, 100, 200])
+    initiation_rate_numerators = np.array([20, 50, 100, 200])
 
     bash_fn = '{home}/projects/ribosomes/code/all_CHX_simulation.sh'.format(home=os.environ['HOME'])
     with open(bash_fn, 'w') as bash_fh:
         for CHX_mean in CHX_means:
-            name = 'CHX_{0:0>3d}_{1:0>3d}_{2}'.format(CHX_mean, initiation_mean_numerator, 'variable' if variable_TEs else 'fixed')
-            
-            job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
-            if not os.path.isdir(job_dir):
-                os.makedirs(job_dir)
+            for initiation_mean_numerator in initiation_rate_numerators:
+                name = 'CHX_{0:0>3d}_{1:0>3d}_{2}'.format(CHX_mean,
+                                                          initiation_mean_numerator,
+                                                          'variable' if variable_TEs else 'fixed',
+                                                         )
                 
-            description_fn = '{0}/description.txt'.format(job_dir)
-            with open(description_fn, 'w') as description_fh:
-                contents = simulation_template.format(name=name,
-                                                      initiation_mean_numerator=initiation_mean_numerator,
-                                                      CHX_mean=CHX_mean,
-                                                      method='mechanistic',
-                                                      home=os.environ['HOME'],
-                                                     )
-                if variable_TEs:
-                    contents += TE_lines.format(home=os.environ['HOME'])
-                description_fh.write(contents)
+                job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
+                if not os.path.isdir(job_dir):
+                    os.makedirs(job_dir)
+                    
+                description_fn = '{0}/description.txt'.format(job_dir)
+                with open(description_fn, 'w') as description_fh:
+                    contents = simulation_template.format(name=name,
+                                                          initiation_mean_numerator=initiation_mean_numerator,
+                                                          CHX_mean=CHX_mean,
+                                                          method='mechanistic',
+                                                          home=os.environ['HOME'],
+                                                         )
+                    if variable_TEs:
+                        contents += TE_lines.format(home=os.environ['HOME'])
+                    description_fh.write(contents)
 
-            bash_fh.write('echo {name}\n'.format(name=name))
-            bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
+                bash_fh.write('echo {name}\n'.format(name=name))
+                bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
 arlen_locii = [('YLR075W', 98),
                ('YLR075W', 104),
