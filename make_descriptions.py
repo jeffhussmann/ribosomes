@@ -87,6 +87,10 @@ RPF_description_fn {home}/projects/ribosomes/experiments/guydosh_cell/dom34KO_CH
 mRNA_description_fn {home}/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
 '''
 
+strange_CHX_model_lines = '''\
+strange_CHX_model True
+'''
+
 def make_noCHX_simulation_descriptions(num_pieces=12):
     initiation_rate_numerators = np.array([0, 1, 5, 10, 20, 30, 50]) * 15
     methods = ['mechanistic'] * len(initiation_rate_numerators)
@@ -145,6 +149,37 @@ def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
 
                 bash_fh.write('echo {name}\n'.format(name=name))
                 bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
+
+def make_strange_CHX_model_descriptions(num_pieces=12):
+    CHX_means = np.array([20])
+    initiation_rate_numerators = np.array([100])
+
+    bash_fn = '{home}/projects/ribosomes/code/all_strange_CHX_model_simulation.sh'.format(home=os.environ['HOME'])
+    with open(bash_fn, 'w') as bash_fh:
+        for CHX_mean in CHX_means:
+            for initiation_mean_numerator in initiation_rate_numerators:
+                name = 'CHX_{0:0>3d}_{1:0>3d}_strange'.format(CHX_mean,
+                                                              initiation_mean_numerator,
+                                                             )
+                
+                job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
+                if not os.path.isdir(job_dir):
+                    os.makedirs(job_dir)
+                    
+                description_fn = '{0}/description.txt'.format(job_dir)
+                with open(description_fn, 'w') as description_fh:
+                    contents = simulation_template.format(name=name,
+                                                          initiation_mean_numerator=initiation_mean_numerator,
+                                                          CHX_mean=CHX_mean,
+                                                          method='mechanistic',
+                                                          home=os.environ['HOME'],
+                                                         )
+                    contents += strange_CHX_model_lines
+                    description_fh.write(contents)
+
+                bash_fh.write('echo {name}\n'.format(name=name))
+                bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
+
 
 arlen_locii = [('YLR075W', 98), ('YHR170W', 379)]
 
