@@ -102,8 +102,11 @@ class Message(object):
         while event != 'empty':
             event = self.process_next_event()
 
-    def evolve_strange_CHX_model(self):
-        self.enforced_advance_mean = 1
+    def evolve_strange_CHX_model(self, reciprocal=False):
+        if reciprocal:
+            self.enforced_advance_mean = 'reciprocal'
+        else:
+            self.enforced_advance_mean = 1
         harvest_time = self.current_time + self.CHX_mean
         heapq.heappush(self.events, (harvest_time, 'harvest', None))
         
@@ -174,6 +177,8 @@ class Ribosome(object):
     def register_next_advance_time(self, time, enforced_mean):
         if enforced_mean is None:
             mean = self.message.codon_mean_sequence[self.position]
+        elif enforced_mean is 'reciprocal':
+            mean = 1. / self.message.codon_mean_sequence[self.position]
         else:
             mean = enforced_mean
 
@@ -233,6 +238,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         self.CHX_mean = int(kwargs['CHX_mean'])
 
         self.strange_CHX_model = 'strange_CHX_model' in kwargs
+        self.reciprocal = 'reciprocal' in kwargs
 
         self.method = kwargs['method']
 
@@ -279,12 +285,12 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
             all_measurements = Counter()
             num_messages = 0
-            while sum(all_measurements.values()) < total_real_counts * 0.01:
+            while sum(all_measurements.values()) < total_real_counts * 0.5:
                 message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean)
                 message.evolve_to_steady_state()
 
                 if self.strange_CHX_model:
-                    message.evolve_strange_CHX_model()
+                    message.evolve_strange_CHX_model(self.reciprocal)
                 else:
                     message.introduce_CHX()
 

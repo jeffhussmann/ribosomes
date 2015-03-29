@@ -91,6 +91,10 @@ strange_CHX_model_lines = '''\
 strange_CHX_model True
 '''
 
+reciprocal_lines = '''\
+reciprocal True
+'''
+
 def make_noCHX_simulation_descriptions(num_pieces=12):
     initiation_rate_numerators = np.array([0, 1, 5, 10, 20, 30, 50]) * 15
     methods = ['mechanistic'] * len(initiation_rate_numerators)
@@ -150,17 +154,19 @@ def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
                 bash_fh.write('echo {name}\n'.format(name=name))
                 bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
-def make_strange_CHX_model_descriptions(num_pieces=12):
-    CHX_means = np.array([20])
+def make_strange_CHX_model_descriptions(reciprocal, num_pieces=12):
+    CHX_means = np.array([20, 50])
     initiation_rate_numerators = np.array([100])
 
     bash_fn = '{home}/projects/ribosomes/code/all_strange_CHX_model_simulation.sh'.format(home=os.environ['HOME'])
     with open(bash_fn, 'w') as bash_fh:
         for CHX_mean in CHX_means:
             for initiation_mean_numerator in initiation_rate_numerators:
-                name = 'CHX_{0:0>3d}_{1:0>3d}_strange'.format(CHX_mean,
-                                                              initiation_mean_numerator,
-                                                             )
+                word = 'reciprocal' if reciprocal else strange
+                name = 'CHX_{0:0>3d}_{1:0>3d}_{2}'.format(CHX_mean,
+                                                          initiation_mean_numerator,
+                                                          word,
+                                                         )
                 
                 job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
                 if not os.path.isdir(job_dir):
@@ -175,6 +181,8 @@ def make_strange_CHX_model_descriptions(num_pieces=12):
                                                           home=os.environ['HOME'],
                                                          )
                     contents += strange_CHX_model_lines
+                    if reciprocal:
+                        contents += reciprocal_lines
                     description_fh.write(contents)
 
                 bash_fh.write('echo {name}\n'.format(name=name))
