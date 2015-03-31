@@ -108,6 +108,7 @@ class Message(object):
             self.codon_mean_sequence = [1. / self.codon_means[codon_id] for codon_id in self.codon_sequence]
         elif perturbation_model == 'shuffle':
             codon_mean_values = np.array([self.codon_means[codon_id] for codon_id in codons.all_codons])
+            np.random.seed(0)
             np.random.shuffle(codon_mean_values)
             shuffled_codon_means = {codon_id: value for codon_id, value in zip(codons.all_codons, codon_mean_values)}
             self.codon_mean_sequence = [shuffled_codon_means[codon_id] for codon_id in self.codon_sequence]
@@ -239,7 +240,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         self.initiation_mean_numerator = int(kwargs['initiation_mean_numerator'])
         self.CHX_mean = int(kwargs['CHX_mean'])
 
-        self.perturbation_model = kwargs['perturbation_model']
+        self.perturbation_model = kwargs.get('perturbation_model')
 
         self.method = kwargs['method']
 
