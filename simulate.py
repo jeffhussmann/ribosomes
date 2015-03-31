@@ -17,6 +17,8 @@ exponential = np.random.exponential
 
 class Message(object):
     def __init__(self, codon_sequence, initiation_mean, codon_means, CHX_mean):
+        self.codon_sequence = codon_sequence
+        self.codon_means = codon_means
         self.codon_mean_sequence = [codon_means[codon_id] for codon_id in codon_sequence]
         self.initiation_mean = initiation_mean
         self.events = []
@@ -31,8 +33,6 @@ class Message(object):
         self.CHX_introduction_time = np.inf
         self.CHX_mean = CHX_mean
 
-        self.enforced_advance_mean = None
-        
         self.initiate(0)
 
     def initiate(self, time):
@@ -46,7 +46,7 @@ class Message(object):
         else:
             ribosome = Ribosome(self)
             self.leftmost_ribosome = ribosome
-            ribosome.register_next_advance_time(time, self.enforced_advance_mean)
+            ribosome.register_next_advance_time(time)
 
             if time > self.CHX_introduction_time:
                 ribosome.register_CHX_arrival_time(time)
@@ -68,7 +68,7 @@ class Message(object):
             if event == 'initiate':
                 self.initiate(time)
             elif event == 'advance':
-                was_runoff = ribosome.advance(time, self.enforced_advance_mean)
+                was_runoff = ribosome.advance(time)
             
                 if was_runoff and self.first_runoff_event_number == None:
                     self.first_runoff_event_number = self.current_event_number
@@ -102,11 +102,18 @@ class Message(object):
         while event != 'empty':
             event = self.process_next_event()
 
-    def evolve_strange_CHX_model(self, reciprocal=False):
-        if reciprocal:
-            self.enforced_advance_mean = 'reciprocal'
-        else:
-            self.enforced_advance_mean = 1
+    def evolve_perturbed_CHX_model(self, perturbation_model):
+        # Probably need to flush the heap
+        if perturbation_model == 'reciprocal':
+            self.codon_mean_sequence = [1. / self.codon_means[codon_id] for codon_id in self.codon_sequence]
+        elif perturbation_model == 'shuffle':
+            codon_mean_values = np.array([self.codon_means[codon_id] for codon_id in codons.all_codons])
+            np.random.shuffle(codon_mean_values)
+            shuffled_codon_means = {codon_id: value for codon_id, value in zip(codons.all_codons, codon_mean_values)}
+            self.codon_mean_sequence = [shuffled_codon_means[codon_id] for codon_id in self.codon_sequence]
+        elif perturbation_model == 'uniform':
+            self.codon_mean_sequence = [1 for codon_id in codon_sequence]
+
         harvest_time = self.current_time + self.CHX_mean
         heapq.heappush(self.events, (harvest_time, 'harvest', None))
         
@@ -152,14 +159,14 @@ class Ribosome(object):
                                                                                  )
         return description
 
-    def advance(self, time, enforced_mean):
+    def advance(self, time):
         was_runoff = False
 
         if self.arrested:
             pass
         elif self.position + 5 in self.message.left_edges:
             # Occluded from advancing
-            self.register_next_advance_time(time, enforced_mean)
+            self.register_next_advance_time(time)
         else:
             self.message.left_edges.remove(self.position - 5)
             
@@ -170,17 +177,12 @@ class Ribosome(object):
                 self.position += 1
                 self.message.left_edges.add(self.position - 5)
 
-                self.register_next_advance_time(time, enforced_mean)
+                self.register_next_advance_time(time)
             
         return was_runoff
 
-    def register_next_advance_time(self, time, enforced_mean):
-        if enforced_mean is None:
-            mean = self.message.codon_mean_sequence[self.position]
-        elif enforced_mean is 'reciprocal':
-            mean = 1. / self.message.codon_mean_sequence[self.position]
-        else:
-            mean = enforced_mean
+    def register_next_advance_time(self, time):
+        mean = self.message.codon_mean_sequence[self.position]
 
         next_advance_time = time + exponential(mean)
         heapq.heappush(self.message.events, (next_advance_time, 'advance', self))
@@ -237,8 +239,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
         self.initiation_mean_numerator = int(kwargs['initiation_mean_numerator'])
         self.CHX_mean = int(kwargs['CHX_mean'])
 
-        self.strange_CHX_model = 'strange_CHX_model' in kwargs
-        self.reciprocal = 'reciprocal' in kwargs
+        self.perturbation_model = kwargs['perturbation_model']
 
         self.method = kwargs['method']
 
@@ -289,10 +290,10 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
                 message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean)
                 message.evolve_to_steady_state()
 
-                if self.strange_CHX_model:
-                    message.evolve_strange_CHX_model(self.reciprocal)
-                else:
+                if self.perturbation_model == None:
                     message.introduce_CHX()
+                else:
+                    message.evolve_perturbed_CHX_model(self.perturbation_model)
 
                 all_measurements.update(message.collect_measurements())
                 num_messages += 1
