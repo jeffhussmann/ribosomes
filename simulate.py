@@ -284,10 +284,11 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
             real_counts = buffered_codon_counts[gene_name]['relaxed'][cds_slice]
             total_real_counts = sum(real_counts)
+            target = int(np.ceil(total_real_counts * 0.5))
 
             all_measurements = Counter()
             num_messages = 0
-            while sum(all_measurements.values()) < total_real_counts * 0.5:
+            while sum(all_measurements.values()) < target:
                 message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean)
                 message.evolve_to_steady_state()
 
@@ -298,6 +299,9 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
                 all_measurements.update(message.collect_measurements())
                 num_messages += 1
+
+                if num_messages % 1000 == 0:
+                    logging.info('{0:,} counts generated for {1} from {2:,} messages (target = {3})'.format(sum(all_measurements.values()), gene_name, num_messages, target))
 
             simulated_counts = positions.PositionCounts(identities.landmarks,
                                                         identities.left_buffer,
