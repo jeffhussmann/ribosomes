@@ -521,8 +521,8 @@ def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, m
                     size=20,
                    )
 
-    ax.set_ylabel('Relative mean enrichment at His codons with specific base at offset')
-    ax.set_xlabel('Offset')
+    ax.set_ylabel('Mean relative enrichment')
+    ax.set_xlabel('Offset (nucleotides)')
         
 def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min_difference, fancy=True, log=True):
     baseline = stratified_mean_enrichments['all']
@@ -624,9 +624,9 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
             x_offset = x * distance / norm
             y_offset = y * distance / norm
         elif vector == 'sideways':
-            x_offset = -distance
-            y_offset
-            
+            x_offset = distance
+            y_offset = 0
+
         text = ax.annotate(site,
                            xy=(x, y),
                            xycoords=('data', 'data'),
@@ -836,12 +836,17 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, len(name_order))
 
     ax.set_xticks(xs)
-    ax.set_xticklabels(name_order, rotation=45, ha='right', size=12)
+    ax.set_xticklabels(name_order, rotation=30, ha='right', size=12)
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
+
+    return fig
 
 def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
                                         name_order,
                                         codon_position=0,
+                                        plot_p_values=True,
+                                        plot_correlations=True,
+                                        x_labels=None,
                                        ):
     rhos = []
     ps = []
@@ -863,33 +868,41 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
         
     fig, ax = plt.subplots(figsize=(16, 12))
     xs = np.arange(len(rhos))
-    ax.plot(xs, rhos, 'o-', label=r'$\rho$')
+    if plot_correlations:
+        ax.plot(xs, rhos, 'o-', color='blue', label=r'$\rho$')
     ax.set_ylabel(r'Spearman $\rho$', color='blue', size=16)
 
-    p_ax = ax.twinx()
-    p_ax.plot(xs, ps, 'o-', color='red', alpha=0.5, label='p value')
-    p_ax.set_ylim(1e-10, 1)
-    p_ax.set_yscale('log')
-    p_ax.set_ylabel('p value', color='red', size=16)
+    if x_labels is None:
+        x_labels = name_order
 
-    ax.legend(loc='upper left', framealpha=0.5)
-    p_ax.legend(loc='upper right', framealpha=0.5)
-    
     ax.set_xticks(xs)
-    ax.set_xticklabels(name_order, rotation=45, ha='right', size=12)
-    ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
+    ax.set_xticklabels(x_labels, rotation=30, ha='right', size=14)
 
     ax.axhline(0, color='black', alpha=1)
 
-    ax.set_title('Rank correlation of mean occupancy based on codon id at offset {0} from A-site with estimated tRNA scarcity'.format(codon_position))
+    offset_string = ' ({0:+d})'.format(codon_position) if codon_position != 0 else ''
+    title = 'Rank correlation of codon identity A-site occupancy{1} with (1 / tRNA abundance)'.format(codon_position, offset_string)
+    ax.set_title(title, size=20)
+
+
+    big_bold = matplotlib.font_manager.FontProperties(size=12, weight='bold')
+    for label in ax.get_yticklabels():
+        label.set_fontproperties(big_bold)
+    
+    p_ax = ax.twinx()
+    p_ax.set_ylim(1e-8, 1)
+    p_ax.set_yscale('log')
+    p_ax.set_ylabel('p value', color='red', size=16)
+    
+    for label in p_ax.get_yticklabels():
+        label.set_fontproperties(big_bold)
+    
+    if plot_p_values:
+        p_ax.plot(xs, ps, 'o-', color='red', alpha=0.5, label='p value')
+        p_ax.grid(alpha=0.7)
 
     ax.set_ylim(-0.5, 1)
-
-    p_ax.grid(alpha=0.7)
-    
-    big_bold = matplotlib.font_manager.FontProperties(size=12, weight='bold')
-    for label in ax.get_yticklabels() + p_ax.get_yticklabels():
-        label.set_fontproperties(big_bold)
+    ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
     return fig
                                        
@@ -901,6 +914,7 @@ def plot_codon_enrichments(names,
                            log_scale=False,
                            force_ylims=None,
                            split_by_codon=False,
+                           sample_to_label=None,
                           ):
 
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
@@ -922,23 +936,26 @@ def plot_codon_enrichments(names,
             all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys
             
-
     if split_by_codon:
         sample_to_color = {name: colors_iter.next() for name in names}
+        if sample_to_label == None:
+            sample_to_label = {name: name for name in names}
+
         fig, axs = plt.subplots(len(codons_to_highlight), 1,
                                 figsize=(16, 12 * len(codons_to_highlight)),
                                 squeeze=False,
                                )
+
         for codon_id, codon_ax in zip(codons_to_highlight, axs.flatten()):
             amino_acid = codons.full_forward_table[codon_id]
             for sample in names:
                 kwargs = {'color': sample_to_color[sample],
                           'alpha': 1,
-                          'label': sample,
+                          'label': sample_to_label[sample],
                          }
                 codon_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
 
-            codon_ax.set_title('{0} ({1})'.format(codon_id, amino_acid))
+            codon_ax.set_title('{0} ({1})'.format(codon_id, amino_acid), size=16)
             codon_ax.legend(loc='upper left', framealpha=0.5)
             codon_ax.axhline(1, color='black')
 
@@ -960,22 +977,18 @@ def plot_codon_enrichments(names,
                               'label': '{0} ({1})'.format(codon_id, amino_acid),
                               }
                 else:
+                    if not codons_to_highlight:
+                        alpha = 0.3
+                    else:
+                        alpha = 0.1
+
                     kwargs = {'color': 'black',
-                              'alpha': 0.1,
+                              'alpha': alpha,
                               }
 
                 handle, = sample_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
                 codon_to_handle[codon_id] = handle
 
-        #offset = -11
-        #codon_positions = (offset * 3, offset * 3 + 1, offset * 3 + 2)
-        #xs = [offset]*len(codons.non_stop_codons)
-        #ys = [stratified_mean_enrichments_dict[sample][codon_positions][codon_id] for codon_id in codons.non_stop_codons]
-        #labels = ['{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id]) for codon_id in codons.non_stop_codons]
-
-        #to_label = sorted(range(len(codons.non_stop_codons)), key=ys.__getitem__)
-        #pausing.label_scatter_plot(ax, xs, ys, labels, to_label[-10:], vector='orthogonal', initial_distance=100)
-        
             sample_ax.set_title(sample)
             handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
             labels = [handle.get_label() for handle in handles]
@@ -1004,6 +1017,9 @@ def plot_codon_enrichments(names,
     
         if force_ylims:
             ax.set_ylim(force_ylims)
+
+        ax.set_xlabel('Offset (codons)')
+        ax.set_ylabel('Mean relative enrichment')
 
     return fig
 
