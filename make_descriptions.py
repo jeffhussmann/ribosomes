@@ -80,19 +80,12 @@ template_description_fn {home}/projects/ribosomes/experiments/weinberg/RPF/job/d
 initiation_mean_numerator {initiation_mean_numerator}
 CHX_mean {CHX_mean}
 method {method}
+perturbation_model {perturbation_model}
 '''
 
 TE_lines = '''\
 RPF_description_fn {home}/projects/ribosomes/experiments/guydosh_cell/dom34KO_CHX/job/description.txt
 mRNA_description_fn {home}/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
-'''
-
-strange_CHX_model_lines = '''\
-strange_CHX_model True
-'''
-
-reciprocal_lines = '''\
-reciprocal True
 '''
 
 def make_noCHX_simulation_descriptions(num_pieces=12):
@@ -154,39 +147,38 @@ def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
                 bash_fh.write('echo {name}\n'.format(name=name))
                 bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
-def make_strange_CHX_model_descriptions(reciprocal, num_pieces=12):
-    CHX_means = np.array([20, 50])
+def make_perturbation_model_descriptions(num_pieces=12):
+    CHX_means = np.array([20])
     initiation_rate_numerators = np.array([100])
+    perturbation_models = ['same', 'uniform', 'reciprocal', 'shuffle']
 
-    bash_fn = '{home}/projects/ribosomes/code/all_strange_CHX_model_simulation.sh'.format(home=os.environ['HOME'])
+    bash_fn = '{home}/projects/ribosomes/code/all_perturbation_model_simulation.sh'.format(home=os.environ['HOME'])
     with open(bash_fn, 'w') as bash_fh:
         for CHX_mean in CHX_means:
             for initiation_mean_numerator in initiation_rate_numerators:
-                word = 'reciprocal' if reciprocal else strange
-                name = 'CHX_{0:0>3d}_{1:0>3d}_{2}'.format(CHX_mean,
-                                                          initiation_mean_numerator,
-                                                          word,
-                                                         )
-                
-                job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
-                if not os.path.isdir(job_dir):
-                    os.makedirs(job_dir)
+                for perturbation_model in perturbation_models:
+                    name = 'CHX_{0:0>3d}_{1:0>3d}_{2}'.format(CHX_mean,
+                                                              initiation_mean_numerator,
+                                                              perturbation_model,
+                                                             )
                     
-                description_fn = '{0}/description.txt'.format(job_dir)
-                with open(description_fn, 'w') as description_fh:
-                    contents = simulation_template.format(name=name,
-                                                          initiation_mean_numerator=initiation_mean_numerator,
-                                                          CHX_mean=CHX_mean,
-                                                          method='mechanistic',
-                                                          home=os.environ['HOME'],
-                                                         )
-                    contents += strange_CHX_model_lines
-                    if reciprocal:
-                        contents += reciprocal_lines
-                    description_fh.write(contents)
+                    job_dir = '{home}/projects/ribosomes/experiments/simulation/{0}/job'.format(name, home=os.environ['HOME'])
+                    if not os.path.isdir(job_dir):
+                        os.makedirs(job_dir)
+                        
+                    description_fn = '{0}/description.txt'.format(job_dir)
+                    with open(description_fn, 'w') as description_fh:
+                        contents = simulation_template.format(name=name,
+                                                              initiation_mean_numerator=initiation_mean_numerator,
+                                                              CHX_mean=CHX_mean,
+                                                              method='mechanistic',
+                                                              perturbation_model=perturbation_model,
+                                                              home=os.environ['HOME'],
+                                                             )
+                        description_fh.write(contents)
 
-                bash_fh.write('echo {name}\n'.format(name=name))
-                bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
+                    bash_fh.write('echo {name}\n'.format(name=name))
+                    bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
 arlen_locii = [('YLR075W', 98),
                ('YLR075W', 104),

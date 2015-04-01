@@ -1,7 +1,7 @@
 import glob
 import numpy as np
 from Sequencing.Parallel import map_reduce, split_file, piece_of_list
-from Serialize import read_positions
+from Serialize import read_positions, lengths
 from Sequencing import fastq
 from itertools import chain
 import gtf
@@ -18,6 +18,7 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
         ('unmapped_bam', 'bam', 'tophat/unmapped.bam'),
         ('read_positions', read_positions, '{name}_read_positions.hdf5'),
         ('metagene_positions', read_positions, '{name}_metagene_positions.hdf5'),
+        ('lengths', lengths, '{name}_lengths.hdf5'),
     ]
 
     specific_figure_files = [
@@ -160,8 +161,10 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
                 trimmed_lengths[length] += 1
                 yield trimmed_read
 
-        self.write_file('trimmed_lengths', trimmed_lengths)
-        self.write_file('too_short_lengths', too_short_lengths)
+        self.write_file('lengths', {'trimmed': trimmed_lengths,
+                                    'too_short': too_short_lengths,
+                                   },
+                       )
 
     def get_CDSs(self, force_all=False):
         all_CDSs = gff.get_CDSs(self.file_names['genes'],

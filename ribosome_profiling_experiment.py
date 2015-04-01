@@ -7,7 +7,6 @@ import pysam
 from itertools import product
 from collections import Counter
 import trim
-import ribosomes
 import positions
 import contaminants
 import composition
@@ -45,22 +44,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('quality', array_2d, '{name}_quality.txt'),
 
         ('bowtie_error', '', '{name}_bowtie_error.txt'),
-        ('trimmed_reads', 'fastq', '{name}_trimmed.fastq'),
 
-        ('too_short_lengths', array_1d, '{name}_too_short_lengths.txt'),
-        ('trimmed_lengths', array_1d, '{name}_trimmed_lengths.txt'),
-        ('tRNA_lengths', array_1d, '{name}_tRNA_lengths.txt'),
-        ('rRNA_lengths', array_1d, '{name}_rRNA_lengths.txt'),
-        ('phiX_lengths', array_1d, '{name}_phiX_lengths.txt'),
-        ('synthetic_lengths', array_1d, '{name}_synthetic_lengths.txt'),
-        ('other_ncRNA_lengths', array_1d, '{name}_ncRNA_lengths.txt'),
-        ('clean_lengths', array_1d, '{name}_clean_lengths.txt'),
-        ('clean_trimmed_lengths', array_1d, '{name}_clean_trimmed_lengths.txt'),
-        ('remapped_lengths', array_1d, '{name}_remapped_lengths.txt'),
-        ('merged_mapping_lengths', array_1d, '{name}_merged_mapping_lengths.txt'),
-        ('unmapped_lengths', array_1d, '{name}_unmapped_lengths.txt'),
-        ('long_polyA_lengths', array_1d, '{name}_long_polyA_lengths.txt'),
-        ('unambiguous_lengths', array_1d, '{name}_unambiguous_lengths.txt'),
         ('oligo_hit_lengths', array_2d, '{name}_oligo_hit_lengths.txt'),
 
         ('rRNA_bam', 'bam', '{name}_rRNA.bam'),
@@ -129,6 +113,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('oligo_hit_lengths', '{name}_oligo_hit_lengths.pdf'),
         ('dominant_stretch_lengths', '{name}_dominant_stretch_lengths.pdf'),
         ('starts_and_ends', '{name}_starts_and_ends.pdf'),
+        ('starts_and_ends_rotations', '{name}_starts_and_ends_rotations.pdf'),
         ('three_prime_starts_and_ends', '{name}_three_prime_starts_and_ends.pdf'),
         ('ends', '{name}_ends.pdf'),
         ('starts_and_ends_heatmap', '{name}_starts_and_ends_heatmap.pdf'),
@@ -148,22 +133,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
 
     specific_outputs = [
-        ['clean_composition',
+        ['lengths',
+         'clean_composition',
          'clean_composition_perfect',
          'unmapped_composition',
-         'too_short_lengths',
-         'trimmed_lengths',
-         'tRNA_lengths',
-         'rRNA_lengths',
-         'phiX_lengths',
-         'synthetic_lengths',
-         'other_ncRNA_lengths',
-         'clean_lengths',
-         'clean_trimmed_lengths',
-         'remapped_lengths',
-         'merged_mapping_lengths',
-         'unmapped_lengths',
-         'long_polyA_lengths',
          'rRNA_coverage',
          'common_unmapped',
          'merged_mappings',
@@ -211,10 +184,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ],
         ['compute_RPKMs',
          'compute_mean_densities',
-         'compute_stratified_mean_enrichments',
+         #'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
-         'plot_frames',
-         'plot_pausing',
+         #'plot_frames',
+         #'plot_pausing',
         ],
     ]
 
@@ -338,7 +311,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
             else:
                 yield read
 
-        self.write_file('synthetic_lengths', synthetic_lengths)
+        self.write_file('lengths', {'synthetic': synthetic_lengths})
 
     def map_full_lengths(self):
         self.map_tophat()
@@ -359,7 +332,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         phiX_length_counts = sam.get_length_counts(self.file_names['phiX_bam'])
         phiX_lengths = self.zero_padded_array(phiX_length_counts)
-        self.write_file('phiX_lengths', phiX_lengths)
+        self.write_file('lengths', {'phiX': phiX_lengths})
 
     def map_tophat(self):
         mapping_tools.map_tophat([self.file_names['preprocessed_reads']],
@@ -413,7 +386,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.write_file('mismatches', type_counts)
         
         clean_trimmed_lengths = self.zero_padded_array(clean_trimmed_length_counts)
-        self.write_file('clean_trimmed_lengths', clean_trimmed_lengths)
+        self.write_file('lengths', {'clean_trimmed': clean_trimmed_lengths})
 
     def remap_polyA_trimmed(self, reads):
         trim.trim_polyA_from_unmapped(reads,
@@ -473,7 +446,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
             yield extended
 
         remapped_lengths = self.zero_padded_array(remapped_length_counts)
-        self.write_file('remapped_lengths', remapped_lengths)
+        self.write_file('lengths', {'remapped': remapped_lengths})
     
     def process_remapped_unmapped(self):
         unmapped_lengths = np.zeros(self.max_read_length + 1)
@@ -504,8 +477,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.write_file('unmapped_composition', all_array)
         
 
-        self.write_file('unmapped_lengths', unmapped_lengths)
-        self.write_file('long_polyA_lengths', long_polyA_lengths)
+        self.write_file('lengths', {'unmapped': unmapped_lengths,
+                                    'long_polyA': long_polyA_lengths,
+                                   },
+                       )
         
         non_long_polyA = Counter(dict(unmapped_seq_counts.most_common(100)))
         long_polyA = Counter(dict(long_polyA_counts.most_common(100)))
@@ -550,8 +525,9 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
             for extended in self.process_remapped():
                 alignment_sorter.write(extended)
 
-        merged_mapping_lengths = self.read_file('clean_trimmed_lengths') + self.read_file('remapped_lengths')
-        self.write_file('merged_mapping_lengths', merged_mapping_lengths)
+        lengths = self.read_file('lengths')
+        merged_mapping_lengths = lengths['clean_trimmed'] + lengths['remapped']
+        self.write_file('lengths', {'merged_mapping': merged_mapping_lengths})
 
     def post_filter_contaminants(self):
         contaminants.post_filter(self.file_names['accepted_hits'],
@@ -564,20 +540,23 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         tRNA_length_counts = sam.get_length_counts(self.file_names['tRNA_bam'])
         tRNA_lengths = self.zero_padded_array(tRNA_length_counts)
-        self.write_file('tRNA_lengths', tRNA_lengths)
         
         other_ncRNA_length_counts = sam.get_length_counts(self.file_names['other_ncRNA_bam'])
         other_ncRNA_lengths = self.zero_padded_array(other_ncRNA_length_counts)
-        self.write_file('other_ncRNA_lengths', other_ncRNA_lengths)
 
         rRNA_length_counts = sam.get_length_counts(self.file_names['rRNA_bam'])
         rRNA_length_counts += sam.get_length_counts(self.file_names['more_rRNA_bam'])
         rRNA_lengths = self.zero_padded_array(rRNA_length_counts)
-        self.write_file('rRNA_lengths', rRNA_lengths)
         
         clean_length_counts = sam.get_length_counts(self.file_names['clean_bam'])
         clean_lengths = self.zero_padded_array(clean_length_counts)
-        self.write_file('clean_lengths', clean_lengths)
+        
+        self.write_file('lengths', {'clean': clean_lengths,
+                                    'tRNA': tRNA_lengths,
+                                    'other_ncRNA': other_ncRNA_lengths,
+                                    'rRNA': rRNA_lengths,
+                                   },
+                       )
 
     def find_unambiguous_lengths(self):
         if self.adapter_type == 'polyA':
@@ -590,7 +569,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         else:
             # Need to write the file so that there is something to merge.
             unambiguous_lengths = np.zeros(self.max_read_length + 1, int)
-        self.write_file('unambiguous_lengths', unambiguous_lengths)
+
+        self.write_file('lengths', {'unambiguous': unambiguous_lengths})
     
     def get_rRNA_coverage(self):
         data = contaminants.produce_rRNA_coverage(self.file_names['rRNA_bam'], self.max_read_length)
@@ -605,37 +585,17 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.write_file('oligo_hit_lengths', lengths)
 
     def compute_yield(self):
-        trimmed_lengths = self.read_file('trimmed_lengths', merged=True)
-        phiX_lengths = self.read_file('phiX_lengths', merged=True)
-        too_short_lengths = self.read_file('too_short_lengths', merged=True)
-        rRNA_lengths = self.read_file('rRNA_lengths', merged=True)
-        synthetic_lengths = self.read_file('synthetic_lengths', merged=True)
-        tRNA_lengths = self.read_file('tRNA_lengths', merged=True)
-        other_ncRNA_lengths = self.read_file('other_ncRNA_lengths', merged=True)
-        unmapped_lengths = self.read_file('unmapped_lengths', merged=True)
-        long_polyA_lengths = self.read_file('long_polyA_lengths', merged=True)
-        clean_lengths = self.read_file('clean_lengths', merged=True)
-        remapped_lengths = self.read_file('remapped_lengths', merged=True)
+        lengths = self.read_file('lengths')
+        reads = {name: lengths[name].sum() for name in lengths}
+        reads['total'] = reads['trimmed'] + reads['too_short']
 
-        total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
-        phiX_reads = phiX_lengths.sum()
-        long_enough_reads = trimmed_lengths.sum()
-        rRNA_reads = rRNA_lengths.sum()
-        synthetic_reads = synthetic_lengths.sum()
-        tRNA_reads = tRNA_lengths.sum()
-        other_ncRNA_reads = other_ncRNA_lengths.sum()
-        unmapped_reads = unmapped_lengths.sum()
-        clean_reads = clean_lengths.sum()
-        remapped_reads = remapped_lengths.sum()
-        long_polyA_reads = long_polyA_lengths.sum()
-
-        dominant_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage', merged=True),
-                                                                              total_reads,
-                                                                              self.max_read_length,
-                                                                              self.merged_file_names['rRNA_bam'],
-                                                                             )
+        reads['dominant'], boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage'),
+                                                                                 reads['total'],
+                                                                                 self.max_read_length,
+                                                                                 self.merged_file_names['rRNA_bam'],
+                                                                                )
         contaminants.plot_dominant_stretch_lengths(boundaries, self.figure_file_names['dominant_stretch_lengths'])
-        other_reads = rRNA_reads - dominant_reads
+        reads['other'] = reads['rRNA'] - reads['dominant']
 
         with open(self.merged_file_names['dominant_stretches'], 'w') as dominant_stretches_file:
             for rname in sorted(boundaries):
@@ -643,20 +603,20 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                     dominant_stretches_file.write('{0}:{1}-{2}\n'.format(rname, start, stop))
 
         with open(self.file_names['yield'], 'w') as yield_file:
-            yield_file.write('Total reads: {0:,}\n'.format(total_reads))
-            for category, count in [('Long enough reads', long_enough_reads),
-                                    ('phiX reads', phiX_reads),
-                                    ('rRNA reads', rRNA_reads),
-                                    ('(rRNA reads from non-dominant stetches)', other_reads),
-                                    ('tRNA reads', tRNA_reads),
-                                    ('Other ncRNA reads', other_ncRNA_reads),
-                                    ('Clean reads', clean_reads),
-                                    ('Reads mapped after polyA trimming', remapped_reads),
-                                    ('Reads that start wth long polyA', long_polyA_reads),
-                                    ('Synthetic reads', synthetic_reads),
-                                    ('Unaccounted-for reads', unmapped_reads),
+            yield_file.write('Total reads: {0:,}\n'.format(reads['total']))
+            for category, count in [('Long enough reads', reads['trimmed']),
+                                    ('phiX reads', reads['phiX']),
+                                    ('rRNA reads', reads['rRNA']),
+                                    ('(rRNA reads from non-dominant stetches)', reads['other']),
+                                    ('tRNA reads', reads['tRNA']),
+                                    ('Other ncRNA reads', reads['other_ncRNA']),
+                                    ('Clean reads', reads['clean']),
+                                    ('Reads mapped after polyA trimming', reads['remapped']),
+                                    ('Reads that start wth long polyA', reads['long_polyA']),
+                                    ('Synthetic reads', reads['synthetic']),
+                                    ('Unaccounted-for reads', reads['unmapped']),
                                    ]:
-                fraction = float(count) / total_reads
+                fraction = float(count) / reads['total']
                 line = '{0}: {1:,} ({2:.2%})\n'.format(category,
                                                        count,
                                                        fraction,
@@ -664,20 +624,22 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                 yield_file.write(line)
 
     def plot_lengths(self):
-        lengths = {'too short': (self.read_file('too_short_lengths'), 'purple'),
-                   'rRNA': (self.read_file('rRNA_lengths'), 'red'),
-                   'phiX': (self.read_file('phiX_lengths'), 'brown'),
-                   'synthetic': (self.read_file('synthetic_lengths'), 'orange'),
-                   'tRNA': (self.read_file('tRNA_lengths'), 'blue'),
-                   'other ncRNA': (self.read_file('other_ncRNA_lengths'), 'black'),
-                   'unmapped': (self.read_file('unmapped_lengths'), 'cyan'),
-                   'long_polyA': (self.read_file('long_polyA_lengths'), 'yellow'),
-                   'clean': (self.read_file('clean_lengths'), 'green'),
-                  }
+        lengths = self.read_file('lengths')
+
+        lengths_and_colors = {'too short': (lengths['too_short'], 'purple'),
+                              'rRNA': (lengths['rRNA'], 'red'),
+                              'phiX': (lengths['phiX'], 'brown'),
+                              'synthetic': (lengths['synthetic'], 'orange'),
+                              'tRNA': (lengths['tRNA'], 'blue'),
+                              'other_ncRNA': (lengths['other_ncRNA'], 'black'),
+                              'unmapped': (lengths['unmapped'], 'cyan'),
+                              'long_polyA': (lengths['long_polyA'], 'yellow'),
+                              'clean': (lengths['clean'], 'green'),
+                             }
 
         fig_all, ax_all = plt.subplots(figsize=(12, 8))
     
-        for key, (counts, color) in lengths.items():
+        for key, (counts, color) in lengths_and_colors.items():
             if len(counts) != self.max_read_length + 1:
                 raise ValueError
 
@@ -698,14 +660,13 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         
         fig_clean, ax_clean = plt.subplots(figsize=(12, 8))
         
-        lengths['clean_trimmed'] = (self.read_file('clean_trimmed_lengths'), 'blue')
-        lengths['remapped'] = (self.read_file('remapped_lengths'), 'red')
+        lengths_and_colors['clean_trimmed'] = (lengths['clean_trimmed'], 'blue')
+        lengths_and_colors['remapped'] = (lengths['remapped'], 'red')
 
         for key in ('clean', 'clean_trimmed', 'remapped'):
-            if key in lengths:
-                counts, color = lengths[key]
-                normalized_counts = np.true_divide(counts, counts.sum())
-                ax_clean.plot(normalized_counts, '.-', label=key, color=color)
+            counts, color = lengths_and_colors[key]
+            normalized_counts = np.true_divide(counts, counts.sum())
+            ax_clean.plot(normalized_counts, '.-', label=key, color=color)
         
         ax_clean.axvspan(27.5, 28.5, color='green', alpha=0.2)
         ax_clean.set_xlim(0, self.max_interesting_length)
@@ -718,9 +679,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         plt.close(fig_clean)
 
     def get_total_reads(self):
-        trimmed_lengths = self.read_file('trimmed_lengths')
-        too_short_lengths = self.read_file('too_short_lengths')
-        total_reads = trimmed_lengths.sum() + too_short_lengths.sum()
+        lengths = self.read_file('lengths')
+        total_reads = lengths['trimmed'].sum() + lengths['too_short'].sum()
         return total_reads
 
     def plot_rRNA_coverage(self):
@@ -750,6 +710,11 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                           title='{0}\n{1}'.format(self.group, self.name),
                                          )
         
+        visualize.plot_metagene_positions_rotations(metagene_positions,
+                                          self.figure_file_names['starts_and_ends_rotations'],
+                                          title='{0}\n{1}'.format(self.group, self.name),
+                                         )
+        
         visualize.plot_metagene_positions(metagene_positions,
                                           self.figure_file_names['three_prime_starts_and_ends'],
                                           ['three_prime_genomic', 'three_prime_nongenomic', 'three_prime_nonunique'],
@@ -763,12 +728,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         visualize.plot_metagene_positions_heatmap(metagene_positions,
                                                   self.figure_file_names['starts_and_ends_heatmap'],
-                                                  normalize_to_max_in=(range(30, 34), 'start', slice(1, 1000)),
+                                                  #normalize_to_max_in=(range(30, 34), 'start', slice(1, 1000)),
                                                  )
         visualize.plot_metagene_positions_heatmap(metagene_positions,
                                                   self.figure_file_names['starts_and_ends_heatmap_zoomed_out'],
                                                   zoomed_out=True,
-                                                  normalize_to_max_in=(range(30, 34), 'start', slice(1, 1000)),
+                                                  #normalize_to_max_in=(range(30, 34), 'start', slice(1, 1000)),
                                                  )
 
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'), 0)],
@@ -778,19 +743,19 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                 smooth=False,
                                                )
         
-        #visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
-        #                                             self.figure_file_names['mean_nucleotide_densities'],
-        #                                             past_edge=10,
-        #                                             plot_up_to=2000,
-        #                                             smooth=False,
-        #                                            )
+        visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
+                                                     self.figure_file_names['mean_nucleotide_densities'],
+                                                     past_edge=10,
+                                                     plot_up_to=2000,
+                                                     smooth=False,
+                                                    )
 
-        #visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
-        #                                        self.figure_file_names['mean_densities_anisomycin'],
-        #                                        past_edge=10,
-        #                                        plot_up_to=100,
-        #                                        smooth=False,
-        #                                       )
+        visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
+                                                self.figure_file_names['mean_densities_anisomycin'],
+                                                past_edge=10,
+                                                plot_up_to=500,
+                                                smooth=False,
+                                               )
 
     def plot_frames(self):
         metagene_positions = self.read_file('metagene_positions')
