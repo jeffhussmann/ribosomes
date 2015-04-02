@@ -303,10 +303,13 @@ def get_top_level_features(features):
 
 def get_CDSs(gff_fn, genome_dir, annotate_nearby=False):
     all_features = get_all_features(gff_fn)
+
     if annotate_nearby:
         mark_nearby(all_features, genome_dir)
+    
     genes = transcript.get_gff_transcripts(all_features, genome_dir)
     translated_genes = [g for g in genes if g.CDSs]
+    
     return translated_genes
 
 def get_noncoding_RNA_transcripts(gff_fn):
