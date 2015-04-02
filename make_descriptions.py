@@ -148,7 +148,7 @@ def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
                 bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
 def make_perturbation_model_descriptions(num_pieces=12):
-    CHX_means = np.array([20])
+    CHX_means = np.array([5, 20])
     initiation_rate_numerators = np.array([100])
     perturbation_models = ['same', 'uniform', 'reciprocal', 'shuffle', 'change_one']
 

@@ -69,7 +69,6 @@ class Message(object):
                 self.initiate(time)
             elif event == 'advance':
                 was_runoff = ribosome.advance(time)
-            
                 if was_runoff and self.first_runoff_event_number == None:
                     self.first_runoff_event_number = self.current_event_number
             elif event == 'CHX_arrival':
@@ -103,7 +102,6 @@ class Message(object):
             event = self.process_next_event()
 
     def evolve_perturbed_CHX_model(self, perturbation_model):
-        # Probably need to flush the heap
         if perturbation_model == 'reciprocal':
             perturbed_codon_means = {codon_id: 1. / self.codon_means[codon_id] for codon_id in codons.all_codons}
         elif perturbation_model == 'shuffle':
@@ -117,6 +115,18 @@ class Message(object):
             perturbed_codon_means['CGA'] = 1. / perturbed_codon_means['CGA']
 
         self.codon_mean_sequence = [perturbed_codon_means[codon_id] for codon_id in self.codon_sequence]
+        
+        # Redraw the times of any elongation events on the heap from the new
+        # distributions.
+        redrawn_events = []
+        while self.events:
+            time, event, ribosome = heapq.heappop(self.events)
+            if event == 'advance':
+                mean = self.codon_mean_sequence[ribosome.position]
+                time = self.current_time + exponential(mean)
+            heapq.heappush(redrawn_events, (time, event, ribosome))
+
+        self.events = redrawn_events
 
         harvest_time = self.current_time + self.CHX_mean
         heapq.heappush(self.events, (harvest_time, 'harvest', None))
