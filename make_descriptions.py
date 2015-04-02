@@ -150,7 +150,7 @@ def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
 def make_perturbation_model_descriptions(num_pieces=12):
     CHX_means = np.array([20])
     initiation_rate_numerators = np.array([100])
-    perturbation_models = ['same', 'uniform', 'reciprocal', 'shuffle']
+    perturbation_models = ['same', 'uniform', 'reciprocal', 'shuffle', 'change_one']
 
     bash_fn = '{home}/projects/ribosomes/code/all_perturbation_model_simulation.sh'.format(home=os.environ['HOME'])
     with open(bash_fn, 'w') as bash_fh:
