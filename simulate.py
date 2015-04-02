@@ -105,14 +105,18 @@ class Message(object):
     def evolve_perturbed_CHX_model(self, perturbation_model):
         # Probably need to flush the heap
         if perturbation_model == 'reciprocal':
-            self.codon_mean_sequence = [1. / self.codon_means[codon_id] for codon_id in self.codon_sequence]
+            perturbed_codon_means = {codon_id: 1. / self.codon_mean[codon_id] for codon_id in codons.all_codons}
         elif perturbation_model == 'shuffle':
             codon_mean_values = np.array([self.codon_means[codon_id] for codon_id in codons.all_codons])
             shuffle = [i * 163 % 64 for i in range(64)]
-            shuffled_codon_means = {codon_id: codon_mean_values[shuffle[i]] for i, codon_id in enumerate(codons.all_codons)}
-            self.codon_mean_sequence = [shuffled_codon_means[codon_id] for codon_id in self.codon_sequence]
+            perturbed_codon_means = {codon_id: codon_mean_values[shuffle[i]] for i, codon_id in enumerate(codons.all_codons)}
         elif perturbation_model == 'uniform':
-            self.codon_mean_sequence = [1 for codon_id in codon_sequence]
+            perturbed_codon_means = {codon_id: 1 for codon_id in codons.all_codons}
+        elif perturbation_model == 'change_one':
+            perturbed_codon_means = {codon_id: self.codon_mean[codon_id] for codon_id in codons.all_codons}
+            perturbed_codon_means['CGA'] = 1. / perturbed_codon_means['CGA']
+
+        self.codon_mean_sequence = [perturbed_codon_means[codon_id] for codon_id in codon_sequence]
 
         harvest_time = self.current_time + self.CHX_mean
         heapq.heappush(self.events, (harvest_time, 'harvest', None))

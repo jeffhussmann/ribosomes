@@ -1166,3 +1166,82 @@ def scatter_offset_relationships(around_lists,
         if log_scales:
             q = np.log2(q)
         ax.axvline(q, color='black', alpha=0.2)
+
+def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
+    tAIs = load_premal_elongation_times()
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+    areas = []
+    fractions = []
+
+    for codon_id in codons.non_stop_codons:
+        xs = np.arange(x_min, x_max)
+        codon_positions_list = [(3 * x, 3 * x + 1, 3 * x + 2) for x in xs]
+        ys = [stratified_mean_enrichments_dict[CHX_name][codon_positions][codon_id] for codon_positions in codon_positions_list]
+        area = sum(np.array(ys) - 1)
+        fraction = sum(np.array(ys)) / float(len(ys))
+        areas.append(area)
+        fractions.append(fraction)
+
+    areas = np.array(areas)
+    no_CHX_A = np.array([stratified_mean_enrichments_dict[no_CHX_name][0, 1, 2][codon_id] for codon_id in codons.non_stop_codons])
+    no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name][-3, -2, -1][codon_id] for codon_id in codons.non_stop_codons])
+    CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name][0, 1, 2][codon_id] for codon_id in codons.non_stop_codons])
+
+    xs = areas
+    ys = no_CHX_A - CHX_A
+    
+    fig, (A_ax, P_ax) = plt.subplots(1, 2, figsize=(16, 12))
+    Sequencing.Visualize.enhanced_scatter(xs,
+                                          ys,
+                                          A_ax,
+                                          color_by_density=False,
+                                          marker_size=10,
+                                         )
+
+    Sequencing.Visualize.enhanced_scatter(xs,
+                                          ys + no_CHX_P,
+                                          P_ax,
+                                          color_by_density=False,
+                                          marker_size=10,
+                                         )
+    
+    labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+    to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+    
+    #label_scatter_plot(A_ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
+    #label_scatter_plot(P_ax, xs, no_CHX_A + no_CHX_P, labels, to_label, vector='sideways', arrow_alpha=0.5)
+    
+    rho, p = scipy.stats.spearmanr(CHX_A, tAI_values)
+    A_ax.annotate('A site occupancy - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
+                  xy=(0, 1),
+                  xycoords='axes fraction',
+                  xytext=(5, -15),
+                  textcoords='offset points',
+                  family='monospace',
+                 )
+    
+    rho, p = scipy.stats.spearmanr(areas, tAI_values)
+    A_ax.annotate('Area under curve - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
+                  xy=(0, 1),
+                  xycoords='axes fraction',
+                  xytext=(5, -30),
+                  textcoords='offset points',
+                  family='monospace',
+                 )
+
+    rho, p = scipy.stats.spearmanr(areas + CHX_A, tAI_values)
+    A_ax.annotate('Area + A site    - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
+                  xy=(0, 1),
+                  xycoords='axes fraction',
+                  xytext=(5, -45),
+                  textcoords='offset points',
+                  family='monospace',
+                 )
+    
+    for ax in (A_ax, P_ax):
+        ax.set_xlabel('{0}\nArea under curve from {1} to {2}'.format(CHX_name, x_min, x_max))
+        
+    A_ax.set_ylabel('{0}\nMean relative density at A site'.format(no_CHX_name))
+    P_ax.set_ylabel('{0}\nMean relative density at A site + P site'.format(no_CHX_name))
+    
+    return fig
