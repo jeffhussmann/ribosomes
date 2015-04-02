@@ -31,7 +31,7 @@ def count_triplets(reads, gene, codon_number):
 
     for read in reads:
         alignment = sw.generate_alignments(context, read.seq, 'overlap')[0]
-        if len(alignment['path']) >= 24 and len(alignment['mismatches']) <= 6 and alignment['XO'] == 0:
+        if len(alignment['path']) >= 20 and len(alignment['mismatches']) <= 6 and alignment['XO'] == 0:
             relevant, triplet = relevant_alignment(alignment, context, read.seq)
             if relevant:
                 triplets[triplet] += 1
