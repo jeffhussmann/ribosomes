@@ -299,7 +299,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
                 all_measurements.update(message.collect_measurements())
                 num_messages += 1
 
-                if num_messages % 1000 == 0:
+                if num_messages % 10000 == 0:
                     logging.info('{0:,} counts generated for {1} from {2:,} messages (target = {3})'.format(sum(all_measurements.values()), gene_name, num_messages, target))
 
             simulated_counts = positions.PositionCounts(identities.landmarks,
