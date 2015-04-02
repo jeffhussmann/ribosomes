@@ -119,6 +119,84 @@ def plot_metagene_positions(metagene_positions,
 
     pdf.close()
 
+def plot_metagene_positions_rotations(metagene_positions,
+                                      figure_fn,
+                                      title=None,
+                                      by_base=False,
+                                     ):
+    short_lengths = range(20, 24)
+    long_lengths = range(27, 32)
+
+    pdf = matplotlib.backends.backend_pdf.PdfPages(figure_fn)
+
+    for lengths in [short_lengths, long_lengths]:
+        fig, axs = plt.subplots(2, 2, figsize=(24, 16))
+
+        for zoomed_out, (start_ax, end_ax) in zip([False, True], axs):
+            if zoomed_out:
+                start_xs = np.arange(-190, 290)
+                end_xs = np.arange(-290, 190)
+                tick_interval = 30
+            else:
+                start_xs = np.arange(-21, 19)
+                end_xs = np.arange(-33, 7)
+                tick_interval = 3
+        
+            if by_base:
+                for base in 'TCAG':
+                    start_key = '{0}_{1}_uniform'.format('start_codon', base)
+                    end_key = '{0}_{1}_uniform'.format('stop_codon', base)
+                    start_ys = metagene_positions[start_key]['all']['start_codon', start_xs]
+                    end_ys = metagene_positions[end_key]['all']['start_codon', end_xs]
+
+                    kwargs = {'label': '{0}_uniform'.format(base),
+                              'color': igv_colors[base],
+                              'marker': '.',
+                              'alpha': 0.3,
+                             }
+                    
+                    start_ax.plot(start_xs, start_ys, **kwargs)
+                    end_ax.plot(end_xs, end_ys, **kwargs)
+            else:
+                start_counts = metagene_positions['start_codon']
+                end_counts = metagene_positions['stop_codon']
+                recorded_lengths = sorted(set(lengths) & set(start_counts.keys()))
+
+                for length in recorded_lengths:
+                    start_ys = start_counts[length]['start_codon', start_xs]
+                    end_ys = end_counts[length]['stop_codon', end_xs]
+                    
+                    kwargs = {'label': length,
+                              'marker': '.',
+                             }
+                    start_ax.plot(start_xs, start_ys, **kwargs)
+                    end_ax.plot(end_xs, end_ys, **kwargs)
+
+            ymax = max(start_ax.get_ylim()[1], end_ax.get_ylim()[1])
+
+            for ax, xs, landmark in zip([start_ax, end_ax], [start_xs, end_xs], ['start_codon', 'stop_codon']):
+                ax.set_xlim(min(xs), max(xs))
+                xticks = [x for x in xs if x % tick_interval == 0]
+                ax.set_xticks(xticks)
+                for x in xticks:
+                    ax.axvline(x, color='black', alpha=0.1)
+                ax.set_xlabel('Position of read relative to {0}'.format(landmark))
+                ax.set_ylabel('Number of uniquely mapped reads of specified length')
+
+                Sequencing.Visualize.add_commas_to_yticks(ax)
+
+                ax.legend(loc='upper right', framealpha=0.5)
+
+                ax.set_ylim(0, ymax)
+        
+        if title:
+            fig.suptitle(title)
+        
+        pdf.savefig(fig)
+        plt.close(fig)
+
+    pdf.close()
+
 def plot_just_ends(from_ends, figure_fn, title):
     fig, (linear_ax, log_ax) = plt.subplots(2, 1, figsize=(24, 16))
 
