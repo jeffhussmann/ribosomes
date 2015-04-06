@@ -1,3 +1,4 @@
+from __future__ import division
 import positions
 import codons
 import numpy as np
@@ -12,6 +13,7 @@ import Sequencing.Visualize
 import itertools
 import scipy.stats
 import os
+from pausing_cython import fast_stratified_mean_enrichments
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
@@ -567,8 +569,8 @@ def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min
         xs = np.log2(expecteds)
         ys = np.log2(actuals)
     else:
-        xs = expecteds
-        ys = actuals
+        xs = np.array(expecteds)
+        ys = np.array(actuals)
     
     if fancy:
         Sequencing.Visualize.enhanced_scatter(xs, ys, ax, do_fit=False)
@@ -589,22 +591,30 @@ def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min
 
     label_scatter_plot(ax, xs, ys, sites, min_difference)
 
-def plot_dicodon_effects(stratified_mean_enrichments, fancy=True, log=True):
+def plot_dicodon_effects(stratified_mean_enrichments, min_difference, fancy=True, log=True):
     baseline = stratified_mean_enrichments['all']
     actuals = []
     expecteds = []
     sites = []
+    colors = []
     dicodons = stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)]
     P_sites = stratified_mean_enrichments[-3, -2, -1]
     A_sites = stratified_mean_enrichments[0, 1, 2]
     for P_codon_id in codons.non_stop_codons:
         for A_codon_id in codons.non_stop_codons:
+            if A_codon_id != 'CGA':
+                continue
             expected = P_sites[P_codon_id] * A_sites[A_codon_id] / baseline**2
             actual = dicodons[P_codon_id, A_codon_id] / baseline
 
             expecteds.append(expected)
             actuals.append(actual)
             sites.append('{0} x {1}'.format(P_codon_id, A_codon_id))
+            if A_codon_id == 'CGA':
+                color = 'red'
+            else:
+                color = 'black'
+            colors.append(color)
 
     fig, ax = plt.subplots(figsize=(16, 12))
 
@@ -612,13 +622,13 @@ def plot_dicodon_effects(stratified_mean_enrichments, fancy=True, log=True):
         xs = np.log2(expecteds)
         ys = np.log2(actuals)
     else:
-        xs = expecteds
-        ys = actuals
+        xs = np.array(expecteds)
+        ys = np.array(actuals)
     
     if fancy:
         Sequencing.Visualize.enhanced_scatter(xs, ys, ax, do_fit=False)
     else:
-        ax.scatter(xs, ys, s=2)
+        ax.scatter(xs, ys, c=colors, alpha=0.8, s=8, linewidths=(0,))
     
     ax.set_xlabel('Expected if multiplicative')
     ax.set_ylabel('Actual')
@@ -632,7 +642,8 @@ def plot_dicodon_effects(stratified_mean_enrichments, fancy=True, log=True):
 
     ax.plot([lower, upper], [lower, upper], color='black', alpha=0.2, scalex=False, scaley=False);
 
-    #label_scatter_plot(ax, xs, ys, sites, min_difference)
+    to_label = np.abs(xs - ys) > min_difference
+    label_scatter_plot(ax, xs, ys, sites, to_label)
     
 def plot_codon_effects(stratified_mean_enrichments, relevant_codons, fancy=True, log=True, ax=None):
     baseline = stratified_mean_enrichments['all']
@@ -1255,30 +1266,44 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
     no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name][-3, -2, -1][codon_id] for codon_id in codons.non_stop_codons])
     CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name][0, 1, 2][codon_id] for codon_id in codons.non_stop_codons])
 
-    xs = areas
-    ys = no_CHX_A - CHX_A
-    
-    fig, (A_ax, P_ax) = plt.subplots(1, 2, figsize=(16, 12))
-    Sequencing.Visualize.enhanced_scatter(xs,
-                                          ys,
-                                          A_ax,
-                                          color_by_density=False,
-                                          marker_size=10,
-                                         )
+    xs_list = [('areas', areas),
+               ('areas', areas),
+               ('areas', areas),
+               ('areas', areas),
+               ('CHX_A', CHX_A),
+               ('no_CHX_A', no_CHX_A),
+               ('no_CHX_A', no_CHX_A),
+              ]
 
-    Sequencing.Visualize.enhanced_scatter(xs,
-                                          ys + no_CHX_P,
-                                          P_ax,
-                                          color_by_density=False,
-                                          marker_size=10,
-                                         )
+    ys_list = [('no_CHX_A', no_CHX_A),
+               ('no_CHX_A - CHX_A', no_CHX_A - CHX_A),
+               ('tAI_values', tAI_values),
+               ('CHX_A', CHX_A),
+               ('tAI_values', tAI_values),
+               ('tAI_values', tAI_values),
+               ('no_CHX_P', no_CHX_P),
+              ]
+
+    num_rows = int(np.ceil((len(xs_list) + 1) / 2.))
     
-    labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
-    to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+    fig, axs = plt.subplots(num_rows, 2, figsize=(16, 8 * num_rows))
+
+    for ax, (x_label, xs), (y_label, ys) in zip(axs.flatten(), xs_list, ys_list):
+        Sequencing.Visualize.enhanced_scatter(xs,
+                                              ys,
+                                              ax,
+                                              color_by_density=False,
+                                              marker_size=10,
+                                             )
+
+        labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+        to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+        
+        label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
+        ax.set_ylabel(y_label)
+        ax.set_xlabel(x_label)
     
-    #label_scatter_plot(A_ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
-    #label_scatter_plot(P_ax, xs, no_CHX_A + no_CHX_P, labels, to_label, vector='sideways', arrow_alpha=0.5)
-    
+    A_ax = axs.flatten()[0]
     rho, p = scipy.stats.spearmanr(CHX_A, tAI_values)
     A_ax.annotate('A site occupancy - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
                   xy=(0, 1),
@@ -1305,11 +1330,25 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
                   textcoords='offset points',
                   family='monospace',
                  )
-    
-    for ax in (A_ax, P_ax):
-        ax.set_xlabel('{0}\nArea under curve from {1} to {2}'.format(CHX_name, x_min, x_max))
+
+    alphas = np.linspace(-5, 5, 1000)
+    rhos = []
+    for alpha in alphas:
+        rho, p = scipy.stats.pearsonr(areas + alpha * CHX_A, no_CHX_A)
+        rhos.append(rho)
         
-    A_ax.set_ylabel('{0}\nMean relative density at A site'.format(no_CHX_name))
-    P_ax.set_ylabel('{0}\nMean relative density at A site + P site'.format(no_CHX_name))
+    ax = axs.flatten()[-1]
+    ax.plot(alphas, rhos)
+
+    max_alpha = alphas[np.argmax(rhos)]
+    ax.axvline(max_alpha, color='black', alpha=0.5)
+    ax.annotate(r'$\alpha$' + ' = {0:0.3f}'.format(max_alpha), 
+                xy=(max_alpha, 0),
+                xycoords=('data', 'axes fraction'),
+                xytext=(5, 15),
+                textcoords='offset points',
+                size=20,
+                )
+    ax.set_xlim(min(alphas), max(alphas))
     
     return fig
