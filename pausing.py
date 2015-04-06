@@ -244,6 +244,23 @@ def compute_stratified_mean_enrichments(around_lists):
                 stratified_mean_enrichments[codon_positions][codon_id] = np.mean(masked_ratios)
             else:
                 stratified_mean_enrichments[codon_positions][codon_id] = 0
+
+    A_masks = {}
+    P_masks = {}
+    for codon_id in codons.non_stop_codons:
+        b0, b1, b2 = codon_id
+        A_masks[codon_id] = masks[0][b0] & masks[1][b1] & masks[2][b2]
+        P_masks[codon_id] = masks[-3][b0] & masks[-2][b1] & masks[-1][b2]
+    
+    stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)] = {}
+    for P_codon_id in codons.non_stop_codons:
+        for A_codon_id in codons.non_stop_codons:
+            mask = A_masks[A_codon_id] & P_masks[P_codon_id]
+            masked_ratios = ratios[mask]
+            if len(masked_ratios) > 0:
+                stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)][P_codon_id, A_codon_id] = np.mean(masked_ratios)
+            else:
+                stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)][P_codon_id, A_codon_id] = 0
                     
     stratified_mean_enrichments['all'] = np.mean(ratios)
     
@@ -565,6 +582,51 @@ def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min
     ax.plot([lower, upper], [lower, upper], color='black', alpha=0.2, scalex=False, scaley=False);
 
     label_scatter_plot(ax, xs, ys, sites, min_difference)
+
+def plot_dicodon_effects(stratified_mean_enrichments, fancy=True, log=True):
+    baseline = stratified_mean_enrichments['all']
+    actuals = []
+    expecteds = []
+    sites = []
+    dicodons = stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)]
+    P_sites = stratified_mean_enrichments[-3, -2, -1]
+    A_sites = stratified_mean_enrichments[0, 1, 2]
+    for P_codon_id in codons.non_stop_codons:
+        for A_codon_id in codons.non_stop_codons:
+            expected = P_sites[P_codon_id] * A_sites[A_codon_id] / baseline**2
+            actual = dicodons[P_codon_id, A_codon_id] / baseline
+
+            expecteds.append(expected)
+            actuals.append(actual)
+            sites.append('{0} x {1}'.format(P_codon_id, A_codon_id))
+
+    fig, ax = plt.subplots(figsize=(16, 12))
+
+    if log:
+        xs = np.log2(expecteds)
+        ys = np.log2(actuals)
+    else:
+        xs = expecteds
+        ys = actuals
+    
+    if fancy:
+        Sequencing.Visualize.enhanced_scatter(xs, ys, ax, do_fit=False)
+    else:
+        ax.scatter(xs, ys, s=2)
+    
+    ax.set_xlabel('Expected if multiplicative')
+    ax.set_ylabel('Actual')
+    
+    ax.set_aspect(1.)
+
+    x_min, x_max = ax.get_xlim()
+    y_min, y_max = ax.get_ylim()
+    lower = min(x_min, y_min)
+    upper = max(x_max, y_max)
+
+    ax.plot([lower, upper], [lower, upper], color='black', alpha=0.2, scalex=False, scaley=False);
+
+    #label_scatter_plot(ax, xs, ys, sites, min_difference)
     
 def plot_codon_effects(stratified_mean_enrichments, relevant_codons, fancy=True, log=True, ax=None):
     baseline = stratified_mean_enrichments['all']
