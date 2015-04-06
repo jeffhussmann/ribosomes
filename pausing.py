@@ -1,3 +1,4 @@
+from __future__ import division
 import positions
 import codons
 import numpy as np
@@ -12,6 +13,7 @@ import Sequencing.Visualize
 import itertools
 import scipy.stats
 import os
+from pausing_cython import fast_stratified_mean_enrichments
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
