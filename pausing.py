@@ -245,22 +245,28 @@ def compute_stratified_mean_enrichments(around_lists):
             else:
                 stratified_mean_enrichments[codon_positions][codon_id] = 0
 
-    A_masks = {}
-    P_masks = {}
-    for codon_id in codons.non_stop_codons:
-        b0, b1, b2 = codon_id
-        A_masks[codon_id] = masks[0][b0] & masks[1][b1] & masks[2][b2]
-        P_masks[codon_id] = masks[-3][b0] & masks[-2][b1] & masks[-1][b2]
-    
-    stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)] = {}
-    for P_codon_id in codons.non_stop_codons:
-        for A_codon_id in codons.non_stop_codons:
-            mask = A_masks[A_codon_id] & P_masks[P_codon_id]
-            masked_ratios = ratios[mask]
-            if len(masked_ratios) > 0:
-                stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)][P_codon_id, A_codon_id] = np.mean(masked_ratios)
-            else:
-                stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)][P_codon_id, A_codon_id] = 0
+    relevant_P_starts = range(-(num_before * 3), num_after * 3, 3)
+    for P_start in relevant_P_starts:
+        print 'starting', P_start
+        P_p0, P_p1, P_p2 = P_start + 0, P_start + 1, P_start + 2
+        A_p0, A_p1, A_p2 = P_start + 3, P_start + 4, P_start + 5
+        A_masks = {}
+        P_masks = {}
+        for codon_id in codons.non_stop_codons:
+            b0, b1, b2 = codon_id
+            P_masks[codon_id] = masks[P_p0][b0] & masks[P_p1][b1] & masks[P_p2][b2]
+            A_masks[codon_id] = masks[A_p0][b0] & masks[A_p1][b1] & masks[A_p2][b2]
+        
+        means = {}
+        for P_codon_id in codons.non_stop_codons:
+            for A_codon_id in codons.non_stop_codons:
+                mask = A_masks[A_codon_id] & P_masks[P_codon_id]
+                masked_ratios = ratios[mask]
+                if len(masked_ratios) > 0:
+                    means[P_codon_id, A_codon_id] = np.mean(masked_ratios)
+                else:
+                    means[P_codon_id, A_codon_id] = 0
+        stratified_mean_enrichments[(P_p0, P_p1, P_p2), (A_p0, A_p1, A_p2)] = means
                     
     stratified_mean_enrichments['all'] = np.mean(ratios)
     
