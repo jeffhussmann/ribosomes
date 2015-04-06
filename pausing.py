@@ -1187,30 +1187,44 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
     no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name][-3, -2, -1][codon_id] for codon_id in codons.non_stop_codons])
     CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name][0, 1, 2][codon_id] for codon_id in codons.non_stop_codons])
 
-    xs = areas
-    ys = no_CHX_A - CHX_A
-    
-    fig, (A_ax, P_ax) = plt.subplots(1, 2, figsize=(16, 12))
-    Sequencing.Visualize.enhanced_scatter(xs,
-                                          ys,
-                                          A_ax,
-                                          color_by_density=False,
-                                          marker_size=10,
-                                         )
+    xs_list = [('areas', areas),
+               ('areas', areas),
+               ('areas', areas),
+               ('areas', areas),
+               ('CHX_A', CHX_A),
+               ('no_CHX_A', no_CHX_A),
+               ('no_CHX_A', no_CHX_A),
+              ]
 
-    Sequencing.Visualize.enhanced_scatter(xs,
-                                          ys + no_CHX_P,
-                                          P_ax,
-                                          color_by_density=False,
-                                          marker_size=10,
-                                         )
+    ys_list = [('no_CHX_A', no_CHX_A),
+               ('no_CHX_A - CHX_A', no_CHX_A - CHX_A),
+               ('tAI_values', tAI_values),
+               ('CHX_A', CHX_A),
+               ('tAI_values', tAI_values),
+               ('tAI_values', tAI_values),
+               ('no_CHX_P', no_CHX_P),
+              ]
+
+    num_rows = int(np.ceil((len(xs_list) + 1) / 2.))
     
-    labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
-    to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+    fig, axs = plt.subplots(num_rows, 2, figsize=(16, 8 * num_rows))
+
+    for ax, (x_label, xs), (y_label, ys) in zip(axs.flatten(), xs_list, ys_list):
+        Sequencing.Visualize.enhanced_scatter(xs,
+                                              ys,
+                                              ax,
+                                              color_by_density=False,
+                                              marker_size=10,
+                                             )
+
+        labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+        to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+        
+        label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
+        ax.set_ylabel(y_label)
+        ax.set_xlabel(x_label)
     
-    #label_scatter_plot(A_ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
-    #label_scatter_plot(P_ax, xs, no_CHX_A + no_CHX_P, labels, to_label, vector='sideways', arrow_alpha=0.5)
-    
+    A_ax = axs.flatten()[0]
     rho, p = scipy.stats.spearmanr(CHX_A, tAI_values)
     A_ax.annotate('A site occupancy - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
                   xy=(0, 1),
@@ -1237,11 +1251,25 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
                   textcoords='offset points',
                   family='monospace',
                  )
-    
-    for ax in (A_ax, P_ax):
-        ax.set_xlabel('{0}\nArea under curve from {1} to {2}'.format(CHX_name, x_min, x_max))
+
+    alphas = np.linspace(-5, 5, 1000)
+    rhos = []
+    for alpha in alphas:
+        rho, p = scipy.stats.pearsonr(areas + alpha * CHX_A, no_CHX_A)
+        rhos.append(rho)
         
-    A_ax.set_ylabel('{0}\nMean relative density at A site'.format(no_CHX_name))
-    P_ax.set_ylabel('{0}\nMean relative density at A site + P site'.format(no_CHX_name))
+    ax = axs.flatten()[-1]
+    ax.plot(alphas, rhos)
+
+    max_alpha = alphas[np.argmax(rhos)]
+    ax.axvline(max_alpha, color='black', alpha=0.5)
+    ax.annotate(r'$\alpha$' + ' = {0:0.3f}'.format(max_alpha), 
+                xy=(max_alpha, 0),
+                xycoords=('data', 'axes fraction'),
+                xytext=(5, 15),
+                textcoords='offset points',
+                size=20,
+                )
+    ax.set_xlim(min(alphas), max(alphas))
     
     return fig
