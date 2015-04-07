@@ -16,6 +16,7 @@ for stop_codon in stop_codons:
     full_forward_table[stop_codon] = '*'
 
 all_codons = sorted(non_stop_codons + stop_codons, key=codon_sorting_key)
+codon_to_index = {codon: i for i, codon in enumerate(all_codons)}
 
 full_back_table = {}
 for codon in all_codons:

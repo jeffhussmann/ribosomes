@@ -14,7 +14,7 @@ import Sequencing.Visualize
 import itertools
 import scipy.stats
 import os
-from pausing_cython import fast_stratified_mean_enrichments
+from pausing_cython import fast_stratified_mean_enrichments, StratifiedMeanEnrichments
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
@@ -511,7 +511,7 @@ def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, m
             if x == None:
                 y = None
             else:
-                y = stratified_mean_enrichments[x][base] / stratified_mean_enrichments['all']
+                y = stratified_mean_enrichments['nucleotide', x, base]
             ys.append(y)
         ax.plot(xs, ys, '.-', color=igv_colors[base], label=base, markersize=7)
 
@@ -599,22 +599,19 @@ def plot_dicodon_effects(stratified_mean_enrichments,
                          fancy=True,
                          log=True,
                         ):
-    baseline = stratified_mean_enrichments['all']
+    baseline = 1
     actuals = []
     expecteds = []
     sites = []
     colors = []
-    dicodons = stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)]
-    P_sites = stratified_mean_enrichments[-3, -2, -1]
-    A_sites = stratified_mean_enrichments[0, 1, 2]
 
     black = matplotlib.colors.colorConverter.to_rgba('black', alpha=0.1)
     red = matplotlib.colors.colorConverter.to_rgba('red', alpha=1)
 
     for P_codon_id in codons.non_stop_codons:
         for A_codon_id in codons.non_stop_codons:
-            expected = P_sites[P_codon_id] * A_sites[A_codon_id] / baseline**2
-            actual = dicodons[P_codon_id, A_codon_id] / baseline
+            expected = stratified_mean_enrichments['codon', -1, P_codon_id] * stratified_mean_enrichments['codon', 0, A_codon_id] / baseline**2
+            actual = stratified_mean_enrichments['dicodon', 0, (P_codon_id, A_codon_id)] / baseline
 
             expecteds.append(expected)
             actuals.append(actual)
@@ -1014,12 +1011,8 @@ def plot_codon_enrichments(names,
 
     for sample in names:
         for codon_id in codons.non_stop_codons:
-            xs = []
-            ys = []
-            for i in range(min_x, max_x + 1):
-                xs.append(i)
-                codon_positions = (i * 3, i * 3 + 1, i * 3 + 2)
-                ys.append(stratified_mean_enrichments_dict[sample][codon_positions][codon_id])
+            xs = np.arange(min_x, max_x + 1)
+            ys = stratified_mean_enrichments_dict[sample]['codon', min_x:max_x + 1, codon_id]
 
             all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys

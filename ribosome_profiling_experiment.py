@@ -31,6 +31,7 @@ from Serialize import (read_positions,
                        codon_counts,
                        expression,
                        RPKMs,
+                       enrichments,
                       )
 from find_polyA_cython import predominantly_A
 
@@ -96,8 +97,8 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('reciprocal_rates', 'pickle', '{name}_reciprocal_rates.pkl'),
         ('reciprocal_rates_exclude_50', 'pickle', '{name}_reciprocal_rates_exclude_50.pkl'),
 
-        ('stratified_mean_enrichments', 'pickle', '{name}_stratified_mean_enrichments.pkl'),
-        ('stratified_mean_enrichments_anisomycin', 'pickle', '{name}_stratified_mean_enrichments_anisomycin.pkl'),
+        ('stratified_mean_enrichments', enrichments, '{name}_stratified_mean_enrichments.hdf5'),
+        ('stratified_mean_enrichments_anisomycin', enrichments, '{name}_stratified_mean_enrichments_anisomycin.hdf5'),
 
         ('yield', '', '{name}_yield.txt'),
     ]
