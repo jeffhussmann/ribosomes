@@ -5,7 +5,7 @@ import codons
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def fast_stratified_mean_enrichments(codon_counts, gene_names, long num_before, long num_after):
+def fast_stratified_mean_enrichments(codon_counts, gene_names, long num_before, long num_after, count_type='relaxed'):
     cdef int position, codon_offset, nucleotide_offset, length
     cdef int absolute_index, last_absolute_index, absolute_position, codon_index, last_codon_index, nuc_index, i, j
     cdef double ratio, numerator, denominator
@@ -30,7 +30,7 @@ def fast_stratified_mean_enrichments(codon_counts, gene_names, long num_before, 
     cds_slice = slice(('start_codon', 2), 'stop_codon')
 
     for gene_name in gene_names:
-        counts = codon_counts[gene_name]['relaxed'][cds_slice]
+        counts = codon_counts[gene_name][count_type][cds_slice]
         codon_ids = codon_counts[gene_name]['identities'][cds_slice]
         codon_indices = np.array([codon_to_index[codon] for codon in codon_ids])
         nucleotides = np.array(''.join(codon_ids), dtype='c')
@@ -98,5 +98,7 @@ def fast_stratified_mean_enrichments(codon_counts, gene_names, long num_before, 
             numerator = nuc_total_enrichment[absolute_position, i]
             denominator = max(nuc_occurences[absolute_position, i], 1)
             stratified_mean_enrichments[position][nuc_id] = numerator / denominator
+
+    stratified_mean_enrichments['all'] = 1
                 
     return stratified_mean_enrichments
