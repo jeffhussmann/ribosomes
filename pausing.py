@@ -7,6 +7,7 @@ from collections import defaultdict, Counter
 import brewer2mpl
 import matplotlib.pyplot as plt
 import matplotlib.cm
+import matplotlib.colors
 from matplotlib.backends.backend_pdf import PdfPages
 import Sequencing.utilities
 import Sequencing.Visualize
@@ -585,7 +586,13 @@ def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min
 
     label_scatter_plot(ax, xs, ys, sites, min_difference)
 
-def plot_dicodon_effects(stratified_mean_enrichments, min_difference, fancy=True, log=True):
+def plot_dicodon_effects(stratified_mean_enrichments,
+                         min_difference,
+                         special_Ps,
+                         special_As,
+                         fancy=True,
+                         log=True,
+                        ):
     baseline = stratified_mean_enrichments['all']
     actuals = []
     expecteds = []
@@ -594,20 +601,22 @@ def plot_dicodon_effects(stratified_mean_enrichments, min_difference, fancy=True
     dicodons = stratified_mean_enrichments[(-3, -2, -1), (0, 1, 2)]
     P_sites = stratified_mean_enrichments[-3, -2, -1]
     A_sites = stratified_mean_enrichments[0, 1, 2]
+
+    black = matplotlib.colors.colorConverter.to_rgba('black', alpha=0.1)
+    red = matplotlib.colors.colorConverter.to_rgba('red', alpha=1)
+
     for P_codon_id in codons.non_stop_codons:
         for A_codon_id in codons.non_stop_codons:
-            if A_codon_id != 'CGA':
-                continue
             expected = P_sites[P_codon_id] * A_sites[A_codon_id] / baseline**2
             actual = dicodons[P_codon_id, A_codon_id] / baseline
 
             expecteds.append(expected)
             actuals.append(actual)
             sites.append('{0} x {1}'.format(P_codon_id, A_codon_id))
-            if A_codon_id == 'CGA':
-                color = 'red'
+            if A_codon_id in special_As and P_codon_id in special_Ps:
+                color = red
             else:
-                color = 'black'
+                color = black
             colors.append(color)
 
     fig, ax = plt.subplots(figsize=(16, 12))
@@ -622,7 +631,7 @@ def plot_dicodon_effects(stratified_mean_enrichments, min_difference, fancy=True
     if fancy:
         Sequencing.Visualize.enhanced_scatter(xs, ys, ax, do_fit=False)
     else:
-        ax.scatter(xs, ys, c=colors, alpha=0.8, s=8, linewidths=(0,))
+        ax.scatter(xs, ys, c=colors, s=8, linewidths=(0,))
     
     ax.set_xlabel('Expected if multiplicative')
     ax.set_ylabel('Actual')
