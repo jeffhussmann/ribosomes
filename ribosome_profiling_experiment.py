@@ -184,7 +184,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ],
         ['compute_RPKMs',
          'compute_mean_densities',
-         #'compute_stratified_mean_enrichments',
+         'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
          #'plot_frames',
          #'plot_pausing',
@@ -794,10 +794,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
 
-    def compute_stratified_mean_enrichments(self, min_mean=1):
-        relevant_at_pause = set(codons.non_stop_codons)
-        not_allowed_at_offset = {}
-
+    def compute_stratified_mean_enrichments(self, min_mean=0.1):
         num_before = 90
         num_after = 90
 
@@ -812,35 +809,29 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                                    num_before=num_before,
                                                                    num_after=num_after,
                                                                   )
-        print 'relaxed', len(gene_names)
+        print 'relaxed:', len(gene_names)
 
-        around_lists = pausing.metacodon_around_pauses(codon_counts,
-                                                       relevant_at_pause,
-                                                       not_allowed_at_offset,
-                                                       gene_names,
-                                                       num_before=num_before,
-                                                       num_after=num_after,
-                                                      )
-        stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
+        stratified_mean_enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                                               gene_names,
+                                                                               num_before,
+                                                                               num_after,
+                                                                              )
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
-        
+
         gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
                                                                    min_mean=min_mean,
                                                                    count_type='anisomycin',
                                                                    num_before=num_before,
                                                                    num_after=num_after,
                                                                   )
-        print 'anisomycin', len(gene_names)
+        print 'anisomycin:', len(gene_names)
 
-        around_lists = pausing.metacodon_around_pauses(codon_counts,
-                                                       relevant_at_pause,
-                                                       not_allowed_at_offset,
-                                                       gene_names,
-                                                       count_type='anisomycin',
-                                                       num_before=num_before,
-                                                       num_after=num_after,
-                                                      )
-        stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
+        stratified_mean_enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                                               gene_names,
+                                                                               num_before,
+                                                                               num_after,
+                                                                               count_type='anisomycin',
+                                                                              )
         self.write_file('stratified_mean_enrichments_anisomycin', stratified_mean_enrichments)
 
     def plot_pausing(self):
