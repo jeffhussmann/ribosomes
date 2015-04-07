@@ -1,27 +1,27 @@
 from __future__ import division
 cimport cython
 import numpy as np
-from collections import defaultdict
 import codons
 
 @cython.boundscheck(False)
+@cython.wraparound(False)
 def fast_stratified_mean_enrichments(codon_counts, gene_names, long num_before, long num_after):
     cdef int position, codon_offset, nucleotide_offset, length
-    cdef unsigned int absolute_index, last_absolute_index, absolute_position, codon_index, last_codon_index, nuc_index, i, j
+    cdef int absolute_index, last_absolute_index, absolute_position, codon_index, last_codon_index, nuc_index, i, j
     cdef double ratio, numerator, denominator
     
-    cdef long [:, :] occurences = np.zeros((num_before + num_after + 1, 64), int)   
-    cdef double [:, :] total_enrichment = np.zeros((num_before + num_after + 1, 64), float)
+    cdef long [:, ::1] occurences = np.zeros((num_before + num_after + 1, 64), int)   
+    cdef double [:, ::1] total_enrichment = np.zeros((num_before + num_after + 1, 64), float)
     
-    cdef long [:, :, :] dicodon_occurences = np.zeros((num_before + num_after + 1, 64, 64), int)
-    cdef double [:, :, :] dicodon_total_enrichment = np.zeros((num_before + num_after + 1, 64, 64), float)
+    cdef long [:, :, ::1] dicodon_occurences = np.zeros((num_before + num_after + 1, 64, 64), int)
+    cdef double [:, :, ::1] dicodon_total_enrichment = np.zeros((num_before + num_after + 1, 64, 64), float)
     
-    cdef long [:, :] nuc_occurences = np.zeros((3 * (num_before + num_after + 1), 4), int)   
-    cdef double [:, :] nuc_total_enrichment = np.zeros((3 * (num_before + num_after + 1), 4), float)
+    cdef long [:, ::1] nuc_occurences = np.zeros((3 * (num_before + num_after + 1), 4), int)   
+    cdef double [:, ::1] nuc_total_enrichment = np.zeros((3 * (num_before + num_after + 1), 4), float)
     
-    cdef double [:] ratios
-    cdef long [:] codon_indices
-    cdef long [:] nucleotide_indices
+    cdef double [::1] ratios
+    cdef long [::1] codon_indices
+    cdef long [::1] nucleotide_indices
     
     codon_to_index = {codon: i for i, codon in enumerate(codons.all_codons)}
     index_to_codon = codons.all_codons
@@ -36,17 +36,17 @@ def fast_stratified_mean_enrichments(codon_counts, gene_names, long num_before, 
         nucleotides = np.array(''.join(codon_ids), dtype='c')
         nucleotide_indices = np.array([nucleotide_to_index[n] for n in nucleotides])
         
-        if len(counts) < num_before + num_after + 1:
+        length = len(counts)
+        
+        if length < num_before + num_after + 1:
             raise ValueError(gene_name)
 
-        mean = np.mean(counts[num_before:-num_after])
+        mean = np.mean(counts[num_before:length - num_after])
         if mean == 0:
             raise ValueError(gene_name)
         
         ratios = counts / mean
 
-        length = len(counts)
-        
         for position in range(num_before, length - num_after):
             ratio = ratios[position]
             for nucleotide_offset in range(-num_before * 3, num_after * 3):
