@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 import Sequencing.Parallel
 import ribosome_profiling_experiment
 import Serialize.read_positions as read_positions
+import Serialize.enrichments as enrichments
 
 experiment_from_fn = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
 
@@ -210,7 +211,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
     specific_results_files = [
         ('simulated_codon_counts', read_positions, '{name}_simulated_codon_counts.hdf5'),
-        ('stratified_mean_enrichments', 'pickle', '{name}_stratified_mean_enrichments.pkl'),
+        ('stratified_mean_enrichments', enrichments, '{name}_stratified_mean_enrichments.hdf5'),
         ('mean_densities', read_positions, '{name}_mean_densities.hdf5'),
     ]
 
@@ -274,10 +275,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     def simulate(self):
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
-        stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
-        codon_means = stratified_mean_enrichments[0, 1, 2]
-        for codon in codons.stop_codons:
-            codon_means[codon] = 1
+        codon_means = self.load_codon_means()
         
         TEs = self.load_TEs()
         initiation_means = {gene_name: self.initiation_mean_numerator / TEs[gene_name] for gene_name in buffered_codon_counts} 
@@ -333,7 +331,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     
     def load_codon_means(self):
         stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
-        codon_means = stratified_mean_enrichments[0, 1, 2]
+        codon_means = {codon_id: stratified_mean_enrichments['codon', 0, codon_id] for codon_id in codons.non_stop_codons}
         for codon in codons.stop_codons:
             codon_means[codon] = 1
 
@@ -374,10 +372,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
-    def compute_stratified_mean_enrichments(self):
-        allowed_at_pause = set(codons.non_stop_codons)
-        not_allowed_at_stall = {}
-        
+    def compute_stratified_mean_enrichments(self, min_mean=0.1):
         num_before = 90
         num_after = 90
 
@@ -385,20 +380,17 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
                                       specific_keys={'relaxed', 'identities'},
                                      )
         gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
-                                                                   min_mean=0.1,
+                                                                   min_mean=min_mean,
                                                                    num_before=num_before,
                                                                    num_after=num_after,
                                                                   )
 
-        around_lists = pausing.metacodon_around_pauses(codon_counts,
-                                                       allowed_at_pause,
-                                                       not_allowed_at_stall,
-                                                       gene_names,
-                                                       num_before=num_before,
-                                                       num_after=num_after,
-                                                      )
 
-        stratified_mean_enrichments = pausing.compute_stratified_mean_enrichments(around_lists)
+        stratified_mean_enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                                               gene_names,
+                                                                               num_before=num_before,
+                                                                               num_after=num_after,
+                                                                              )
         self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
     
     def compute_mean_densities(self):
