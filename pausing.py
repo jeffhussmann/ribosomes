@@ -615,7 +615,7 @@ def plot_dicodon_effects(stratified_mean_enrichments,
 
             expecteds.append(expected)
             actuals.append(actual)
-            sites.append('{0} x {1}'.format(P_codon_id, A_codon_id))
+            sites.append('{0} - {1}'.format(P_codon_id, A_codon_id))
             if A_codon_id in special_As and P_codon_id in special_Ps:
                 color = red
             else:
@@ -799,11 +799,11 @@ def assign_colors_by_values(codon_to_ranks):
     return codon_to_color
 
 def build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order):
-    codon_slice = (position, position + 1, position + 2)
     all_ranks = []
     all_values = []
     for name in name_order:
-        values = [stratified_mean_enrichments_dict[name][codon_slice][codon] for codon in codons.non_stop_codons]
+        enrichments = stratified_mean_enrichments_dict[name]
+        values = [enrichments['codon', position, codon_id] for codon_id in codons.non_stop_codons]
         ranks = np.array(values).argsort().argsort()
         all_values.append(values)
         all_ranks.append(ranks)
@@ -816,6 +816,81 @@ def build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order)
 
     return codon_to_ranks, codon_to_values
 
+def build_dicodon_to_ranks(stratified_mean_enrichments_dict,
+                           position,
+                           name_order,
+                           allowed_dicodons=None,
+                          ):
+    all_ranks = []
+    all_values = []
+    if allowed_dicodons == None:
+        allowed_dicodons = list(itertools.product(codons.non_stop_codons, repeat=2))
+    for name in name_order:
+        enrichments = stratified_mean_enrichments_dict[name]
+        values = [enrichments['dicodon', position, dicodon_id] for dicodon_id in allowed_dicodons]
+        ranks = np.array(values).argsort().argsort()
+        all_values.append(values)
+        all_ranks.append(ranks)
+
+    all_values = np.array(all_values).T
+    all_ranks = np.array(all_ranks).T
+
+    dicodon_to_values = {dicodon: values for dicodon, values in zip(allowed_dicodons, all_values)}
+    dicodon_to_ranks = {dicodon: ranks for dicodon, ranks in zip(allowed_dicodons, all_ranks)}
+
+    return dicodon_to_ranks, dicodon_to_values
+
+def plot_dicodon_enrichments_across_conditions(stratified_mean_enrichments_dict,
+                                               position,
+                                               name_order,
+                                               allowed_at_P,
+                                               allowed_at_A,
+                                               by_rank=False,
+                                               highlight_movement=True,
+                                               rank_or_log='rank',
+                                               log_scale=False,
+                                              ):
+    allowed_dicodons = list(itertools.product(allowed_at_P, allowed_at_A))
+    dicodon_to_ranks, dicodon_to_values = build_dicodon_to_ranks(stratified_mean_enrichments_dict, position, name_order, allowed_dicodons)
+    dicodon_to_color = assign_colors_by_values(dicodon_to_ranks)
+
+    rank_deltas = {dicodon: dicodon_to_ranks[dicodon][0] - dicodon_to_ranks[dicodon][-1]
+                   for dicodon in allowed_dicodons}
+    
+    log_deltas = {dicodon: np.log2(max(2**-8, dicodon_to_values[dicodon][0])) - np.log2(max(2**-8, dicodon_to_values[dicodon][-1]))
+                  for dicodon in allowed_dicodons}
+    
+    fig, ax = plt.subplots(figsize=(16, 12))
+
+    xs = range(len(name_order))
+
+    for dicodon in allowed_dicodons:
+        if by_rank:
+            ys = dicodon_to_ranks[dicodon]
+        else:
+            ys = np.maximum(2**-8, dicodon_to_values[dicodon])
+
+        if highlight_movement:
+            if rank_or_log == 'rank':
+                alpha = min(1, abs(rank_deltas[dicodon]) / float(5000))
+                width = abs(rank_deltas[dicodon]) / float(5000)
+            elif rank_or_log == 'log':
+                alpha = min(1, abs(log_deltas[dicodon]) / 2)
+                width = abs(log_deltas[dicodon] / 4)
+        else:
+            alpha = 1
+            width = 1
+
+        ax.plot(xs, ys, '-', alpha=alpha, lw=width, color=dicodon_to_color[dicodon])
+    
+    if by_rank:
+        ax.set_yticks([])
+        ax.set_ylim(-0.5, len(allowed_dicodons) - 0.5)
+    else:
+        if log_scale:
+            ax.set_yscale('log', basey=2)
+
+
 def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
                                        position,
                                        name_order,
@@ -827,8 +902,6 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
                                        force_label=set(),
                                       ):
     fig, ax = plt.subplots(figsize=(16, 12))
-
-    codon_slice = (position, position + 1, position + 2)
 
     codon_to_ranks, codon_to_values = build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order)
     codon_to_color = assign_colors_by_values(codon_to_ranks)
@@ -889,6 +962,9 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     end_ys = []
     labels = []
 
+    first_enrichments = stratified_mean_enrichments_dict[name_order[0]]
+    last_enrichments = stratified_mean_enrichments_dict[name_order[-1]]
+
     for codon_id in set(sorted_deltas[:num_to_label]) | set(force_label):
         label = '{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id])
         
@@ -896,8 +972,8 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
             start_y = codon_to_ranks[codon_id][0]
             end_y = codon_to_ranks[codon_id][-1]
         else:
-            start_y = stratified_mean_enrichments_dict[name_order[0]][codon_slice][codon_id]
-            end_y = stratified_mean_enrichments_dict[name_order[-1]][codon_slice][codon_id]
+            start_y = first_enrichments['codon', position, codon_id]
+            end_y = last_enrichments['codon', position, codon_id]
             
         start_ys.append(start_y)
         end_ys.append(end_y)
@@ -1104,6 +1180,102 @@ def plot_codon_enrichments(names,
 
     return fig
 
+def plot_dicodon_enrichments(names,
+                             stratified_mean_enrichments_dict,
+                             allowed_at_P,
+                             allowed_at_A,
+                             dicodons_to_highlight,
+                             min_x=-30,
+                             max_x=30,
+                             log_scale=False,
+                             force_ylims=None,
+                             split_by_codon=False,
+                             sample_to_label=None,
+                            ):
+
+    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
+    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
+    colors_iter = itertools.cycle(iter(colors))
+
+    all_xs = {}
+    all_ys = {}
+    
+    allowed_dicodons = list(itertools.product(allowed_at_P, allowed_at_A))
+
+    for sample in names:
+        for dicodon in allowed_dicodons:
+            xs = np.arange(min_x, max_x + 1)
+            ys = stratified_mean_enrichments_dict[sample]['dicodon', min_x:max_x + 1, dicodon]
+
+            all_xs[sample, dicodon] = xs
+            all_ys[sample, dicodon] = ys
+            
+    dicodon_to_color = {dicodon: colors_iter.next() for dicodon in dicodons_to_highlight}
+    dicodon_to_handle = {}
+
+    fig, axs = plt.subplots(len(names), 1,
+                            figsize=(16, 12 * len(names)),
+                            squeeze=False,
+                           )
+
+    for sample, sample_ax in zip(names, axs.flatten()):
+        for dicodon in allowed_dicodons:
+            if dicodon in dicodons_to_highlight:
+                first_codon, second_codon = dicodon
+                first_aa = codons.full_forward_table[first_codon]
+                second_aa = codons.full_forward_table[second_codon]
+
+                kwargs = {'color': dicodon_to_color[dicodon],
+                          'alpha': 1,
+                          'label': '{0} ({1}) - {2} ({3})'.format(first_codon, first_aa, second_codon, second_aa),
+                          }
+            else:
+                if not dicodons_to_highlight:
+                    alpha = 0.3
+                else:
+                    alpha = 0.1
+
+                kwargs = {'color': 'black',
+                          'alpha': alpha,
+                          }
+
+            handle, = sample_ax.plot(all_xs[sample, dicodon], all_ys[sample, dicodon], '.-', **kwargs)
+            dicodon_to_handle[dicodon] = handle
+
+        sample_ax.set_title(sample)
+        handles = [dicodon_to_handle[dicodon] for dicodon in dicodons_to_highlight]
+        labels = [handle.get_label() for handle in handles]
+        if len(dicodons_to_highlight) > 0:
+            sample_ax.legend(handles, labels, framealpha=0.5)
+
+    for ax in axs.flatten():
+        ax.set_xlim(min_x, max_x)
+        if log_scale:
+            ax.set_yscale('log', basey=2)
+
+        tRNA_sites = [('A', 0, 'red'),
+                      ('P', -1, 'blue'),
+                      ('E', -2, 'green'),
+                     ]
+
+        read_borders = [('left', -5, 'black'),
+                        ('right', 4, 'black'),
+                       ]
+
+        for site, position, color in tRNA_sites + read_borders: 
+            ax.axvline(position, color=color, alpha=0.2)
+
+        for p in range(10, max_x, 10):
+            ax.axvline(p, ls=':', color='black', alpha=0.2)
+    
+        if force_ylims:
+            ax.set_ylim(force_ylims)
+
+        ax.set_xlabel('Offset (codons)')
+        ax.set_ylabel('Mean relative enrichment')
+
+    return fig
+
 def plot_codon_enrichments_all_amino_acids(relevant_experiments, figure_file_name):
     stratified_mean_enrichments_dict = {exp.name: exp.read_file('stratified_mean_enrichments') for exp in relevant_experiments}
     
@@ -1252,21 +1424,16 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
     tAIs = load_premal_elongation_times()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
     areas = []
-    fractions = []
 
     for codon_id in codons.non_stop_codons:
-        xs = np.arange(x_min, x_max)
-        codon_positions_list = [(3 * x, 3 * x + 1, 3 * x + 2) for x in xs]
-        ys = [stratified_mean_enrichments_dict[CHX_name][codon_positions][codon_id] for codon_positions in codon_positions_list]
-        area = sum(np.array(ys) - 1)
-        fraction = sum(np.array(ys)) / float(len(ys))
+        ys = stratified_mean_enrichments_dict[CHX_name]['codon', x_min:x_max + 1, codon_id]
+        area = sum(ys - 1)
         areas.append(area)
-        fractions.append(fraction)
 
     areas = np.array(areas)
-    no_CHX_A = np.array([stratified_mean_enrichments_dict[no_CHX_name][0, 1, 2][codon_id] for codon_id in codons.non_stop_codons])
-    no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name][-3, -2, -1][codon_id] for codon_id in codons.non_stop_codons])
-    CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name][0, 1, 2][codon_id] for codon_id in codons.non_stop_codons])
+    no_CHX_A = np.array([stratified_mean_enrichments_dict[no_CHX_name]['codon', 0, codon_id] for codon_id in codons.non_stop_codons])
+    no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name]['codon', -1, codon_id] for codon_id in codons.non_stop_codons])
+    CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name]['codon', 0, codon_id] for codon_id in codons.non_stop_codons])
 
     xs_list = [('areas', areas),
                ('areas', areas),
@@ -1343,6 +1510,100 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
     ax.plot(alphas, rhos)
 
     max_alpha = alphas[np.argmax(rhos)]
+    ax.axvline(max_alpha, color='black', alpha=0.5)
+    ax.annotate(r'$\alpha$' + ' = {0:0.3f}'.format(max_alpha), 
+                xy=(max_alpha, 0),
+                xycoords=('data', 'axes fraction'),
+                xytext=(5, 15),
+                textcoords='offset points',
+                size=20,
+                )
+    ax.set_xlim(min(alphas), max(alphas))
+    
+    return fig
+
+def dicodon_area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
+    tAIs = load_premal_elongation_times()
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+    areas = []
+
+    all_dicodons = list(itertools.product(codons.non_stop_codons, repeat=2))
+    for dicodon in all_dicodons:
+        ys = stratified_mean_enrichments_dict[CHX_name]['dicodon', x_min:x_max + 1, dicodon]
+        area = sum(ys - 1)
+        areas.append(area)
+
+    areas = np.array(areas)
+    no_CHX = np.array([stratified_mean_enrichments_dict[no_CHX_name]['dicodon', 0, dicodon] for dicodon in all_dicodons])
+    CHX = np.array([stratified_mean_enrichments_dict[CHX_name]['dicodon', 0, dicodon] for dicodon in all_dicodons])
+
+    xs_list = [('areas', areas),
+               ('areas', areas),
+               ('no_CHX', no_CHX),
+              ]
+
+    ys_list = [('no_CHX', no_CHX),
+               ('no_CHX - CHX', no_CHX - CHX),
+               ('CHX', CHX),
+              ]
+
+    num_rows = int(np.ceil((len(xs_list) + 1) / 2.))
+    
+    fig, axs = plt.subplots(num_rows, 2, figsize=(16, 8 * num_rows))
+
+    for ax, (x_label, xs), (y_label, ys) in zip(axs.flatten(), xs_list, ys_list):
+        Sequencing.Visualize.enhanced_scatter(xs,
+                                              ys,
+                                              ax,
+                                              color_by_density=True,
+                                              marker_size=10,
+                                             )
+
+        #labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+        #to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+        
+        #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
+        ax.set_ylabel(y_label)
+        ax.set_xlabel(x_label)
+    
+    #A_ax = axs.flatten()[0]
+    #rho, p = scipy.stats.spearmanr(CHX_A, tAI_values)
+    #A_ax.annotate('A site occupancy - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
+    #              xy=(0, 1),
+    #              xycoords='axes fraction',
+    #              xytext=(5, -15),
+    #              textcoords='offset points',
+    #              family='monospace',
+    #             )
+    #
+    #rho, p = scipy.stats.spearmanr(areas, tAI_values)
+    #A_ax.annotate('Area under curve - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
+    #              xy=(0, 1),
+    #              xycoords='axes fraction',
+    #              xytext=(5, -30),
+    #              textcoords='offset points',
+    #              family='monospace',
+    #             )
+
+    #rho, p = scipy.stats.spearmanr(areas + CHX_A, tAI_values)
+    #A_ax.annotate('Area + A site    - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
+    #              xy=(0, 1),
+    #              xycoords='axes fraction',
+    #              xytext=(5, -45),
+    #              textcoords='offset points',
+    #              family='monospace',
+    #             )
+
+    alphas = np.linspace(-5, 5, 1000)
+    rs = []
+    for alpha in alphas:
+        r, p = scipy.stats.pearsonr(areas + alpha * CHX, no_CHX)
+        rs.append(r)
+        
+    ax = axs.flatten()[-1]
+    ax.plot(alphas, rs)
+
+    max_alpha = alphas[np.argmax(rs)]
     ax.axvline(max_alpha, color='black', alpha=0.5)
     ax.annotate(r'$\alpha$' + ' = {0:0.3f}'.format(max_alpha), 
                 xy=(max_alpha, 0),
