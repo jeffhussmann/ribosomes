@@ -105,10 +105,16 @@ class StratifiedMeanEnrichments(object):
             absolute_slice = position_slice + self.num_before * multiple 
         
         if kind == 'nucleotide':
-            index = codons.nucleotide_to_index[label]
+            if len(label) > 1:
+                index = [codons.nucleotide_to_index[l] for l in label]
+            else:
+                index = codons.nucleotide_to_index[label]
             full_slice = (absolute_slice, index)
         elif kind == 'codon':
-            index = codons.codon_to_index[label]
+            if isinstance(label, list):
+                index = [codons.codon_to_index[l] for l in label]
+            else:
+                index = codons.codon_to_index[label]
             full_slice = (absolute_slice, index)
         elif kind == 'dicodon':
             first_codon, second_codon = label
