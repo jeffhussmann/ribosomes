@@ -1004,7 +1004,7 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
 
 def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
                                         name_order,
-                                        codon_position=0,
+                                        position=0,
                                         plot_p_values=True,
                                         plot_correlations=True,
                                         x_labels=None,
@@ -1015,13 +1015,8 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
     tAIs = load_premal_elongation_times()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
 
-    codon_positions = (3 * codon_position,
-                       3 * codon_position + 1,
-                       3 * codon_position + 2,
-                      )
-
     for name in name_order:
-        e_values = [stratified_mean_enrichments_dict[name][codon_positions][codon] for codon in codons.non_stop_codons]
+        e_values = [stratified_mean_enrichments_dict[name]['codon', position, codon_id] for codon_id in codons.non_stop_codons]
         rho, p = scipy.stats.spearmanr(tAI_values, e_values)
         rhos.append(rho)
         ps.append(p)
@@ -1041,8 +1036,8 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
 
     ax.axhline(0, color='black', alpha=1)
 
-    offset_string = ' ({0:+d})'.format(codon_position) if codon_position != 0 else ''
-    title = 'Rank correlation of codon identity A-site occupancy{1} with (1 / tRNA abundance)'.format(codon_position, offset_string)
+    offset_string = ' ({0:+d})'.format(position) if position != 0 else ''
+    title = 'Rank correlation of codon identity A-site occupancy{1} with (1 / tRNA abundance)'.format(position, offset_string)
     ax.set_title(title, size=20)
 
 
