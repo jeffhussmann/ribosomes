@@ -891,7 +891,7 @@ def plot_dicodon_enrichments_across_conditions(stratified_mean_enrichments_dict,
             ax.set_yscale('log', basey=2)
 
 
-def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
+def plot_enrichments_across_conditions(enrichments,
                                        position,
                                        name_order,
                                        highlight_movement=True,
@@ -903,7 +903,7 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
                                       ):
     fig, ax = plt.subplots(figsize=(16, 12))
 
-    codon_to_ranks, codon_to_values = build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order)
+    codon_to_ranks, codon_to_values = build_codon_to_ranks(enrichments, position, name_order)
     codon_to_color = assign_colors_by_values(codon_to_ranks)
 
     rank_deltas = {codon_id: codon_to_ranks[codon_id][0] - codon_to_ranks[codon_id][-1]
@@ -927,7 +927,8 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
                 width = abs(rank_deltas[codon_id]) / float(30)
             elif rank_or_log == 'log':
                 alpha = min(1, abs(log_deltas[codon_id]))
-                width = abs(log_deltas[codon_id] / 2)**2
+                width = 1
+                width = abs(log_deltas[codon_id] / 1.5)
         elif force_highlight:
             if codon_id in force_highlight:
                 alpha = 1
@@ -962,8 +963,8 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
     end_ys = []
     labels = []
 
-    first_enrichments = stratified_mean_enrichments_dict[name_order[0]]
-    last_enrichments = stratified_mean_enrichments_dict[name_order[-1]]
+    first_enrichments = enrichments[name_order[0]]
+    last_enrichments = enrichments[name_order[-1]]
 
     for codon_id in set(sorted_deltas[:num_to_label]) | set(force_label):
         label = '{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id])
@@ -1002,7 +1003,7 @@ def plot_enrichments_across_conditions(stratified_mean_enrichments_dict,
 
     return fig
 
-def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
+def plot_correlations_across_conditions(enrichments,
                                         name_order,
                                         codon_position=0,
                                         plot_p_values=True,
@@ -1015,13 +1016,8 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
     tAIs = load_premal_elongation_times()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
 
-    codon_positions = (3 * codon_position,
-                       3 * codon_position + 1,
-                       3 * codon_position + 2,
-                      )
-
     for name in name_order:
-        e_values = [stratified_mean_enrichments_dict[name][codon_positions][codon] for codon in codons.non_stop_codons]
+        e_values = enrichments[name]['codon', codon_position, codons.non_stop_codons]
         rho, p = scipy.stats.spearmanr(tAI_values, e_values)
         rhos.append(rho)
         ps.append(p)
@@ -1068,14 +1064,16 @@ def plot_correlations_across_conditions(stratified_mean_enrichments_dict,
     return fig
                                        
 def plot_codon_enrichments(names,
-                           stratified_mean_enrichments_dict,
+                           enrichments,
                            codons_to_highlight,
                            min_x=-30,
                            max_x=30,
                            log_scale=False,
                            force_ylims=None,
                            split_by_codon=False,
+                           only_show_highlights=False,
                            sample_to_label=None,
+                           flip=False,
                           ):
 
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
@@ -1085,10 +1083,15 @@ def plot_codon_enrichments(names,
     all_xs = {}
     all_ys = {}
 
+    if flip:
+        legend_location = 'upper right'
+    else:
+        legend_location = 'upper left'
+
     for sample in names:
         for codon_id in codons.non_stop_codons:
             xs = np.arange(min_x, max_x + 1)
-            ys = stratified_mean_enrichments_dict[sample]['codon', min_x:max_x + 1, codon_id]
+            ys = enrichments[sample]['codon', min_x:max_x + 1, codon_id]
 
             all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys
@@ -1110,10 +1113,12 @@ def plot_codon_enrichments(names,
                           'alpha': 1,
                           'label': sample_to_label[sample],
                          }
-                codon_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
+                xs = all_xs[sample, codon_id]
+                ys = all_ys[sample, codon_id]
+                codon_ax.plot(xs, ys, '.-', **kwargs)
 
             codon_ax.set_title('{0} ({1})'.format(codon_id, amino_acid), size=16)
-            codon_ax.legend(loc='upper left', framealpha=0.5)
+            codon_ax.legend(loc=legend_location, framealpha=0.5)
             codon_ax.axhline(1, color='black')
 
     else:
@@ -1134,6 +1139,9 @@ def plot_codon_enrichments(names,
                               'label': '{0} ({1})'.format(codon_id, amino_acid),
                               }
                 else:
+                    if only_show_highlights:
+                        continue
+
                     if not codons_to_highlight:
                         alpha = 0.3
                     else:
@@ -1147,6 +1155,7 @@ def plot_codon_enrichments(names,
                 codon_to_handle[codon_id] = handle
 
             sample_ax.set_title(sample)
+            sample_ax.axhline(1, color='black')
             handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
             labels = [handle.get_label() for handle in handles]
             if len(codons_to_highlight) > 0:
@@ -1177,6 +1186,11 @@ def plot_codon_enrichments(names,
 
         ax.set_xlabel('Offset (codons)')
         ax.set_ylabel('Mean relative enrichment')
+
+        if flip:
+            ax.invert_xaxis()
+            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+            ax.set_xticklabels(flipped_labels)
 
     return fig
 
