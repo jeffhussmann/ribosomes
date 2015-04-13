@@ -193,6 +193,7 @@ if __name__ == '__main__':
 
     fns.append(make_descriptions('artieri', 'polyA', **kwargs))
     fns.append(make_descriptions('artieri_gr_2', 'polyA', **kwargs))
+    fns.append(make_descriptions('brar_science', 'polyA', **kwargs))
     fns.append(make_descriptions('belgium_2013_08_06', 'truseq', codons_to_examine=arlen_locii, **kwargs))
     fns.append(make_descriptions('belgium_2014_03_05', 'linker', **kwargs))
     fns.append(make_descriptions('belgium_2014_08_07', 'linker', stephanie_markers=True, **kwargs))
