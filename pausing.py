@@ -744,45 +744,69 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
         bboxes.append(bbox)
 
 def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_conditions):
-    def attempt_text(y, label, distance, side):
+    ax.figure.canvas.draw()
+    renderer = ax.figure.canvas.renderer
+
+    def attempt_text(y, label, distance, side, y_sign):
         if side == 'left':
             x = 0
-            x_offset = -distance
+            #x_offset = -distance
+            x_offset = -30
+            y_offset = distance * y_sign
             ha = 'right'
         elif side == 'right':
             x = num_conditions - 1
-            x_offset = 1 + distance
+            #x_offset = 1 + distance
+            x_offset = 30
+            y_offset = distance * y_sign
             ha = 'left'
             
         text = ax.annotate(label,
                            xy=(x, y),
                            xycoords=('data', 'data'),
-                           xytext=(x_offset, 0),
-                           textcoords=('axes fraction', 'offset points'),
+                           xytext=(x_offset, y_offset),
+                           textcoords=('offset points', 'offset points'),
                            ha=ha,
                            va='center',
                            size=10,
-                           arrowprops={'arrowstyle': '->', 'alpha': 0.5},
+                           #arrowprops={'arrowstyle': '->', 'alpha': 0.5, 'relpos': relpos},
                           )
         ax.figure.canvas.draw()
-        return text, text.get_window_extent()
+        return text, text.get_window_extent(renderer), (x, y, x_offset, y_offset)
 
-    ax.figure.canvas.draw()
+    starting_labels = []
+    #starting_labels = [ax.xaxis.get_label(), ax.yaxis.get_label()] + ax.get_yticklabels()
+    bboxes = [label.get_window_extent(renderer) for label in starting_labels]
 
-    starting_labels = [ax.xaxis.get_label(), ax.yaxis.get_label()] + ax.get_yticklabels()
-    bboxes = [label.get_window_extent() for label in starting_labels]
+    left_tuples = sorted(zip(start_ys, labels, itertools.repeat('left')), reverse=True)
+    right_tuples = sorted(zip(end_ys, labels, itertools.repeat('right')), reverse=True)
+   
+    middle_index = len(left_tuples) // 2
+    up_tuples = left_tuples[middle_index::-1] + right_tuples[middle_index::-1]
+    down_tuples = left_tuples[middle_index + 1:] + right_tuples[middle_index + 1:]
 
-    left_tuples = itertools.izip(start_ys, labels, itertools.repeat('left'))
-    right_tuples = itertools.izip(end_ys, labels, itertools.repeat('right'))
-    tuples = itertools.chain(left_tuples, right_tuples)
+    up_tuples = [(y, label, side, 1) for y, label, side in up_tuples]
+    down_tuples = [(y, label, side, -1) for y, label, side in down_tuples]
 
-    for y, label, side in tuples:
-        distance = 0.015
-        text, bbox = attempt_text(y, label, distance, side)
+    for y, label, side, y_sign in up_tuples + down_tuples:
+        distance = 0
+        text, bbox, coords = attempt_text(y, label, distance, side, y_sign)
         while any(bbox.fully_overlaps(other_bbox) for other_bbox in bboxes):
             text.remove()
-            distance += 0.01
-            text, bbox = attempt_text(y, label, distance, side)
+            distance += 10
+            text, bbox, coords = attempt_text(y, label, distance, side, y_sign)
+            if distance >= 50:
+                break
+        
+        x, y, x_offset, y_offset = coords
+        ax.annotate('',
+                    xy=(x, y),
+                    xycoords=('data', 'data'),
+                    xytext=(x_offset, y_offset),
+                    textcoords=('offset points', 'offset points'),
+                    arrowprops={'arrowstyle': '->', 'alpha': 0.5},
+                   )
+
         bboxes.append(bbox)
             
 def load_premal_elongation_times():
