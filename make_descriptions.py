@@ -88,6 +88,10 @@ RPF_description_fn {home}/projects/ribosomes/experiments/guydosh_cell/dom34KO_CH
 mRNA_description_fn {home}/projects/ribosomes/experiments/guydosh_cell/dom34KO_mRNA-Seq/job/description.txt
 '''
 
+new_rates_line = '''\
+new_rates_description_fn {home}/projects/ribosomes/experiments/belgium_2014_12_10/WT_1_FP/job/description.txt
+'''
+
 def make_noCHX_simulation_descriptions(num_pieces=12):
     initiation_rate_numerators = np.array([0, 1, 5, 10, 20, 30, 50]) * 15
     methods = ['mechanistic'] * len(initiation_rate_numerators)
@@ -148,9 +152,9 @@ def make_CHX_simulation_descriptions(variable_TEs, num_pieces=12):
                 bash_fh.write('python simulate.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
 
 def make_perturbation_model_descriptions(num_pieces=12):
-    CHX_means = np.array([5, 20])
+    CHX_means = np.array([5, 15])
     initiation_rate_numerators = np.array([100])
-    perturbation_models = ['same', 'uniform', 'reciprocal', 'shuffle', 'change_one']
+    perturbation_models = ['same', 'uniform', 'reciprocal', 'shuffle', 'change_one', 'change_all']
 
     bash_fn = '{home}/projects/ribosomes/code/all_perturbation_model_simulation.sh'.format(home=os.environ['HOME'])
     with open(bash_fn, 'w') as bash_fh:
@@ -175,6 +179,10 @@ def make_perturbation_model_descriptions(num_pieces=12):
                                                               perturbation_model=perturbation_model,
                                                               home=os.environ['HOME'],
                                                              )
+
+                        if perturbation_model == 'change_all':
+                            contents += new_rates_line.format(home=os.environ['HOME'])
+
                         description_fh.write(contents)
 
                     bash_fh.write('echo {name}\n'.format(name=name))

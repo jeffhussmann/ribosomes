@@ -17,9 +17,10 @@ experiment_from_fn = ribosome_profiling_experiment.RibosomeProfilingExperiment.f
 exponential = np.random.exponential
 
 class Message(object):
-    def __init__(self, codon_sequence, initiation_mean, codon_means, CHX_mean):
+    def __init__(self, codon_sequence, initiation_mean, codon_means, CHX_mean, perturbed_codon_means=None):
         self.codon_sequence = codon_sequence
         self.codon_means = codon_means
+        self.perturbed_codon_means = perturbed_codon_means
         self.codon_mean_sequence = [codon_means[codon_id] for codon_id in codon_sequence]
         self.initiation_mean = initiation_mean
         self.events = []
@@ -114,6 +115,8 @@ class Message(object):
         elif perturbation_model == 'change_one':
             perturbed_codon_means = {codon_id: self.codon_means[codon_id] for codon_id in codons.all_codons}
             perturbed_codon_means['CGA'] = 1. / perturbed_codon_means['CGA']
+        elif perturbation_model == 'change_all':
+            perturbed_codon_means = self.perturbed_codon_means
 
         self.codon_mean_sequence = [perturbed_codon_means[codon_id] for codon_id in self.codon_sequence]
         
@@ -250,6 +253,11 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
             self.mRNA_experiment = experiment_from_fn(kwargs['mRNA_description_fn'])
         else:
             self.mRNA_experiment = None
+        
+        if 'new_rates_description_fn' in kwargs:
+            self.new_rates_experiment = experiment_from_fn(kwargs['new_rates_description_fn'])
+        else:
+            self.new_rates_experiment = None
 
         self.initiation_mean_numerator = int(kwargs['initiation_mean_numerator'])
         self.CHX_mean = int(kwargs['CHX_mean'])
@@ -275,8 +283,12 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
     def simulate(self):
         buffered_codon_counts = self.template_experiment.read_file('buffered_codon_counts')
         
-        codon_means = self.load_codon_means()
-        
+        codon_means = self.load_codon_means(self.template_experiment)
+        if self.perturbation_model == 'change_all':
+            perturbed_codon_means = self.load_codon_means(self.new_rates_experiment)
+        else:
+            perturbed_codon_means = None
+
         TEs = self.load_TEs()
         initiation_means = {gene_name: self.initiation_mean_numerator / TEs[gene_name] for gene_name in buffered_codon_counts} 
 
@@ -295,12 +307,12 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
             real_counts = buffered_codon_counts[gene_name]['relaxed'][cds_slice]
             total_real_counts = sum(real_counts)
-            target = int(np.ceil(total_real_counts * 0.5))
+            target = int(np.ceil(total_real_counts * 0.05))
 
             all_measurements = Counter()
             num_messages = 0
             while sum(all_measurements.values()) < target:
-                message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean)
+                message = Message(codon_sequence, initiation_means[gene_name], codon_means, self.CHX_mean, perturbed_codon_means=perturbed_codon_means)
                 message.evolve_to_steady_state()
 
                 if self.perturbation_model == None:
@@ -329,9 +341,9 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
-    def load_codon_means(self):
-        stratified_mean_enrichments = self.template_experiment.read_file('stratified_mean_enrichments')
-        codon_means = {codon_id: stratified_mean_enrichments['codon', 0, codon_id] for codon_id in codons.non_stop_codons}
+    def load_codon_means(self, experiment):
+        enrichments = experiment.read_file('stratified_mean_enrichments')
+        codon_means = {codon_id: enrichments['codon', 0, codon_id] for codon_id in codons.non_stop_codons}
         for codon in codons.stop_codons:
             codon_means[codon] = 1
 
