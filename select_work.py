@@ -30,6 +30,7 @@ def build_all_experiments(verbose=True):
                 'belgium_2013_08_06',
                 'pop_msb',
                 'gardin_elife',
+                'brar_science',
                ]
     experiments = {}
     for family in families:
