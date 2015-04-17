@@ -743,7 +743,7 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
             text, bbox = attempt_text(x, y, label, distance)
         bboxes.append(bbox)
 
-def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_conditions):
+def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, label_offset=30, size=10):
     ax.figure.canvas.draw()
     renderer = ax.figure.canvas.renderer
 
@@ -751,13 +751,13 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_co
         if side == 'left':
             x = 0
             #x_offset = -distance
-            x_offset = -30
+            x_offset = -label_offset
             y_offset = distance * y_sign
             ha = 'right'
         elif side == 'right':
-            x = num_conditions - 1
+            x = max(xs)
             #x_offset = 1 + distance
-            x_offset = 30
+            x_offset = label_offset
             y_offset = distance * y_sign
             ha = 'left'
             
@@ -768,7 +768,7 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_co
                            textcoords=('offset points', 'offset points'),
                            ha=ha,
                            va='center',
-                           size=10,
+                           size=size,
                            #arrowprops={'arrowstyle': '->', 'alpha': 0.5, 'relpos': relpos},
                           )
         ax.figure.canvas.draw()
@@ -795,7 +795,7 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, num_co
             text.remove()
             distance += 10
             text, bbox, coords = attempt_text(y, label, distance, side, y_sign)
-            if distance >= 50:
+            if distance >= 500:
                 break
         
         x, y, x_offset, y_offset = coords
@@ -924,8 +924,18 @@ def plot_enrichments_across_conditions(enrichments,
                                        label_rules=(0, 'rank', abs),
                                        log_scale=True,
                                        force_label=set(),
+                                       ax=None,
+                                       force_ylims=None,
+                                       print_deltas=True,
+                                       label_offset=32,
+                                       label_size=10,
+                                       marker_size=6,
+                                       heat_exception=False,
                                       ):
-    fig, ax = plt.subplots(figsize=(16, 12))
+    if ax == None:
+        fig, ax = plt.subplots(figsize=(16, 12))
+    else:
+        fig = ax.get_figure()
 
     codon_to_ranks, codon_to_values = build_codon_to_ranks(enrichments, position, name_order)
     codon_to_color = assign_colors_by_values(codon_to_ranks)
@@ -943,12 +953,17 @@ def plot_enrichments_across_conditions(enrichments,
         deltas = log_deltas
 
     xs = range(len(name_order))
+    if heat_exception:
+        xs = [0, 4]
+        buffer_factor = 2
+    else:
+        buffer_factor = 1
         
     for codon_id in codons.non_stop_codons:
         if highlight_movement:
             if rank_or_log == 'rank':
-                alpha = min(1, abs(rank_deltas[codon_id]) / float(50))
-                width = abs(rank_deltas[codon_id]) / float(30)
+                alpha = min(1, min(30, abs(rank_deltas[codon_id])) / float(50))
+                width = min(30, abs(rank_deltas[codon_id])) / float(15)
             elif rank_or_log == 'log':
                 alpha = min(1, abs(log_deltas[codon_id]))
                 width = 1
@@ -969,11 +984,16 @@ def plot_enrichments_across_conditions(enrichments,
         else:
             ys = codon_to_values[codon_id]
 
-        ax.plot(xs, ys, '.-', color=codon_to_color[codon_id], alpha=alpha, lw=width)
+        ax.plot(xs, ys, '.-',
+                color=codon_to_color[codon_id],
+                alpha=alpha,
+                lw=width,
+                markersize=marker_size,
+               )
              
     sorted_deltas = sorted(deltas, key=lambda c: transform(deltas[c]), reverse=True)
 
-    if num_to_label > 0:
+    if num_to_label > 0 and print_deltas:
         if rank_or_log == 'rank':
             print 'Rank changes'
             for codon_id in sorted_deltas[:num_to_label]:
@@ -1008,22 +1028,25 @@ def plot_enrichments_across_conditions(enrichments,
         ax.set_yticks([])
         ax.set_ylim(-0.5, 61.5)
     else:
+        if force_ylims:
+            ax.set_ylim(force_ylims)
         if log_scale:
             ax.set_yscale('log', basey=2)
 
         ax.tick_params(labelright=True)
 
-        big_bold = matplotlib.font_manager.FontProperties(size=12, weight='bold')
+        big_bold = matplotlib.font_manager.FontProperties(size=14, weight='bold')
         for label in ax.get_yticklabels():
             label.set_fontproperties(big_bold)
 
-        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.3)
+        ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.6)
     
-    label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, len(name_order))
+    label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, label_offset=label_offset, size=label_size)
 
     ax.set_xticks(xs)
     ax.set_xticklabels(name_order, rotation=30, ha='right', size=12)
-    ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
+    x_span = max(xs) - min(xs)
+    ax.set_xlim(min(xs) - 0.02 * buffer_factor * x_span, max(xs) + 0.02 * buffer_factor * x_span)
 
     return fig
 
@@ -1098,19 +1121,22 @@ def plot_codon_enrichments(names,
                            only_show_highlights=False,
                            sample_to_label=None,
                            flip=False,
+                           ax=None,
+                           mark_stalls=False,
+                           legend_location='upper right',
+                           marker_size=6,
+                           mark_active_sites=True,
                           ):
 
+    if ax != None and ((split_by_codon and len(codons_to_highlight) > 1) or (not split_by_codon and len(names) > 1)):
+        raise ValueError('Can\'t supply ax if more than one frame will be produced')
+    
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
     colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
     colors_iter = itertools.cycle(iter(colors))
 
     all_xs = {}
     all_ys = {}
-
-    if flip:
-        legend_location = 'upper right'
-    else:
-        legend_location = 'upper left'
 
     for sample in names:
         for codon_id in codons.non_stop_codons:
@@ -1125,10 +1151,14 @@ def plot_codon_enrichments(names,
         if sample_to_label == None:
             sample_to_label = {name: name for name in names}
 
-        fig, axs = plt.subplots(len(codons_to_highlight), 1,
-                                figsize=(16, 12 * len(codons_to_highlight)),
-                                squeeze=False,
-                               )
+        if ax == None:
+            fig, axs = plt.subplots(len(codons_to_highlight), 1,
+                                    figsize=(16, 12 * len(codons_to_highlight)),
+                                    squeeze=False,
+                                   )
+        else:
+            fig = ax.get_figure()
+            axs = np.array([ax])
 
         for codon_id, codon_ax in zip(codons_to_highlight, axs.flatten()):
             amino_acid = codons.full_forward_table[codon_id]
@@ -1136,6 +1166,7 @@ def plot_codon_enrichments(names,
                 kwargs = {'color': sample_to_color[sample],
                           'alpha': 1,
                           'label': sample_to_label[sample],
+                          'markersize': marker_size,
                          }
                 xs = all_xs[sample, codon_id]
                 ys = all_ys[sample, codon_id]
@@ -1149,10 +1180,15 @@ def plot_codon_enrichments(names,
         codon_to_color = {codon_id: colors_iter.next() for codon_id in codons_to_highlight}
         codon_to_handle = {}
 
-        fig, axs = plt.subplots(len(names), 1,
-                                figsize=(16, 12 * len(names)),
-                                squeeze=False,
-                               )
+        if ax == None:
+            fig, axs = plt.subplots(len(names), 1,
+                                    figsize=(16, 12 * len(names)),
+                                    squeeze=False,
+                                   )
+        else:
+            fig = ax.get_figure()
+            axs = np.array([ax])
+
         for sample, sample_ax in zip(names, axs.flatten()):
             for codon_id in codons.non_stop_codons:
                 if codon_id in codons_to_highlight:
@@ -1161,6 +1197,8 @@ def plot_codon_enrichments(names,
                     kwargs = {'color': codon_to_color[codon_id],
                               'alpha': 1,
                               'label': '{0} ({1})'.format(codon_id, amino_acid),
+                              'zorder': 3,
+                              'markersize': marker_size,
                               }
                 else:
                     if only_show_highlights:
@@ -1169,7 +1207,7 @@ def plot_codon_enrichments(names,
                     if not codons_to_highlight:
                         alpha = 0.3
                     else:
-                        alpha = 0.1
+                        alpha = 0.3
 
                     kwargs = {'color': 'black',
                               'alpha': alpha,
@@ -1183,7 +1221,7 @@ def plot_codon_enrichments(names,
             handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
             labels = [handle.get_label() for handle in handles]
             if len(codons_to_highlight) > 0:
-                sample_ax.legend(handles, labels, framealpha=0.5)
+                sample_ax.legend(handles, labels, loc=legend_location, framealpha=0.5)
 
     for ax in axs.flatten():
         ax.set_xlim(min_x, max_x)
@@ -1199,11 +1237,13 @@ def plot_codon_enrichments(names,
                         ('right', 4, 'black'),
                        ]
 
-        for site, position, color in tRNA_sites + read_borders: 
-            ax.axvline(position, color=color, alpha=0.2)
+        if mark_active_sites:
+            for site, position, color in tRNA_sites + read_borders: 
+                ax.axvline(position, color=color, alpha=0.4)
 
-        for p in range(10, max_x, 10):
-            ax.axvline(p, ls=':', color='black', alpha=0.2)
+        if mark_stalls:
+            for p in range(10, max_x, 10):
+                ax.axvline(p, ls=':', color='black', alpha=0.2)
     
         if force_ylims:
             ax.set_ylim(force_ylims)
@@ -1458,6 +1498,34 @@ def scatter_offset_relationships(around_lists,
             q = np.log2(q)
         ax.axvline(q, color='black', alpha=0.2)
 
+def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, ax):
+    tAIs = load_premal_elongation_times()
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+    areas = []
+
+    for codon_id in codons.non_stop_codons:
+        ys = enrichments[CHX_name]['codon', x_min:x_max + 1, codon_id]
+        area = sum(ys - 1)
+        areas.append(area)
+
+    areas = np.array(areas)
+    no_CHX_A = enrichments[no_CHX_name]['codon', 0, codons.non_stop_codons]
+    no_CHX_P = enrichments[no_CHX_name]['codon', -1, codons.non_stop_codons]
+    CHX_A = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
+    CHX_P = enrichments[CHX_name]['codon', -1, codons.non_stop_codons]
+
+    xs = areas
+    ys = no_CHX_A + no_CHX_P - CHX_A - CHX_P
+
+    Sequencing.Visualize.enhanced_scatter(xs, ys, ax, color_by_density=False, marker_size=10)
+
+    labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
+    to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
+    
+    #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
+    ax.set_ylabel('Net change in enrichment at A + P sites', size=14)
+    ax.set_xlabel('Area under wavefront with CHX treatment', size=14)
+
 def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
     tAIs = load_premal_elongation_times()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
@@ -1472,8 +1540,10 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
     no_CHX_A = np.array([stratified_mean_enrichments_dict[no_CHX_name]['codon', 0, codon_id] for codon_id in codons.non_stop_codons])
     no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name]['codon', -1, codon_id] for codon_id in codons.non_stop_codons])
     CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name]['codon', 0, codon_id] for codon_id in codons.non_stop_codons])
+    CHX_P = np.array([stratified_mean_enrichments_dict[CHX_name]['codon', -1, codon_id] for codon_id in codons.non_stop_codons])
 
     xs_list = [('areas', areas),
+               ('areas', areas),
                ('areas', areas),
                ('areas', areas),
                ('areas', areas),
@@ -1484,6 +1554,7 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
 
     ys_list = [('no_CHX_A', no_CHX_A),
                ('no_CHX_A - CHX_A', no_CHX_A - CHX_A),
+               ('no_CHX_A + no_CHX_P - CHX_A - CHX_p', no_CHX_A + no_CHX_P - CHX_A - CHX_P),
                ('tAI_values', tAI_values),
                ('CHX_A', CHX_A),
                ('tAI_values', tAI_values),
@@ -1506,7 +1577,7 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
         labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
         to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
         
-        label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
+        #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
         ax.set_ylabel(y_label)
         ax.set_xlabel(x_label)
     
