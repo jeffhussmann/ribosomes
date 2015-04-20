@@ -1125,6 +1125,7 @@ def plot_codon_enrichments(names,
                            mark_stalls=False,
                            legend_location='upper right',
                            marker_size=6,
+                           line_width=1,
                            mark_active_sites=True,
                           ):
 
@@ -1167,6 +1168,7 @@ def plot_codon_enrichments(names,
                           'alpha': 1,
                           'label': sample_to_label[sample],
                           'markersize': marker_size,
+                          'linewidth': line_width,
                          }
                 xs = all_xs[sample, codon_id]
                 ys = all_ys[sample, codon_id]
@@ -1199,6 +1201,7 @@ def plot_codon_enrichments(names,
                               'label': '{0} ({1})'.format(codon_id, amino_acid),
                               'zorder': 3,
                               'markersize': marker_size,
+                              'linewidth': line_width,
                               }
                 else:
                     if only_show_highlights:
@@ -1517,14 +1520,18 @@ def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, 
     xs = areas
     ys = no_CHX_A + no_CHX_P - CHX_A - CHX_P
 
-    Sequencing.Visualize.enhanced_scatter(xs, ys, ax, color_by_density=False, marker_size=10)
+    Sequencing.Visualize.enhanced_scatter(xs, ys, ax,
+                                          color_by_density=False,
+                                          marker_size=10,
+                                          do_fit=False,
+                                         )
 
     labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
     to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
     
     #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
-    ax.set_ylabel('Net change in enrichment at A + P sites', size=14)
-    ax.set_xlabel('Area under wavefront with CHX treatment', size=14)
+    ax.set_ylabel('Net change in enrichment\nat A + P sites', size=14)
+    ax.set_xlabel('Area under downstream wave\nwith CHX treatment', size=14)
 
 def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
     tAIs = load_premal_elongation_times()
