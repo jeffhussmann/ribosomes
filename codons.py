@@ -1,5 +1,6 @@
 import Bio.Data.CodonTable
 import copy
+import string
 
 nucleotide_order = 'TCAG'
 nucleotide_to_index = {b: i for i, b in enumerate(nucleotide_order)}
@@ -38,3 +39,59 @@ degeneracy = {amino_acid: len(full_back_table[amino_acid]) for amino_acid in ami
 def codons_from_seq(seq):
     for i in range(0, len(seq), 3):
         yield seq[i:i + 3]
+
+anticodon_to_codons = {
+    'IGC': {'GCU', 'GCC'},
+    'UGC': {'GCA', 'GCG'},
+    'ICG': {'CGU', 'CGC', 'CGA'},
+    'CCG': {'CGG'},
+    'UCU': {'AGA'},
+    'CCU': {'AGG'},
+    'GUU': {'AAU', 'AAC'},
+    'GUC': {'GAU', 'GAC'},
+    'GCA': {'UGU', 'UGC'},
+    'UUG': {'CAA'},
+    'CUG': {'CAG'},
+    'UUC': {'GAA'},
+    'CUC': {'GAG'},
+    'GCC': {'GGU', 'GGC'},
+    'UCC': {'GGA'},
+    'CCC': {'GGG'},
+    'GUG': {'CAU', 'CAC'},
+    'IAU': {'AUU', 'AUC'},
+    'UAU': {'AUA'},
+    'UAA': {'UUA'},
+    'CAA': {'UUG'},
+    'GAG': {'CUU', 'CUC'},
+    'UAG': {'CUA', 'CUG'},
+    'UUU': {'AAA'},
+    'CUU': {'AAG'},
+    'CAU': {'AUG'},
+    'GAA': {'UUU', 'UUC'},
+    'IGG': {'CCU', 'CCC'},
+    'UGG': {'CCA', 'CCG'},
+    'IGA': {'UCU', 'UCC'},
+    'UGA': {'UCA'},
+    'CGA': {'UCG'},
+    'GCU': {'AGU', 'AGC'},
+    'IGU': {'ACU', 'ACC'},
+    'UGU': {'ACA'},
+    'CGU': {'ACG'},
+    'CCA': {'UGG'},
+    'GUA': {'UAU', 'UAC'},
+    'IAC': {'GUU', 'GUC'},
+    'UAC': {'GUA'},
+    'CAC': {'GUG'},
+}
+
+u_to_t = string.maketrans('U', 'T')
+def rna_to_dna(rna):
+    return rna.translate(u_to_t)
+
+codon_to_anticodon = {}
+
+for anticodon in anticodon_to_codons:
+    dna_anticodon = rna_to_dna(anticodon)
+    for codon in anticodon_to_codons[anticodon]:
+        dna_codon = rna_to_dna(codon)
+        codon_to_anticodon[dna_codon] = dna_anticodon
