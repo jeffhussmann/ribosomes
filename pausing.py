@@ -496,7 +496,18 @@ def plot_binned_base_compositions(binned_base_compositions, normalized=False, sh
                         size=20,
                        )
 
-def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, min_x=-30, max_x=32, ax=None):
+def plot_nucleotide_enrichments(stratified_mean_enrichments,
+                                plot_A_site=True,
+                                min_x=-30,
+                                max_x=32, 
+                                ax=None,
+                                flip=True,
+                                dense_lines=True,
+                                marker_size=6,
+                                line_width=1,
+                                minimal_ticks=False,
+                                legend_kwargs={'loc': 'upper right'},
+                               ):
     if plot_A_site:
         xs = range(min_x, 0) + range(0, 3) + range(3, max_x + 1)
     else:
@@ -513,21 +524,39 @@ def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, m
             else:
                 y = stratified_mean_enrichments['nucleotide', x, base]
             ys.append(y)
-        ax.plot(xs, ys, '.-', color=igv_colors[base], label=base, markersize=7)
+        ax.plot(xs, ys, '.-',
+                color=igv_colors[base],
+                label=base,
+                markersize=marker_size,
+                lw=line_width,
+               )
 
-    ax.legend(framealpha=0.5)
+    ax.legend(framealpha=0.5, **legend_kwargs)
 
     five_prime_edge = -15
     three_prime_edge = five_prime_edge + 28 - 1
 
     for x in range(min_x, max_x + 1):
+        lw = 1
         if x in [five_prime_edge, three_prime_edge]:
             alpha = 1
-        elif x % 3 == 0:
+            lw = 1.5
+        elif dense_lines and x % 3 == 0:
             alpha = 0.2
+        elif dense_lines:
+            alpha = 0.05
         else:
-            alpha = 0.1
-        ax.axvline(x, color='black', alpha=alpha)
+            alpha = 0
+
+        ax.axvline(x, color='black', alpha=alpha, lw=lw)
+    
+    if minimal_ticks:
+        xticks = [-15, 0, 12]
+    else:
+        xticks = range(min_x, max_x + 1, 3)
+
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(map(str, xticks))
 
     ax.set_xlim(min_x, max_x)
 
@@ -537,7 +566,7 @@ def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, m
                  ]
 
     for site, position, color in tRNA_sites: 
-        ax.axvspan(position - 0.5, position + 2.5, color=color, alpha=0.1)
+        ax.axvspan(position - 0.5, position + 2.5, color=color, alpha=0.1, lw=0)
         ax.annotate(site,
                     xy=(position + 1, 1),
                     xycoords=('data', 'axes fraction'),
@@ -549,6 +578,11 @@ def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, m
 
     ax.set_ylabel('Mean relative enrichment')
     ax.set_xlabel('Offset (nucleotides)')
+        
+    if flip:
+        ax.invert_xaxis()
+        flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+        ax.set_xticklabels(flipped_labels)
         
 def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min_difference, fancy=True, log=True):
     baseline = stratified_mean_enrichments['all']
@@ -711,6 +745,9 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
         elif vector == 'sideways':
             x_offset = distance
             y_offset = 0
+        elif vector == 'manual':
+            x_offset = distance / 4.
+            y_offset = -distance
 
         text = ax.annotate(site,
                            xy=(x, y),
@@ -1123,7 +1160,7 @@ def plot_codon_enrichments(names,
                            flip=False,
                            ax=None,
                            mark_stalls=False,
-                           legend_location='upper right',
+                           legend_kwargs={'loc': 'upper right'},
                            marker_size=6,
                            line_width=1,
                            mark_active_sites=True,
@@ -1146,11 +1183,12 @@ def plot_codon_enrichments(names,
 
             all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys
+        
+    if sample_to_label == None:
+        sample_to_label = {name: name for name in names}
             
     if split_by_codon:
         sample_to_color = {name: colors_iter.next() for name in names}
-        if sample_to_label == None:
-            sample_to_label = {name: name for name in names}
 
         if ax == None:
             fig, axs = plt.subplots(len(codons_to_highlight), 1,
@@ -1175,7 +1213,7 @@ def plot_codon_enrichments(names,
                 codon_ax.plot(xs, ys, '.-', **kwargs)
 
             codon_ax.set_title('{0} ({1})'.format(codon_id, amino_acid), size=16)
-            codon_ax.legend(loc=legend_location, framealpha=0.5)
+            codon_ax.legend(framealpha=0.5, **legend_kwargs)
             codon_ax.axhline(1, color='black')
 
     else:
@@ -1219,12 +1257,12 @@ def plot_codon_enrichments(names,
                 handle, = sample_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
                 codon_to_handle[codon_id] = handle
 
-            sample_ax.set_title(sample)
+            sample_ax.set_title(sample_to_label[sample])
             sample_ax.axhline(1, color='black')
             handles = [codon_to_handle[codon_id] for codon_id in codons_to_highlight]
             labels = [handle.get_label() for handle in handles]
             if len(codons_to_highlight) > 0:
-                sample_ax.legend(handles, labels, loc=legend_location, framealpha=0.5)
+                sample_ax.legend(handles, labels, framealpha=0.5, **legend_kwargs)
 
     for ax in axs.flatten():
         ax.set_xlim(min_x, max_x)
@@ -1242,7 +1280,7 @@ def plot_codon_enrichments(names,
 
         if mark_active_sites:
             for site, position, color in tRNA_sites + read_borders: 
-                ax.axvline(position, color=color, alpha=0.4)
+                ax.axvline(position, color=color, alpha=0.2)
 
         if mark_stalls:
             for p in range(10, max_x, 10):
@@ -1523,7 +1561,7 @@ def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, 
     Sequencing.Visualize.enhanced_scatter(xs, ys, ax,
                                           color_by_density=False,
                                           marker_size=10,
-                                          do_fit=False,
+                                          #do_fit=False,
                                          )
 
     labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
@@ -1532,6 +1570,9 @@ def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, 
     #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
     ax.set_ylabel('Net change in enrichment\nat A + P sites', size=14)
     ax.set_xlabel('Area under downstream wave\nwith CHX treatment', size=14)
+
+    ax.axvline(0, color='black', alpha=0.5)
+    ax.axhline(0, color='black', alpha=0.5)
 
 def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
     tAIs = load_premal_elongation_times()
