@@ -1101,7 +1101,7 @@ def plot_correlations_across_conditions(enrichments,
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
 
     for name in name_order:
-        e_values = enrichments[name]['codon', codon_position, codons.non_stop_codons]
+        e_values = enrichments[name]['codon', position, codons.non_stop_codons]
         rho, p = scipy.stats.spearmanr(tAI_values, e_values)
         rhos.append(rho)
         ps.append(p)
