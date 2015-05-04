@@ -31,7 +31,9 @@ def build_all_experiments(verbose=True):
                 'pop_msb',
                 'gardin_elife',
                 'brar_science',
+                'baudin-baillieu_cell_reports',
                ]
+
     experiments = {}
     for family in families:
         if verbose:
