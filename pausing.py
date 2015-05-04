@@ -1772,3 +1772,275 @@ def dicodon_area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_
     ax.set_xlim(min(alphas), max(alphas))
     
     return fig
+
+def offset_difference_correlation(enrichments, names, plot_lims, enrichment_ylims=None, min_p=-10, size=1, use_P_sites=False):
+    noCHX_name = [name for name in names if 'noCHX' in name][0]
+    
+    noCHX_As = enrichments[noCHX_name]['codon', 0, codons.non_stop_codons]
+    noCHX_Ps = enrichments[noCHX_name]['codon', -1, codons.non_stop_codons]
+    
+    CHX_names = [name for name in names if 'noCHX' not in name]
+    
+    height_ratios = [0.5, 1, 0.5]
+    gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios)
+    
+    fig, axs = plt.subplots(3, len(CHX_names), figsize=(size * 4 * len(CHX_names), size * 3 * 3), gridspec_kw=gs_kwargs, squeeze=False)
+    
+    for CHX_name, (enrichment_ax, r_ax, p_ax) in zip(CHX_names, axs.T):
+        CHX_As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
+        CHX_Ps = enrichments[CHX_name]['codon', -1, codons.non_stop_codons]
+
+        x_min, x_max = -90, 90
+        xs = np.arange(x_min, x_max)
+
+        ys_strings = [
+            'noCHX_As - CHX_As',
+            'noCHX_As + noCHX_Ps - CHX_As - CHX_Ps',
+        ]
+        
+        labels = [
+            'A site',
+            'A site + P site',
+        ]
+        
+        if not use_P_sites:
+            ys_strings = ys_strings[:1]
+
+        for ys_string, label in zip(ys_strings, labels):
+            ys = eval(ys_string)
+            x_rs, x_ps = np.array([scipy.stats.pearsonr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], ys) for x in xs]).T
+            
+            if use_P_sites and ys_string == ys_strings[0]:
+                alpha = 0.35
+            else:
+                alpha = 1.0
+                
+            r_ax.plot(xs, x_rs, '.-', alpha=alpha, color='blue', label=label)
+            p_ax.plot(xs, np.maximum(10**min_p, x_ps), '.-', alpha=alpha, color='green', label=ys_string)
+
+        p_ax.set_yscale('log')
+        
+        pausing.plot_codon_enrichments([CHX_name], enrichments,
+                                       ['CGA'],
+                                       min_x=x_min,
+                                       max_x=x_max,
+                                       ax=enrichment_ax,
+                                      )
+        
+        if enrichment_ylims:
+            enrichment_ax.set_ylim(*enrichment_ylims)
+            
+        r_ax.set_yticks([-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        r_ax.yaxis.grid(linestyle='-', alpha=0.3)
+        p_ax.yaxis.grid(linestyle='-', alpha=0.3)
+        
+        r_ax.set_ylim(-1, 1)
+        r_ax.axhline(0, color='black')
+        p_ax.set_ylim(10**min_p, 1)
+        
+        p_ax.set_yticks([eval('1e{0}'.format(p)) for p in np.arange(0, min_p - 1, -4)])
+
+        for ax in (r_ax, p_ax, enrichment_ax):
+            tRNA_sites = [('A', 0, 'red'),
+                          ('P', -1, 'blue'),
+                          ('E', -2, 'green'),
+                         ]
+
+            read_borders = [('left', -5, 'black'),
+                            ('right', 4, 'black'),
+                           ]
+            
+            for site, position, color in tRNA_sites + read_borders: 
+                ax.axvline(position, color=color, alpha=0.2)
+
+            ax.set_xlim(*plot_lims)
+            ax.invert_xaxis()
+            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+            ax.set_xticklabels(flipped_labels)
+            
+            for label in ax.get_yticklabels():
+                label.set_size(12)
+
+        if len(ys_strings) > 1:
+            r_ax.legend(framealpha=0.5, loc='lower right')
+        else:
+            r_ax.set_ylabel(ys_strings[0])
+            
+        p_ax.set_xlabel('Offset (codons)', size=14)
+        
+        if not use_P_sites:
+            r_ax.set_ylabel('Correlation of enrichment\nwith A-site occupancy change', size=16)
+        else:
+            r_ax.set_ylabel('Correlation of enrichment\nwith active site changes', size=16)
+        
+        p_ax.set_ylabel('P-value of correlation', size=16)
+        enrichment_ax.set_ylabel('Mean relative\nenrichment', size=16)
+        
+        # Annotate the maximum correlation
+        i = np.argmax(x_rs)
+        x = xs[i]
+        r = x_rs[i]
+        r_ax.annotate(r'$r = {0:0.2f}$'.format(r),
+                      xy=(x, r),
+                      xycoords='data',
+                      xytext=(20, 1.1),
+                      textcoords=('offset points', 'axes fraction'),
+                      ha='left',
+                      va='bottom',
+                      arrowprops=dict(arrowstyle='->',
+                                      color='black',
+                                      linewidth=1.5,
+                                      #shrinkB=5,
+                                      connectionstyle='arc3,rad=0.3',
+                                      alpha=0.6
+                                     ),
+                      size=14,
+                     )
+        
+    for ax in axs[:, 1:].flatten():
+        ax.set_ylabel('')
+        ax.set_yticklabels([])
+        
+    for ax in axs[:-1, :].flatten():
+        ax.set_xlabel('')
+        ax.set_xticklabels([])
+
+    fig.canvas.draw()
+    labels = [label.get_text() for label in axs[-1, 0].get_yticklabels()]    
+    labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
+    axs[-1, 0].set_yticklabels(labels)
+    
+    return fig
+
+def offset_tAI_correlation(enrichments, names, plot_lims, enrichment_ylims=None, rho_ylims=None, min_p=1e-7):
+    height_ratios = [0.5, 1, 0.75]
+    gs_kwargs = dict(hspace=0.05, wspace=0.1, height_ratios=height_ratios)
+    
+    fig, axs = plt.subplots(3, len(names), figsize=(8 * len(names), 6 * sum(height_ratios) / 3 * 3), squeeze=False, gridspec_kw=gs_kwargs)
+    
+    tAIs = load_premal_elongation_times()
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+    
+    for name, (enrichment_ax, rho_ax, p_ax) in zip(names, axs.T):
+        As = enrichments[name]['codon', 0, codons.non_stop_codons]
+        
+        x_rhos = []
+        x_ps = []
+
+        x_min = -90
+        x_max = 90
+        
+        values = enrichments[name]['codon', x_min:x_max + 1, codons.non_stop_codons]
+
+        xs = np.arange(x_min, x_max)
+            
+        x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
+
+        rho_ax.plot(xs, x_rhos, '.-', alpha=1, color='blueviolet')
+        p_ax.plot(xs, x_ps, '.-', alpha=1, color='limegreen')
+        
+        for x, p in zip(xs, x_ps):
+            if p < min_p:
+                mult, exp = '{0:0.1e}'.format(p).split('e')
+                exp = str(int(exp))
+                p_ax.annotate(r'${0} \times 10^{{{1}}}$'.format(mult, exp),
+                              xy=(x, 0),
+                              xycoords=('data', 'axes fraction'),
+                              xytext=(20, 40),
+                              textcoords='offset points',
+                              ha='left',
+                              va='bottom',
+                              arrowprops=dict(arrowstyle='->',
+                                              color='black',
+                                              linewidth=1.5,
+                                              shrinkB=5,
+                                              connectionstyle='arc3,rad=0.3',
+                                             ),
+                              size=12,
+                             )
+            
+        p_ax.set_yscale('log')
+        p_ax.set_xlim(*plot_lims)
+        p_ax.invert_xaxis()
+        flipped_labels = [str(int(-x)) for x in p_ax.get_xticks()]
+        p_ax.set_xticklabels(flipped_labels)
+
+        plot_codon_enrichments([name], enrichments,
+                               ['CGA'],
+                               min_x=x_min,
+                               max_x=x_max,
+                               ax=enrichment_ax,
+                              )
+        if enrichment_ylims:
+            enrichment_ax.set_ylim(*enrichment_ylims)
+
+        for ax in (enrichment_ax, rho_ax, p_ax):
+            ax.set_xlim(*plot_lims)
+            ax.invert_xaxis()
+            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+            ax.set_xticklabels(flipped_labels)
+            
+        for ax in (rho_ax, p_ax):
+            tRNA_sites = [('A', 0, 'red'),
+                          ('P', -1, 'blue'),
+                          ('E', -2, 'green'),
+                         ]
+
+            read_borders = [('left', -5, 'black'),
+                            ('right', 4, 'black'),
+                           ]
+            
+            for site, position, color in tRNA_sites + read_borders: 
+                ax.axvline(position, color=color, alpha=0.2)
+                
+        if rho_ylims == None:
+            rho_ylims = (-0.6, 0.6)
+        rho_ax.set_ylim(*rho_ylims)
+        
+        p_ax.set_ylim(ymin=min_p)
+        
+        rho_ax.set_ylabel('Rank correlation of enrichment\nwith 1 / tRNA abundance', size=14)
+        p_ax.set_ylabel('P-value of rank correlation', size=14)
+        enrichment_ax.set_ylabel('Mean relative\nenrichment', size=14)
+        
+        for ax in (enrichment_ax, rho_ax, p_ax):
+            for label in ax.get_yticklabels():
+                label.set_size(12)
+        
+        rho_ax.axhline(0, color='black')
+        enrichment_ax.set_title(name)
+        
+        p_ax.set_xlabel('Offset (codons)', size=14)
+        
+        rho_ax.yaxis.grid(linestyle='-', alpha=0.3)
+        p_ax.yaxis.grid(linestyle='-', alpha=0.3)
+        
+        i = np.argmax(x_rhos)
+        x = xs[i]
+        rho = x_rhos[i]
+        rho_ax.annotate(r'$\rho = {0:0.2f}$'.format(rho),
+                        xy=(x, rho),
+                        xycoords='data',
+                        xytext=(15, 1.05),
+                        textcoords=('offset points', 'axes fraction'),
+                        ha='left',
+                        va='bottom',
+                        arrowprops=dict(arrowstyle='->',
+                                        color='black',
+                                        linewidth=1.5,
+                                        #shrinkB=5,
+                                        connectionstyle='arc3,rad=0.3',
+                                        alpha=0.6
+                                       ),
+                        size=14,
+                       )
+        
+    for ax in axs[:, 1:].flatten():
+        ax.set_ylabel('')
+        ax.set_yticklabels([])
+        
+    for ax in axs[:-1, :].flatten():
+        ax.set_xlabel('')
+        ax.set_xticklabels([])
+        
+    return fig
