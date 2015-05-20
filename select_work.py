@@ -8,7 +8,7 @@ import visualize
 import contaminants
 from collections import Counter
 
-def build_all_experiments(verbose=True):
+def build_all_experiments(verbose=False):
     experiment_from_file_name = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
     
     families = ['zinshteyn_plos_genetics',
