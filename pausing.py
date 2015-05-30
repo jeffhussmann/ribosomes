@@ -8,6 +8,7 @@ import brewer2mpl
 import matplotlib.pyplot as plt
 import matplotlib.cm
 import matplotlib.colors
+import matplotlib.transforms
 from matplotlib.backends.backend_pdf import PdfPages
 import Sequencing.utilities
 import Sequencing.Visualize
@@ -17,6 +18,12 @@ import os
 from pausing_cython import fast_stratified_mean_enrichments, StratifiedMeanEnrichments
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
+
+CHX_bmap = brewer2mpl.get_map('PuOR', 'Diverging', 10)
+dark_CHX = CHX_bmap.mpl_colors[0]
+light_CHX = CHX_bmap.mpl_colors[2]
+dark_noCHX = CHX_bmap.mpl_colors[-2]
+light_noCHX = CHX_bmap.mpl_colors[-3]
 
 def means_of_rest(a):
     ''' Constructs an array m whose i'th element is the mean of all the elements in a except the i'th. '''
@@ -285,8 +292,6 @@ def make_base_identity_masks(around_lists):
     return masks
 
 def split_into_bins(around_lists, quantize_at, num_quantiles): 
-    quantize_at = 0
-    
     ratios_around = around_lists['ratios']
     num_before = around_lists['num_before']
 
@@ -733,35 +738,41 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
                        vector='orthogonal',
                        initial_distance=50,
                        arrow_alpha=0.2,
+                       manual_ratios=None,
+                       manual_alignments=None,
+                       text_kwargs={'size': 10},
                       ):
     def attempt_text(x, y, site, distance):
         if vector == 'orthogonal':
             x_offset = np.sign(x - y) * distance
             y_offset = -np.sign(x - y) * distance
+            ha, va = 'center', 'top'
         elif vector == 'radial':
             norm = np.linalg.norm([x, y])
             x_offset = x * distance / norm
             y_offset = y * distance / norm
+            ha, va = manual_alignments
         elif vector == 'sideways':
             x_offset = distance
             y_offset = 0
+            ha, va = 'center', 'top'
         elif vector == 'manual':
-            x_offset = distance / 4.
-            y_offset = -distance
+            x_ratio, y_ratio = manual_ratios
+            ha, va = manual_alignments
+            x_offset = distance * x_ratio
+            y_offset = distance * y_ratio
 
         text = ax.annotate(site,
                            xy=(x, y),
                            xycoords=('data', 'data'),
                            xytext=(x_offset, y_offset),
                            textcoords='offset points',
-                           ha='center',
-                           size=10,
-                           arrowprops={'arrowstyle': '->',
-                                       'alpha': arrow_alpha,
-                                      },
-                          )
+                           ha=ha,
+                           va=va,
+                           **text_kwargs)
         ax.figure.canvas.draw()
-        return text, text.get_window_extent()
+
+        return text, text.get_window_extent(), (x, y, x_offset, y_offset)
 
     ax.figure.canvas.draw()
     starting_labels = [ax.xaxis.get_label(), ax.yaxis.get_label()] + ax.get_yticklabels() + ax.get_xticklabels()
@@ -773,11 +784,23 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
                             )
     for x, y, label in tuples:
         distance = initial_distance
-        text, bbox = attempt_text(x, y, label, distance)
+        text, bbox, coords = attempt_text(x, y, label, distance)
         while any(bbox.fully_overlaps(other_bbox) for other_bbox in bboxes):
             text.remove()
             distance += 10
-            text, bbox = attempt_text(x, y, label, distance)
+            text, bbox, coords = attempt_text(x, y, label, distance)
+            if distance >= 500:
+                break
+        
+        x, y, x_offset, y_offset = coords
+        ax.annotate('',
+                    xy=(x, y),
+                    xycoords=('data', 'data'),
+                    xytext=(x_offset, y_offset),
+                    textcoords=('offset points', 'offset points'),
+                    arrowprops={'arrowstyle': '->', 'alpha': 0.5},
+                   )
+
         bboxes.append(bbox)
 
 def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, label_offset=30, size=10):
@@ -806,7 +829,6 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, la
                            ha=ha,
                            va='center',
                            size=size,
-                           #arrowprops={'arrowstyle': '->', 'alpha': 0.5, 'relpos': relpos},
                           )
         ax.figure.canvas.draw()
         return text, text.get_window_extent(renderer), (x, y, x_offset, y_offset)
@@ -846,12 +868,31 @@ def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, la
 
         bboxes.append(bbox)
             
-def load_premal_elongation_times():
-    expected_times = {}
-    fn = '{0}/projects/translation_elongation/data/S.cer.code'.format(os.environ['HOME'])
-    for line in open(fn):
-        codon, _, copy_number, wobble = line.strip().split()
-        expected_times[codon] = 1. / (int(copy_number) * float(wobble))
+def load_tRNA_copy_numbers(kind='copy number'):
+    if kind == 'copy number':
+        expected_times = {}
+        fn = '{0}/projects/translation_elongation/data/S.cer.code'.format(os.environ['HOME'])
+        for line in open(fn):
+            codon, _, copy_number, wobble = line.strip().split()
+            expected_times[codon] = 1. / int(copy_number)
+    elif kind == 'wobble':
+        expected_times = {}
+        fn = '{0}/projects/translation_elongation/data/S.cer.code'.format(os.environ['HOME'])
+        for line in open(fn):
+            codon, _, copy_number, wobble = line.strip().split()
+            expected_times[codon] = 1. / (int(copy_number) * float(wobble))
+    elif kind == 'tAI':
+        expected_times = {}
+        fn = '{0}/projects/translation_elongation/data/tAI.txt'.format(os.environ['HOME'])
+        for line in open(fn):
+            codon, anticodon, tAI = line.strip().split()
+            expected_times[codon] = 1. / float(tAI)
+    elif kind == 'premal tAI':
+        expected_times = {}
+        fn = '{0}/projects/translation_elongation/data/premal_tAI.txt'.format(os.environ['HOME'])
+        for line in open(fn):
+            codon, anticodon, _, _, _, tAI = line.strip().split()
+            expected_times[codon] = 1. / float(tAI)
     return expected_times
 
 def assign_colors_by_values(codon_to_ranks):
@@ -968,6 +1009,7 @@ def plot_enrichments_across_conditions(enrichments,
                                        label_size=10,
                                        marker_size=6,
                                        heat_exception=False,
+                                       ylabel_size=14,
                                       ):
     if ax == None:
         fig, ax = plt.subplots(figsize=(16, 12))
@@ -1072,13 +1114,16 @@ def plot_enrichments_across_conditions(enrichments,
 
         ax.tick_params(labelright=True)
 
-        big_bold = matplotlib.font_manager.FontProperties(size=14, weight='bold')
+        big_bold = matplotlib.font_manager.FontProperties(size=ylabel_size, weight='bold')
         for label in ax.get_yticklabels():
             label.set_fontproperties(big_bold)
 
         ax.yaxis.grid(True, which='major', linestyle='-', alpha=0.6)
     
-    label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, label_offset=label_offset, size=label_size)
+    label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs,
+                                            label_offset=label_offset,
+                                            size=label_size,
+                                           )
 
     ax.set_xticks(xs)
     ax.set_xticklabels(name_order, rotation=30, ha='right', size=12)
@@ -1093,11 +1138,12 @@ def plot_correlations_across_conditions(enrichments,
                                         plot_p_values=True,
                                         plot_correlations=True,
                                         x_labels=None,
+                                        tRNA_value_source='tAI',
                                        ):
     rhos = []
     ps = []
 
-    tAIs = load_premal_elongation_times()
+    tAIs = load_tRNA_copy_numbers(tRNA_value_source)
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
 
     for name in name_order:
@@ -1246,9 +1292,9 @@ def plot_codon_enrichments(names,
                         continue
 
                     if not codons_to_highlight:
-                        alpha = 0.3
+                        alpha = 0.5
                     else:
-                        alpha = 0.3
+                        alpha = 0.1
 
                     kwargs = {'color': 'black',
                               'alpha': alpha,
@@ -1269,18 +1315,8 @@ def plot_codon_enrichments(names,
         if log_scale:
             ax.set_yscale('log', basey=2)
 
-        tRNA_sites = [('A', 0, 'red'),
-                      ('P', -1, 'blue'),
-                      ('E', -2, 'green'),
-                     ]
-
-        read_borders = [('left', -5, 'black'),
-                        ('right', 4, 'black'),
-                       ]
-
         if mark_active_sites:
-            for site, position, color in tRNA_sites + read_borders: 
-                ax.axvline(position, color=color, alpha=0.2)
+            mark_active_sites_and_borders(ax, alpha=0.7)
 
         if mark_stalls:
             for p in range(10, max_x, 10):
@@ -1298,6 +1334,19 @@ def plot_codon_enrichments(names,
             ax.set_xticklabels(flipped_labels)
 
     return fig
+
+def mark_active_sites_and_borders(ax, alpha=0.4):
+    tRNA_sites = [('A', 0, 'red'),
+                  ('P', -1, 'blue'),
+                  ('E', -2, 'green'),
+                 ]
+
+    read_borders = [('left', -5, 'black'),
+                    ('right', 4, 'black'),
+                   ]
+
+    for site, position, color in tRNA_sites + read_borders: 
+        ax.axvline(position, color=color, alpha=alpha)
 
 def plot_dicodon_enrichments(names,
                              stratified_mean_enrichments_dict,
@@ -1372,17 +1421,7 @@ def plot_dicodon_enrichments(names,
         if log_scale:
             ax.set_yscale('log', basey=2)
 
-        tRNA_sites = [('A', 0, 'red'),
-                      ('P', -1, 'blue'),
-                      ('E', -2, 'green'),
-                     ]
-
-        read_borders = [('left', -5, 'black'),
-                        ('right', 4, 'black'),
-                       ]
-
-        for site, position, color in tRNA_sites + read_borders: 
-            ax.axvline(position, color=color, alpha=0.2)
+        mark_active_sites_and_borders(ax)
 
         for p in range(10, max_x, 10):
             ax.axvline(p, ls=':', color='black', alpha=0.2)
@@ -1540,7 +1579,7 @@ def scatter_offset_relationships(around_lists,
         ax.axvline(q, color='black', alpha=0.2)
 
 def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, ax):
-    tAIs = load_premal_elongation_times()
+    tAIs = load_tRNA_copy_numbers()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
     areas = []
 
@@ -1575,7 +1614,7 @@ def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, 
     ax.axhline(0, color='black', alpha=0.5)
 
 def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
-    tAIs = load_premal_elongation_times()
+    tAIs = load_tRNA_copy_numbers()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
     areas = []
 
@@ -1680,7 +1719,7 @@ def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_
     return fig
 
 def dicodon_area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
-    tAIs = load_premal_elongation_times()
+    tAIs = load_tRNA_copy_numbers()
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
     areas = []
 
@@ -1773,20 +1812,53 @@ def dicodon_area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_
     
     return fig
 
-def offset_difference_correlation(enrichments, names, plot_lims, enrichment_ylims=None, min_p=-10, size=1, use_P_sites=False):
-    noCHX_name = [name for name in names if 'noCHX' in name][0]
+def offset_difference_correlation(enrichments, names,
+                                  plot_lims=(-90, 89),
+                                  enrichment_ylims=None,
+                                  r_ylims=(-1, 1),
+                                  size=1,
+                                  min_p=-10,
+                                  use_P_sites=False,
+                                  show_A_site=False,
+                                  variance_explained=False,
+                                  p_value_panels=True,
+                                  marker_size=6,
+                                  line_width=1.5,
+                                  text_size=14,
+                                  withhold_results=False,
+                                  annotate_maximum=True,
+                                 ):
+    if any('noCHX' in name for name in names):
+        noCHX_name = [name for name in names if 'noCHX' in name][0]
+        CHX_names = [name for name in names if 'noCHX' not in name]
+    else:
+        noCHX_name = names[0]
+        CHX_names = names[1:]
     
     noCHX_As = enrichments[noCHX_name]['codon', 0, codons.non_stop_codons]
     noCHX_Ps = enrichments[noCHX_name]['codon', -1, codons.non_stop_codons]
     
-    CHX_names = [name for name in names if 'noCHX' not in name]
+    if p_value_panels:
+        gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=[0.5, 1, 0.5])
+        fig, axs = plt.subplots(3, len(CHX_names),
+                                figsize=(size * 4 * len(CHX_names), size * 3 * 3),
+                                gridspec_kw=gs_kwargs,
+                                squeeze=False,
+                               )
+    else:
+        gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=[0.3, 1])
+        fig, axs = plt.subplots(2, len(CHX_names),
+                                figsize=(size * 4 * len(CHX_names), size * 3 * 2),
+                                gridspec_kw=gs_kwargs,
+                                squeeze=False,
+                               )
     
-    height_ratios = [0.5, 1, 0.5]
-    gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios)
-    
-    fig, axs = plt.subplots(3, len(CHX_names), figsize=(size * 4 * len(CHX_names), size * 3 * 3), gridspec_kw=gs_kwargs, squeeze=False)
-    
-    for CHX_name, (enrichment_ax, r_ax, p_ax) in zip(CHX_names, axs.T):
+    for CHX_name, ax_col in zip(CHX_names, axs.T):
+        if p_value_panels:
+            enrichment_ax, r_ax, p_ax = ax_col
+        else:
+            enrichment_ax, r_ax = ax_col
+
         CHX_As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
         CHX_Ps = enrichments[CHX_name]['codon', -1, codons.non_stop_codons]
 
@@ -1806,234 +1878,138 @@ def offset_difference_correlation(enrichments, names, plot_lims, enrichment_ylim
         if not use_P_sites:
             ys_strings = ys_strings[:1]
 
+        if use_P_sites and not show_A_site:
+            ys_strings = ys_strings[1:]
+
         for ys_string, label in zip(ys_strings, labels):
             ys = eval(ys_string)
             x_rs, x_ps = np.array([scipy.stats.pearsonr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], ys) for x in xs]).T
             
-            if use_P_sites and ys_string == ys_strings[0]:
-                alpha = 0.35
+            if use_P_sites and show_A_site and ys_string == ys_strings[0]:
+                alpha = 0.5
             else:
                 alpha = 1.0
                 
-            r_ax.plot(xs, x_rs, '.-', alpha=alpha, color='blue', label=label)
-            p_ax.plot(xs, np.maximum(10**min_p, x_ps), '.-', alpha=alpha, color='green', label=ys_string)
+            if variance_explained:
+                ys = x_rs**2
+            else:
+                ys = x_rs
 
-        p_ax.set_yscale('log')
-        
-        pausing.plot_codon_enrichments([CHX_name], enrichments,
-                                       ['CGA'],
-                                       min_x=x_min,
-                                       max_x=x_max,
-                                       ax=enrichment_ax,
-                                      )
-        
-        if enrichment_ylims:
-            enrichment_ax.set_ylim(*enrichment_ylims)
-            
-        r_ax.set_yticks([-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0])
-        r_ax.yaxis.grid(linestyle='-', alpha=0.3)
-        p_ax.yaxis.grid(linestyle='-', alpha=0.3)
-        
-        r_ax.set_ylim(-1, 1)
-        r_ax.axhline(0, color='black')
-        p_ax.set_ylim(10**min_p, 1)
-        
-        p_ax.set_yticks([eval('1e{0}'.format(p)) for p in np.arange(0, min_p - 1, -4)])
+            if not p_value_panels and show_A_site and ys_string == ys_strings[0]:
+                color = 'green'
+            else:
+                color = 'blue'
 
-        for ax in (r_ax, p_ax, enrichment_ax):
-            tRNA_sites = [('A', 0, 'red'),
-                          ('P', -1, 'blue'),
-                          ('E', -2, 'green'),
-                         ]
+            if not withhold_results:
+                r_ax.plot(xs, ys, '.-',
+                          alpha=alpha,
+                          color=color,
+                          label=label,
+                          markersize=marker_size,
+                          linewidth=line_width,
+                         )
 
-            read_borders = [('left', -5, 'black'),
-                            ('right', 4, 'black'),
-                           ]
-            
-            for site, position, color in tRNA_sites + read_borders: 
-                ax.axvline(position, color=color, alpha=0.2)
+            if p_value_panels:
+                p_ax.plot(xs, np.maximum(10**min_p, x_ps), '.-', alpha=alpha, color='green', label=label)
 
-            ax.set_xlim(*plot_lims)
-            ax.invert_xaxis()
-            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
-            ax.set_xticklabels(flipped_labels)
-            
-            for label in ax.get_yticklabels():
-                label.set_size(12)
-
-        if len(ys_strings) > 1:
-            r_ax.legend(framealpha=0.5, loc='lower right')
-        else:
-            r_ax.set_ylabel(ys_strings[0])
-            
-        p_ax.set_xlabel('Offset (codons)', size=14)
-        
-        if not use_P_sites:
-            r_ax.set_ylabel('Correlation of enrichment\nwith A-site occupancy change', size=16)
-        else:
-            r_ax.set_ylabel('Correlation of enrichment\nwith active site changes', size=16)
-        
-        p_ax.set_ylabel('P-value of correlation', size=16)
-        enrichment_ax.set_ylabel('Mean relative\nenrichment', size=16)
-        
-        # Annotate the maximum correlation
-        i = np.argmax(x_rs)
-        x = xs[i]
-        r = x_rs[i]
-        r_ax.annotate(r'$r = {0:0.2f}$'.format(r),
-                      xy=(x, r),
-                      xycoords='data',
-                      xytext=(20, 1.1),
-                      textcoords=('offset points', 'axes fraction'),
-                      ha='left',
-                      va='bottom',
-                      arrowprops=dict(arrowstyle='->',
-                                      color='black',
-                                      linewidth=1.5,
-                                      #shrinkB=5,
-                                      connectionstyle='arc3,rad=0.3',
-                                      alpha=0.6
-                                     ),
-                      size=14,
-                     )
-        
-    for ax in axs[:, 1:].flatten():
-        ax.set_ylabel('')
-        ax.set_yticklabels([])
-        
-    for ax in axs[:-1, :].flatten():
-        ax.set_xlabel('')
-        ax.set_xticklabels([])
-
-    fig.canvas.draw()
-    labels = [label.get_text() for label in axs[-1, 0].get_yticklabels()]    
-    labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
-    axs[-1, 0].set_yticklabels(labels)
-    
-    return fig
-
-def offset_tAI_correlation(enrichments, names, plot_lims, enrichment_ylims=None, rho_ylims=None, min_p=1e-7):
-    height_ratios = [0.5, 1, 0.75]
-    gs_kwargs = dict(hspace=0.05, wspace=0.1, height_ratios=height_ratios)
-    
-    fig, axs = plt.subplots(3, len(names), figsize=(8 * len(names), 6 * sum(height_ratios) / 3 * 3), squeeze=False, gridspec_kw=gs_kwargs)
-    
-    tAIs = load_premal_elongation_times()
-    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
-    
-    for name, (enrichment_ax, rho_ax, p_ax) in zip(names, axs.T):
-        As = enrichments[name]['codon', 0, codons.non_stop_codons]
-        
-        x_rhos = []
-        x_ps = []
-
-        x_min = -90
-        x_max = 90
-        
-        values = enrichments[name]['codon', x_min:x_max + 1, codons.non_stop_codons]
-
-        xs = np.arange(x_min, x_max)
-            
-        x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
-
-        rho_ax.plot(xs, x_rhos, '.-', alpha=1, color='blueviolet')
-        p_ax.plot(xs, x_ps, '.-', alpha=1, color='limegreen')
-        
-        for x, p in zip(xs, x_ps):
-            if p < min_p:
-                mult, exp = '{0:0.1e}'.format(p).split('e')
-                exp = str(int(exp))
-                p_ax.annotate(r'${0} \times 10^{{{1}}}$'.format(mult, exp),
-                              xy=(x, 0),
-                              xycoords=('data', 'axes fraction'),
-                              xytext=(20, 40),
-                              textcoords='offset points',
-                              ha='left',
-                              va='bottom',
-                              arrowprops=dict(arrowstyle='->',
-                                              color='black',
-                                              linewidth=1.5,
-                                              shrinkB=5,
-                                              connectionstyle='arc3,rad=0.3',
-                                             ),
-                              size=12,
-                             )
-            
-        p_ax.set_yscale('log')
-        p_ax.set_xlim(*plot_lims)
-        p_ax.invert_xaxis()
-        flipped_labels = [str(int(-x)) for x in p_ax.get_xticks()]
-        p_ax.set_xticklabels(flipped_labels)
-
-        plot_codon_enrichments([name], enrichments,
+        plot_codon_enrichments([CHX_name], enrichments,
                                ['CGA'],
                                min_x=x_min,
                                max_x=x_max,
                                ax=enrichment_ax,
+                               legend_kwargs={'loc': 'upper right'},
+                               only_show_highlights=True,
+                               mark_active_sites=False,
+                               line_width=line_width,
+                               marker_size=marker_size,
                               )
+
         if enrichment_ylims:
             enrichment_ax.set_ylim(*enrichment_ylims)
+            enrichment_ax.set_yticks(np.arange(0, enrichment_ylims[1] + 0.1))
 
-        for ax in (enrichment_ax, rho_ax, p_ax):
+        r_ax.set_yticks([-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0])
+        r_ax.yaxis.grid(linestyle='-', alpha=0.3)
+
+        if variance_explained:
+            r_ax.set_ylim(0, 1)
+        else:
+            r_ax.set_ylim(*r_ylims)
+        
+        r_ax.axhline(0, color='black')
+
+        if p_value_panels:
+            p_ax.set_yscale('log')
+            p_ax.set_ylim(10**min_p, 1)
+            p_ax.set_yticks([eval('1e{0}'.format(p)) for p in np.arange(0, min_p - 1, -4)])
+            p_ax.yaxis.grid(linestyle='-', alpha=0.3)
+            p_ax.set_ylabel('P-value of correlation', size=16)
+            if len(ys_strings) > 1:
+                p_ax.legend(framealpha=0.5, loc='lower right')
+        
+        label_kwargs = {'size': 16, 'family': 'serif'}
+
+        ax_col[-1].set_xlabel('Offset (codons)', label_kwargs)
+
+        for ax in ax_col:
+            mark_active_sites_and_borders(ax, alpha=0.6)
+
             ax.set_xlim(*plot_lims)
             ax.invert_xaxis()
             flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
             ax.set_xticklabels(flipped_labels)
             
-        for ax in (rho_ax, p_ax):
-            tRNA_sites = [('A', 0, 'red'),
-                          ('P', -1, 'blue'),
-                          ('E', -2, 'green'),
-                         ]
-
-            read_borders = [('left', -5, 'black'),
-                            ('right', 4, 'black'),
-                           ]
-            
-            for site, position, color in tRNA_sites + read_borders: 
-                ax.axvline(position, color=color, alpha=0.2)
-                
-        if rho_ylims == None:
-            rho_ylims = (-0.6, 0.6)
-        rho_ax.set_ylim(*rho_ylims)
-        
-        p_ax.set_ylim(ymin=min_p)
-        
-        rho_ax.set_ylabel('Rank correlation of enrichment\nwith 1 / tRNA abundance', size=14)
-        p_ax.set_ylabel('P-value of rank correlation', size=14)
-        enrichment_ax.set_ylabel('Mean relative\nenrichment', size=14)
-        
-        for ax in (enrichment_ax, rho_ax, p_ax):
-            for label in ax.get_yticklabels():
+            for label in ax.get_yticklabels() + ax.get_xticklabels():
                 label.set_size(12)
+
+        if len(ys_strings) > 1:
+            if variance_explained:
+                loc = 'upper right'
+            else:
+                loc = 'lower right'
+            r_ax.legend(framealpha=0.5, loc=loc)
+        else:
+            r_ax.set_ylabel(ys_strings[0])
+
+        if not use_P_sites:
+            if variance_explained:
+                r_ax.set_ylabel('$r^2$' + 'between enrichments at offset\nand A-site changes', **label_kwargs)
+            else:
+                r_ax.set_ylabel('Correlation of enrichments at offset\nwith A-site changes', **label_kwargs)
+        else:
+            if variance_explained:
+                r_ax.set_ylabel('$r^2$' + 'between enrichments at offset\nand active site changes', **label_kwargs)
+            else:
+                r_ax.set_ylabel('Correlation of enrichments at offset\nwith active site changes', **label_kwargs)
         
-        rho_ax.axhline(0, color='black')
-        enrichment_ax.set_title(name)
+        enrichment_ax.set_ylabel('Mean relative\nenrichment', **label_kwargs)
         
-        p_ax.set_xlabel('Offset (codons)', size=14)
-        
-        rho_ax.yaxis.grid(linestyle='-', alpha=0.3)
-        p_ax.yaxis.grid(linestyle='-', alpha=0.3)
-        
-        i = np.argmax(x_rhos)
+        # Annotate the maximum correlation
+        i = np.argmax(ys)
         x = xs[i]
-        rho = x_rhos[i]
-        rho_ax.annotate(r'$\rho = {0:0.2f}$'.format(rho),
-                        xy=(x, rho),
-                        xycoords='data',
-                        xytext=(15, 1.05),
-                        textcoords=('offset points', 'axes fraction'),
-                        ha='left',
-                        va='bottom',
-                        arrowprops=dict(arrowstyle='->',
-                                        color='black',
-                                        linewidth=1.5,
-                                        #shrinkB=5,
-                                        connectionstyle='arc3,rad=0.3',
-                                        alpha=0.6
-                                       ),
-                        size=14,
-                       )
+        y = ys[i]
+        if variance_explained:
+            label = r'$r^2 =\ {0:0.2f}$'.format(y)
+        else:
+            label = r'$r = {0:0.2f}$'.format(y)
+
+        if not withhold_results and annotate_maximum:
+            r_ax.annotate(label,
+                          xy=(x, y),
+                          xycoords='data',
+                          xytext=(20, 0.93),
+                          textcoords=('offset points', 'axes fraction'),
+                          ha='left',
+                          va='bottom',
+                          arrowprops=dict(arrowstyle='->',
+                                          color='black',
+                                          linewidth=1.5,
+                                          connectionstyle='arc3,rad=0.2',
+                                          alpha=0.6,
+                                          relpos=(0., 0.4),
+                                         ),
+                          size=text_size,
+                         )
         
     for ax in axs[:, 1:].flatten():
         ax.set_ylabel('')
@@ -2042,5 +2018,253 @@ def offset_tAI_correlation(enrichments, names, plot_lims, enrichment_ylims=None,
     for ax in axs[:-1, :].flatten():
         ax.set_xlabel('')
         ax.set_xticklabels([])
+
+    if p_value_panels and any(x_ps <= 10**min_p):
+        fig.canvas.draw()
+        labels = [label.get_text() for label in axs[-1, 0].get_yticklabels()]    
+        labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
+        axs[-1, 0].set_yticklabels(labels)
+
+    return fig
+
+def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
+                           enrichment_ylims=None,
+                           rho_ylims=(-0.6, 0.6),
+                           size=6,
+                           min_p=-7,
+                           p_value_panels=True,
+                           marker_size=6,
+                           line_width=1.5,
+                           text_size=14,
+                           withhold_results=False,
+                           p_offsets=None,
+                           tRNA_value_source='tAI',
+                          ):
+    tAIs = load_tRNA_copy_numbers(tRNA_value_source)
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+
+    if p_offsets == None:
+        p_offsets = [20]*len(CHX_names)
+    
+    if p_value_panels:
+        height_ratios = [0.3, 1, 0.3]
+        gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios, left=0, right=1)
+        fig, axs = plt.subplots(3, len(CHX_names),
+                                figsize=(0.7 * size * len(CHX_names), size * sum(height_ratios)),
+                                gridspec_kw=gs_kwargs,
+                                squeeze=False,
+                               )
+    else:
+        height_ratios = [0.3, 1]
+        gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios)
+        fig, axs = plt.subplots(2, len(CHX_names),
+                                figsize=(size * len(CHX_names), size * sum(height_ratios)),
+                                gridspec_kw=gs_kwargs,
+                                squeeze=False,
+                               )
+    for CHX_name, ax_col, p_offset in zip(CHX_names, axs.T, p_offsets):
+        if p_value_panels:
+            enrichment_ax, rho_ax, p_ax = ax_col
+        else:
+            enrichment_ax, rho_ax = ax_col
+
+        As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
         
+        x_rhos = []
+        x_ps = []
+        
+        x_min, x_max = plot_lims
+        xs = np.arange(x_min, x_max + 1)
+            
+        x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
+
+        if withhold_results:
+            for x, rho in zip(xs, x_rhos):
+                if x == 0:
+                    rho_ax.scatter([x], [rho],
+                                   color='blueviolet',
+                                   s=20,
+                                  )
+        else:
+            rho_ax.plot(xs, x_rhos, '.-',
+                        alpha=1,
+                        color='blueviolet',
+                        markersize=marker_size,
+                        linewidth=line_width,
+                       )
+
+        label_kwargs = {'size': 16, 'family': 'serif'}
+
+        if p_value_panels:
+            if withhold_results:
+                for x, p in zip(xs, x_ps):
+                    if x == 0:
+                        p_ax.scatter([x], [p],
+                                     color='limegreen',
+                                     s=20,
+                                    )
+            else:
+                p_ax.plot(xs, np.maximum(10**min_p, x_ps), '.-',
+                          alpha=1,
+                          color='limegreen',
+                          markersize=marker_size,
+                          linewidth=line_width,
+                         )
+                for x, p in zip(xs, x_ps):
+                    if p < 10**min_p:
+                        p_ax.scatter([x], [10**min_p], s=20, color='limegreen', clip_on=False)
+            
+            p_ax.set_yscale('log')
+            p_ax.set_ylim(ymax=1, ymin=10**min_p)
+            p_ax.set_yticks([eval('1e{0}'.format(p)) for p in np.arange(0, min_p - 1, -2)])
+            p_ax.set_ylabel('P-value of\nrank correlation', **label_kwargs)
+            p_ax.yaxis.grid(linestyle='-', alpha=0.3)
+
+        plot_codon_enrichments([CHX_name], enrichments,
+                               ['CGA'],
+                               min_x=x_min,
+                               max_x=x_max,
+                               ax=enrichment_ax,
+                               only_show_highlights=True,
+                               mark_active_sites=False,
+                               line_width=line_width,
+                               marker_size=marker_size,
+                              )
+        if enrichment_ylims:
+            enrichment_ax.set_ylim(*enrichment_ylims)
+            enrichment_ax.set_yticks(np.arange(0, enrichment_ylims[1] + 0.1))
+
+        for ax in ax_col:
+            mark_active_sites_and_borders(ax, alpha=0.6)
+
+            ax.set_xlim(*plot_lims)
+            ax.invert_xaxis()
+            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+            ax.set_xticklabels(flipped_labels)
+
+        rho_ax.set_ylim(*rho_ylims)
+        
+        rho_ax.set_ylabel('Rank correlation of enrichment\nwith 1 / tRNA abundance', **label_kwargs)
+        enrichment_ax.set_ylabel('Mean relative\nenrichment', **label_kwargs)
+        
+        ax_col[-1].set_xlabel('Offset (codons)', **label_kwargs)
+        
+        for ax in ax_col:
+            for label in ax.get_yticklabels() + ax.get_xticklabels():
+                label.set_size(12)
+        
+        rho_ax.axhline(0, color='black')
+        enrichment_ax.set_title(CHX_name)
+        
+        rho_ax.yaxis.grid(linestyle='-', alpha=0.3)
+        
+        # Annotate the maximum correlation
+        i = np.argmax(x_rhos)
+        x = xs[i]
+        rho = x_rhos[i]
+        p = x_ps[i]
+        if not withhold_results:
+            rho_ax.annotate(r'$\rho = {0:0.2f}$'.format(rho),
+                            xy=(x, rho),
+                            xycoords='data',
+                            xytext=(12, 1.05),
+                            textcoords=('offset points', 'axes fraction'),
+                            ha='left',
+                            va='bottom',
+                            arrowprops=dict(arrowstyle='->',
+                                            color='black',
+                                            linewidth=1.5,
+                                            connectionstyle='arc3,rad=0.2',
+                                            alpha=0.6,
+                                            relpos=(0., 0.),
+                                           ),
+                            size=text_size,
+                           )
+
+            if p_value_panels:
+                mantissa, exponent = '{0:0.1e}'.format(p).split('e')
+                p_string = r'{0} \times 10^{{{1}}}'.format(mantissa, int(exponent))
+                p_ax.annotate(r'$p = {0}$'.format(p_string),
+                              xy=(x, p),
+                              xycoords='data',
+                              xytext=(p_offset, 0.05),
+                              textcoords=('offset points', 'axes fraction'),
+                              ha=('left' if p_offset > 0 else 'right'),
+                              va='bottom',
+                              arrowprops=dict(arrowstyle='->',
+                                              color='black',
+                                              linewidth=1.5,
+                                              connectionstyle='arc3,rad=-0.2' if p_offset > 0 else 'arc3,rad=0.2',
+                                              alpha=0.6,
+                                              relpos=(0., 0.3) if p_offset > 0 else (1., 0.3),
+                                             ),
+                              size=text_size,
+                             )
+
+    for ax in axs[:, 1:].flatten():
+        ax.set_ylabel('')
+        ax.set_yticklabels([])
+
+    for ax in axs[:-1, :].flatten():
+        ax.set_xlabel('')
+        ax.set_xticklabels([])
+
+    #for ax in axs[:, 1:].flatten():
+    #    if ax.legend_:
+    #        ax.legend_.remove()
+    
+    if p_value_panels and any(x_ps <= 10**min_p):
+        fig.canvas.draw()
+        labels = [label.get_text() for label in axs[-1, 0].get_yticklabels()]    
+        labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
+        axs[-1, 0].set_yticklabels(labels)
+
+    return fig
+
+def correlation_heatmap(enrichments, names, labels=None, offset=0, ax=None, cmap=matplotlib.cm.RdBu_r):
+    if ax == None:
+        fig, ax = plt.subplots(figsize=(8, 8))
+    else:
+        fig = ax.figure
+
+    if labels == None:
+        labels = names
+
+    all_values = [enrichments[name]['codon', offset, codons.non_stop_codons] for name in names]
+    correlations = np.zeros((len(names), len(names)))
+    for row, row_values in enumerate(all_values):
+        for col, col_values in enumerate(all_values):
+            correlations[row, col], _ = scipy.stats.pearsonr(row_values, col_values)
+
+    im = ax.imshow(correlations,
+                   interpolation='nearest',
+                   cmap=cmap,
+                   vmin=-1, vmax=1,
+                  )
+    ax.set_yticks(range(len(labels)))
+    ax.set_xticks(range(len(labels)))
+    ax.set_yticklabels(labels)
+    ax.tick_params(labeltop=True, labelbottom=False)
+    ax.set_xticklabels(labels, rotation=45, ha='left')
+    for t in ax.yaxis.get_ticklines() + ax.xaxis.get_ticklines():
+        t.set_visible(False)
+
+    p = ax.get_position()
+    height = p.height / 2.
+    start = (p.y1 + p.y0) / 2. - height / 2.
+    colorbar_ax = fig.add_axes([p.x1 + 0.05 * p.width, start, p.width * 0.05, height])
+    fig.colorbar(im, cax=colorbar_ax, ticks=[-1, 0, 1])
+    
+    colorbar_ax.annotate('r',
+                         xy=(0.5, 1),
+                         xycoords='axes fraction',
+                         xytext=(0, 5),
+                         textcoords='offset points',
+                         size=16,
+                         weight='bold',
+                         ha='center',
+                         va='bottom',
+                         family='serif',
+                        )
+
     return fig
