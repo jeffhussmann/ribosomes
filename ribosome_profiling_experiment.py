@@ -125,11 +125,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('mismatches', '{name}_mismatches.pdf'),
         ('frames', '{name}_frames.pdf'),
         ('unambiguous_frames', '{name}_unambiguous_frames.pdf'),
-        ('metacodon_counts', '{name}_metacodon_counts.pdf'),
-        ('metacodon_counts_stringent', '{name}_metacodon_counts_stringent.pdf'),
-        ('metacodon_mean_enrichments', '{name}_metacodon_mean_enrichments.pdf'),
-        ('metacodon_counts_nucleotide_resolution', '{name}_metacodon_counts_nucleotide_resolution.pdf'),
-        ('metanucleotide_counts', '{name}_metanucleotide_counts.pdf'),
         ('codon_enrichments', '{name}_codon_enrichments.pdf'),
     ]
 
@@ -187,8 +182,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
          'compute_mean_densities',
          'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
-         #'plot_frames',
-         #'plot_pausing',
+         ##'plot_frames',
         ],
     ]
 
@@ -590,18 +584,23 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         reads = {name: lengths[name].sum() for name in lengths}
         reads['total'] = reads['trimmed'] + reads['too_short']
 
-        reads['dominant'], boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage'),
-                                                                                 reads['total'],
-                                                                                 self.max_read_length,
-                                                                                 self.merged_file_names['rRNA_bam'],
-                                                                                )
+        reads['dominant'], overlapping_reads, boundaries = contaminants.identify_dominant_stretches(self.read_file('rRNA_coverage'),
+                                                                                                    reads['total'],
+                                                                                                    self.max_read_length,
+                                                                                                    self.merged_file_names['rRNA_bam'],
+                                                                                                   )
         contaminants.plot_dominant_stretch_lengths(boundaries, self.figure_file_names['dominant_stretch_lengths'])
         reads['other'] = reads['rRNA'] - reads['dominant']
 
+        region_fetcher = genomes.build_region_fetcher(self.file_names['rRNA_fasta_dir'])
+
         with open(self.merged_file_names['dominant_stretches'], 'w') as dominant_stretches_file:
             for rname in sorted(boundaries):
-                for start, stop in boundaries[rname]:
-                    dominant_stretches_file.write('{0}:{1}-{2}\n'.format(rname, start, stop))
+                for start, stop in sorted(boundaries[rname]):
+                    sequence = region_fetcher(rname, start, stop)
+                    fraction = overlapping_reads[rname, start, stop] / float(reads['total'])
+
+                    dominant_stretches_file.write('{0}: {1:,}-{2:,}\t{3:6.1%}\t{4}\n'.format(rname, start, stop, fraction, sequence))
 
         with open(self.file_names['yield'], 'w') as yield_file:
             yield_file.write('Total reads: {0:,}\n'.format(reads['total']))
@@ -834,11 +833,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                                                count_type='anisomycin',
                                                                               )
         self.write_file('stratified_mean_enrichments_anisomycin', stratified_mean_enrichments)
-
-    def plot_pausing(self):
-        pausing.plot_codon_enrichments_all_amino_acids([self],
-                                                       self.figure_file_names['codon_enrichments'],
-                                                      )
 
     def plot_mismatches(self):
         type_counts = self.read_file('mismatches')

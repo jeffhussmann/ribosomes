@@ -49,6 +49,7 @@ class RNAExperiment(map_reduce.MapReduceExperiment):
             ('genes', 'transcriptome/genes{0}.gff'.format(self.bootstrap)),
             ('transcriptome_index', 'transcriptome/bowtie2_index/genes{0}'.format(self.bootstrap)),
             ('rRNA_index', 'contaminant/bowtie2_index/rRNA'),
+            ('rRNA_fasta_dir', 'contaminant/fasta'),
             ('oligos', 'contaminant/subtraction_oligos.fasta'),
             ('oligos_sam', 'contaminant/subtraction_oligos.sam'),
         ]
