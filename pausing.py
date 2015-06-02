@@ -496,7 +496,7 @@ def plot_binned_base_compositions(binned_base_compositions, normalized=False, sh
                         size=20,
                        )
 
-def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, min_x=-30, max_x=32, ax=None):
+def plot_nucleotide_enrichments(enrichments, plot_A_site=True, min_x=-30, max_x=32, ax=None):
     if plot_A_site:
         xs = range(min_x, 0) + range(0, 3) + range(3, max_x + 1)
     else:
@@ -511,7 +511,7 @@ def plot_nucleotide_enrichments(stratified_mean_enrichments, plot_A_site=True, m
             if x == None:
                 y = None
             else:
-                y = stratified_mean_enrichments['nucleotide', x, base]
+                y = enrichments['nucleotide', x, base]
             ys.append(y)
         ax.plot(xs, ys, '.-', color=igv_colors[base], label=base, markersize=7)
 
@@ -1290,19 +1290,18 @@ def plot_dicodon_enrichments(names,
 
     return fig
 
-def plot_codon_enrichments_all_amino_acids(relevant_experiments, figure_file_name):
-    stratified_mean_enrichments_dict = {exp.name: exp.read_file('stratified_mean_enrichments') for exp in relevant_experiments}
-    
+def plot_codon_enrichments_all_amino_acids(enrichments, figure_file_name):
     with PdfPages(figure_file_name) as pdf:
         for amino_acid in codons.full_back_table:
             if amino_acid == '*':
                 continue
 
-            fig = plot_codon_enrichments(relevant_experiments,
-                                         stratified_mean_enrichments_dict,
-                                         amino_acid,
-                                         min_x=-60,
-                                         max_x=60,
+            fig = plot_codon_enrichments(sorted(enrichments),
+                                         enrichments,
+                                         codons.full_back_table[amino_acid],
+                                         min_x=-90,
+                                         max_x=89,
+                                         flip=True,
                                         )
             pdf.savefig(figure=fig, bbox_inches='tight')
             plt.close(fig)
