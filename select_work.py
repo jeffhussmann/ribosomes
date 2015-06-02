@@ -8,7 +8,7 @@ import visualize
 import contaminants
 from collections import Counter
 
-def build_all_experiments(verbose=True):
+def build_all_experiments(verbose=False):
     experiment_from_file_name = ribosome_profiling_experiment.RibosomeProfilingExperiment.from_description_file_name
     
     families = ['zinshteyn_plos_genetics',
@@ -30,7 +30,10 @@ def build_all_experiments(verbose=True):
                 'belgium_2013_08_06',
                 'pop_msb',
                 'gardin_elife',
+                'brar_science',
+                'baudin-baillieu_cell_reports',
                ]
+
     experiments = {}
     for family in families:
         if verbose:
@@ -190,19 +193,26 @@ def get_read_lengths():
     print read_lengths.most_common()
 
 def gerashchenko_nar_sorting_key(name):
+    num, denom, rep = gerashchenko_fraction(name)
+    concentration = float(num) / float(denom)
+
+    return concentration, rep
+
+def gerashchenko_fraction(name):
     _, concentration = name.split('_', 1)
-    concentration, _ = concentration.split('CHX')
+    concentration, rep = concentration.split('CHX')
+    rep = rep.lstrip('_')
+
     if concentration == 'no':
-        concentration = 0
+        num, denom = 0, 1
     else:
         concentration = concentration.strip('_x')
         if '_' in concentration:
             num, denom = concentration.split('_')
-            concentration = float(num) / float(denom)
         else:
-            concentration = int(concentration)
+            num, denom = int(concentration), 1
 
-    return concentration
+    return num, denom, rep
 
 def get_gerashchenko_nar_experiments(series='unstressed'):
     experiments = build_all_experiments(verbose=False)
