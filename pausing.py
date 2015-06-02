@@ -73,6 +73,33 @@ def compute_pause_scores(codon_counts_dict, special_sets={}):
 
     return ratios_dict, raw_counts_dict
 
+def order_by_mean_density(codon_counts,
+                          count_type='relaxed',
+                          num_before=90,
+                          num_after=90,
+                         ):
+    cds_slice = slice(('start_codon', 2), 'stop_codon')
+
+    means = {}
+    for gene_name in codon_counts:
+        counts = codon_counts[gene_name][count_type][cds_slice]
+        
+        length = len(counts)
+        if length < num_before + num_after + 1:
+            mean = -1
+        else:
+            mean = np.mean(counts[num_before:length - num_after])
+            
+        means[gene_name] = mean
+
+    sorted_names = sorted(codon_counts.keys(),
+                          key=lambda n: (means[n], n),
+                          reverse=True,
+                         )
+    means = [means[name] for name in sorted_names]
+
+    return sorted_names, means
+
 def get_highly_expressed_gene_names(codon_counts_dict,
                                     min_mean=1,
                                     min_median=0,
