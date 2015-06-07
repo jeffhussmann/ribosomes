@@ -658,7 +658,7 @@ def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min
 
     label_scatter_plot(ax, xs, ys, sites, min_difference)
 
-def plot_dicodon_effects(stratified_mean_enrichments,
+def plot_dicodon_effects(enrichments,
                          min_difference,
                          special_Ps,
                          special_As,
@@ -676,12 +676,19 @@ def plot_dicodon_effects(stratified_mean_enrichments,
 
     for P_codon_id in codons.non_stop_codons:
         for A_codon_id in codons.non_stop_codons:
-            expected = stratified_mean_enrichments['codon', -1, P_codon_id] * stratified_mean_enrichments['codon', 0, A_codon_id] / baseline**2
-            actual = stratified_mean_enrichments['dicodon', 0, (P_codon_id, A_codon_id)] / baseline
+            expected = enrichments['codon', -1, P_codon_id] * enrichments['codon', 0, A_codon_id] / baseline**2
+            #expected = 0.5 * (enrichments['codon', -1, P_codon_id] + enrichments['codon', 0, A_codon_id]) / baseline
+            actual = enrichments['dicodon', 0, (P_codon_id, A_codon_id)] / baseline
 
             expecteds.append(expected)
             actuals.append(actual)
-            sites.append('{0} - {1}'.format(P_codon_id, A_codon_id))
+            label = '{0}-{1}, ({2}-{3}), {4}'.format(P_codon_id,
+                                                    A_codon_id,
+                                                    codons.forward_table[P_codon_id],
+                                                    codons.forward_table[A_codon_id],
+                                                    enrichments['dicodon_occurences', 0, (P_codon_id, A_codon_id)],
+                                                   )
+            sites.append(label)
             if A_codon_id in special_As and P_codon_id in special_Ps:
                 color = red
             else:
@@ -715,6 +722,7 @@ def plot_dicodon_effects(stratified_mean_enrichments,
     ax.plot([lower, upper], [lower, upper], color='black', alpha=0.2, scalex=False, scaley=False);
 
     to_label = np.abs(xs - ys) > min_difference
+    to_label = ys > min_difference
     label_scatter_plot(ax, xs, ys, sites, to_label)
     
 def plot_codon_effects(stratified_mean_enrichments, relevant_codons, fancy=True, log=True, ax=None):
@@ -773,7 +781,8 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
         if vector == 'orthogonal':
             x_offset = np.sign(x - y) * distance
             y_offset = -np.sign(x - y) * distance
-            ha, va = 'center', 'top'
+            ha = 'center'
+            va = 'top' if y_offset < 0 else 'bottom'
         elif vector == 'radial':
             norm = np.linalg.norm([x, y])
             x_offset = x * distance / norm
@@ -1386,6 +1395,7 @@ def plot_dicodon_enrichments(names,
                              force_ylims=None,
                              split_by_codon=False,
                              sample_to_label=None,
+                             flip=False,
                             ):
 
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
@@ -1458,6 +1468,11 @@ def plot_dicodon_enrichments(names,
 
         ax.set_xlabel('Offset (codons)')
         ax.set_ylabel('Mean relative enrichment')
+        
+        if flip:
+            ax.invert_xaxis()
+            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+            ax.set_xticklabels(flipped_labels)
 
     return fig
 
@@ -2000,14 +2015,14 @@ def offset_difference_correlation(enrichments, names,
 
         if not use_P_sites:
             if variance_explained:
-                r_ax.set_ylabel('$r^2$' + 'between enrichments at offset\nand A-site changes', **label_kwargs)
+                r_ax.set_ylabel('$r^2$' + 'between 61 enrichments at offset\nand A-site changes', **label_kwargs)
             else:
-                r_ax.set_ylabel('Correlation of enrichments at offset\nwith A-site changes', **label_kwargs)
+                r_ax.set_ylabel('Correlation of 61 enrichments at offset\nwith A-site changes', **label_kwargs)
         else:
             if variance_explained:
-                r_ax.set_ylabel('$r^2$' + 'between enrichments at offset\nand active site changes', **label_kwargs)
+                r_ax.set_ylabel('$r^2$' + 'between 61 enrichments at offset\nand active site changes', **label_kwargs)
             else:
-                r_ax.set_ylabel('Correlation of enrichments at offset\nwith active site changes', **label_kwargs)
+                r_ax.set_ylabel('Correlation of 61 enrichments at offset\nwith active site changes', **label_kwargs)
         
         enrichment_ax.set_ylabel('Mean relative\nenrichment', **label_kwargs)
         
@@ -2171,7 +2186,7 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
 
         rho_ax.set_ylim(*rho_ylims)
         
-        rho_ax.set_ylabel('Rank correlation of enrichment\nwith 1 / tRNA abundance', **label_kwargs)
+        rho_ax.set_ylabel('Rank correlation of\n61 enrichments with 1 / tAI', **label_kwargs)
         enrichment_ax.set_ylabel('Mean relative\nenrichment', **label_kwargs)
         
         ax_col[-1].set_xlabel('Offset (codons)', **label_kwargs)
@@ -2194,7 +2209,7 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
             rho_ax.annotate(r'$\rho = {0:0.2f}$'.format(rho),
                             xy=(x, rho),
                             xycoords='data',
-                            xytext=(12, 1.05),
+                            xytext=(5, 1.05),
                             textcoords=('offset points', 'axes fraction'),
                             ha='left',
                             va='bottom',
