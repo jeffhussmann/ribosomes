@@ -188,20 +188,27 @@ def identify_dominant_stretches(counts, total_reads, max_read_length, bam_fn):
     # Count the number of reads that overlap any of the dominant stretches and
     # characterize the length distibution of reads overlapping each dominant
     # stretch.
-    overlapping_qnames = set()
+    overlapping_qnames = defaultdict(set)
     bam_file = pysam.Samfile(bam_fn)
     for rname in boundaries:
         for start, end in boundaries[rname]:
+            key = (rname, start, end)
             reads = bam_file.fetch(rname, start, end)
             for aligned_read in reads:
-                overlapping_qnames.add(aligned_read.qname)
+                overlapping_qnames[key].add(aligned_read.qname)
                 # Can't use qlen here because the bam files omit
                 # the seq and qual of secondary mappings
                 boundaries[rname][start, end][aligned_read.inferred_length] += 1
 
-    dominant_reads = len(overlapping_qnames)
+    dominant_reads = set()
+    overlapping_reads = {}
+    for key in overlapping_qnames:
+        dominant_reads.update(overlapping_qnames[key])
+        overlapping_reads[key] = len(overlapping_qnames[key])
 
-    return dominant_reads, boundaries
+    dominant_reads = len(dominant_reads)
+
+    return dominant_reads, overlapping_reads, boundaries
 
 def plot_rRNA_coverage(coverage_data, oligos_sam_fn, fig_fn, lengths_slice=slice(None)):
     ''' Plots the number of mappings that overlap each position in the reference
@@ -325,8 +332,8 @@ def plot_oligo_hit_lengths(oligos_fasta_fn, lengths, fig_fn):
 def plot_dominant_stretch_lengths(boundaries, fig_fn):
     fig, ax = plt.subplots(figsize=(18, 12))
     plotted_something = False
-    for rname in boundaries:
-        for start, end in boundaries[rname]:
+    for rname in sorted(boundaries):
+        for start, end in sorted(boundaries[rname]):
             plotted_something = True
             counts = boundaries[rname][start, end]
             denominator = np.maximum(counts.sum(), 1)
