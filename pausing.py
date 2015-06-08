@@ -664,6 +664,7 @@ def plot_dicodon_effects(enrichments,
                          special_As,
                          fancy=True,
                          log=True,
+                         offset=0,
                         ):
     baseline = 1
     actuals = []
@@ -676,9 +677,10 @@ def plot_dicodon_effects(enrichments,
 
     for P_codon_id in codons.non_stop_codons:
         for A_codon_id in codons.non_stop_codons:
-            expected = enrichments['codon', -1, P_codon_id] * enrichments['codon', 0, A_codon_id] / baseline**2
-            #expected = 0.5 * (enrichments['codon', -1, P_codon_id] + enrichments['codon', 0, A_codon_id]) / baseline
-            actual = enrichments['dicodon', 0, (P_codon_id, A_codon_id)] / baseline
+            P_value = enrichments['codon', offset - 1, P_codon_id]
+            A_value = enrichments['codon', offset, A_codon_id]
+            expected =  P_value * A_value
+            actual = enrichments['dicodon', offset, (P_codon_id, A_codon_id)] / baseline
 
             expecteds.append(expected)
             actuals.append(actual)
