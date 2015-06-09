@@ -538,6 +538,7 @@ def plot_averaged_nucleotide_densities(data_sets,
                                        past_edge=10,
                                        smooth=False,
                                        plot_up_to=1000,
+                                       save_fig=True,
                                       ):
     if show_start:
         fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(24, 12))
@@ -608,8 +609,9 @@ def plot_averaged_nucleotide_densities(data_sets,
         #ax.set_aspect(1)
 
     #fig.set_size_inches(12, 12)
-    fig.savefig(figure_fn, bbox_inches='tight')
-    plt.close(fig)
+    if save_fig:
+        fig.savefig(figure_fn, bbox_inches='tight')
+        plt.close(fig)
 
 def plot_averaged_codon_densities(data_sets,
                                   figure_fn,
@@ -617,16 +619,25 @@ def plot_averaged_codon_densities(data_sets,
                                   past_edge=10,
                                   smooth=False,
                                   plot_up_to=100,
+                                  save_fig=True,
+                                  labels=None,
+                                  legend_kwargs={},
+                                  ax=None,
                                  ):
-    if show_end:
-        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(24, 12))
+    if ax != None:
+        start_ax = ax
+    elif show_end:
+        fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(24, 12), gridspec_kw={'wspace': 0.05})
     else:
         fig, start_ax = plt.subplots(figsize=(12, 12))
 
     start_xs = np.arange(-past_edge, plot_up_to + 1)
     end_xs = np.arange(-plot_up_to, past_edge)
 
-    for name, mean_densities, color_index in data_sets:
+    if labels == None:
+        labels = [name for name, _, _ in data_sets]
+
+    for (name, mean_densities, color_index), label in zip(data_sets, labels):
         densities = mean_densities['from_start']['codons']
         if smooth:
             densities = smoothed(densities, 5)
@@ -638,7 +649,7 @@ def plot_averaged_codon_densities(data_sets,
         start_ax.plot(start_xs,
                       start_densities,
                       '.-',
-                      label=name,
+                      label=label,
                       color=colors[color_index],
                       marker=marker,
                       linewidth=linewidth,
@@ -658,7 +669,7 @@ def plot_averaged_codon_densities(data_sets,
                        )
     
     if len(data_sets) > 1:
-        start_ax.legend(loc='upper right', framealpha=0.5)
+        start_ax.legend(loc='upper right', framealpha=0.5, **legend_kwargs)
 
     start_ax.set_xlabel('Number of codons from start codon')
     start_ax.set_ylabel('Mean normalized read density')
@@ -681,12 +692,13 @@ def plot_averaged_codon_densities(data_sets,
         ax.set_ylim(0, ymax + 0.1)
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
-        ax.set_aspect((xmax - xmin) / (ymax - ymin))
+        #ax.set_aspect((xmax - xmin) / (ymax - ymin))
         #ax.set_aspect(1)
 
     #fig.set_size_inches(12, 12)
-    fig.savefig(figure_fn, bbox_inches='tight')
-    plt.close(fig)
+    if save_fig:
+        fig.savefig(figure_fn, bbox_inches='tight')
+        plt.close(fig)
 
 def make_metacodon_panel(ax, metacodon_counts, codon_id, style, keys_to_plot):
     id_counts = metacodon_counts[codon_id]
