@@ -88,6 +88,10 @@ u_to_t = string.maketrans('U', 'T')
 def rna_to_dna(rna):
     return rna.translate(u_to_t)
 
+t_to_u = string.maketrans('T', 'U')
+def dna_to_rna(dna):
+    return dna.translate(t_to_u)
+
 codon_to_anticodon = {}
 
 for anticodon in anticodon_to_codons:
