@@ -9,6 +9,7 @@ def read_file(file_name):
     return lengths
 
 def write_file(lengths, file_name):
+    h5py._errors.silence_errors()
     with h5py.File(file_name, 'a') as hdf5_file:
         for name in lengths:
             if name in hdf5_file:
