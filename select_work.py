@@ -33,6 +33,7 @@ def build_all_experiments(verbose=False):
                 'brar_science',
                 'baudin-baillieu_cell_reports',
                 'nedialkova_cell',
+                'jan_science',
                ]
 
     experiments = {}

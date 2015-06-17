@@ -13,7 +13,7 @@ transcripts_file_name {home}/projects/ribosomes/experiments/weinberg/most_weinbe
 relative_results_dir projects/ribosomes/experiments/{group}/{name}/results
 adapter_type {adapter_type}
 relevant_lengths {min_relevant_length},{max_relevant_length}
-offset_type yeast
+offset_type {offset_type}
 phiX_bowtie2_index_prefix {home}/bowtie2/phiX_doubled
 '''
 
@@ -22,10 +22,10 @@ def make_descriptions(group,
                       max_read_length=None,
                       min_relevant_length=14,
                       max_relevant_length=44,
+                      name_to_offset_type=lambda name: 'yeast',
+                      name_to_adapter_type=None,
                       num_pieces=12,
-                      bartel_markers=False,
-                      stephanie_markers=False,
-                      guydosh_markers=False,
+                      synthetic_markers_fn=None,
                       codons_to_examine=[],
                      ):
     prefix = '{home}/projects/ribosomes/experiments/{0}/'.format(group, home=os.environ['HOME'])
@@ -43,12 +43,16 @@ def make_descriptions(group,
             os.mkdir(job_dir)
 
         with open(description_fn, 'w') as description_fh:
+            if name_to_adapter_type:
+                adapter_type = name_to_adapter_type(name)
+
             contents = template.format(group=group,
                                        name=name,
                                        adapter_type=adapter_type,
                                        min_relevant_length=min_relevant_length,
                                        max_relevant_length=max_relevant_length,
                                        home=os.environ['HOME'],
+                                       offset_type=name_to_offset_type(name),
                                       )
 
             if codons_to_examine:
@@ -57,14 +61,12 @@ def make_descriptions(group,
                 contents += line
 
             description_fh.write(contents)
+            
             if max_read_length != None:
                 description_fh.write('max_read_length {0}\n'.format(max_read_length))
-            if bartel_markers:
-                description_fh.write('synthetic_fasta {home}/projects/ribosomes/data/bartel_markers/bartel_markers.fa\n'.format(home=os.environ['HOME']))
-            elif stephanie_markers:
-                description_fh.write('synthetic_fasta {home}/projects/ribosomes/data/stephanie_markers/stephanie_markers.fa\n'.format(home=os.environ['HOME']))
-            elif guydosh_markers:
-                description_fh.write('synthetic_fasta {home}/projects/ribosomes/data/guydosh_markers/guydosh_markers.fa\n'.format(home=os.environ['HOME']))
+            
+            if synthetic_markers_fn:
+                description_fh.write('synthetic_fasta {0}\n'.format(synthetic_markers_fn))
 
         bash_fh.write('echo {name}\n'.format(name=name))
         bash_fh.write('python ribosome_profiling_experiment.py --job_dir {0} launch --num_pieces {1}\n'.format(job_dir, num_pieces))
@@ -204,21 +206,50 @@ if __name__ == '__main__':
     fns.append(make_descriptions('brar_science', 'polyA', **kwargs))
     fns.append(make_descriptions('belgium_2013_08_06', 'truseq', codons_to_examine=arlen_locii, **kwargs))
     fns.append(make_descriptions('belgium_2014_03_05', 'linker', **kwargs))
-    fns.append(make_descriptions('belgium_2014_08_07', 'linker', stephanie_markers=True, **kwargs))
-    fns.append(make_descriptions('belgium_2014_10_27', 'linker_local', stephanie_markers=True, **kwargs))
-    fns.append(make_descriptions('belgium_2014_12_10', 'linker_local', codons_to_examine=arlen_locii, stephanie_markers=True, **kwargs))
-    fns.append(make_descriptions('belgium_2015_03_16', 'linker_local', codons_to_examine=arlen_locii, stephanie_markers=True, **kwargs))
+
+    stephanie_markers_fn = '{home}/projects/ribosomes/data/stephanie_markers.fa'.format(home=os.environ['HOME'])
+    fns.append(make_descriptions('belgium_2014_08_07', 'linker', synthetic_markers_fn=stephanie_markers_fn, **kwargs))
+    fns.append(make_descriptions('belgium_2014_10_27', 'linker_local', synthetic_markers_fn=stephanie_markers_fn, **kwargs))
+    fns.append(make_descriptions('belgium_2014_12_10', 'linker_local', codons_to_examine=arlen_locii, synthetic_markers_fn=stephanie_markers_fn, **kwargs))
+    fns.append(make_descriptions('belgium_2015_03_16', 'linker_local', codons_to_examine=arlen_locii, synthetic_markers_fn=stephanie_markers_fn, **kwargs))
     fns.append(make_descriptions('dunn_elife', 'linker_local', **kwargs))
-    fns.append(make_descriptions('gerashchenko_pnas', 'polyA', max_read_length=44, **kwargs))
+
+    def name_to_offset_type(name):
+        if name in ['5min_rep1_foot', '30min_rep1_foot']:
+            offset_type = 'gerashchenko_pnas'
+        else:
+            offset_type = 'yeast'
+        return offset_type
+
+    fns.append(make_descriptions('gerashchenko_pnas', 'polyA', max_read_length=44, name_to_offset_type=name_to_offset_type, **kwargs))
+    
     fns.append(make_descriptions('gerashchenko_nar', 'nothing', max_read_length=50, **kwargs))
-    fns.append(make_descriptions('guydosh_cell', 'linker_local', guydosh_markers=True, **kwargs))
+    
+    guydosh_markers_fn = '{home}/projects/ribosomes/data/guydosh_markers.fa'.format(home=os.environ['HOME'])
+    fns.append(make_descriptions('guydosh_cell', 'linker_local', synthetic_markers_fn=guydosh_markers_fn, **kwargs))
+    
     fns.append(make_descriptions('ingolia_science', 'polyA', **kwargs))
     fns.append(make_descriptions('lareau_elife', 'linker_local', **kwargs))
     fns.append(make_descriptions('mcmanus_gr', 'linker', **kwargs))
-    fns.append(make_descriptions('weinberg', 'weinberg', bartel_markers=True, **kwargs))
+    
+    bartel_markers_fn = '{home}/projects/ribosomes/data/bartel_markers.fa'.format(home=os.environ['HOME'])
+    fns.append(make_descriptions('weinberg', 'weinberg', synthetic_markers_fn=bartel_markers_fn, **kwargs))
+    
     fns.append(make_descriptions('zinshteyn_plos_genetics', 'polyA', **kwargs))
-    fns.append(make_descriptions('pop_msb', 'linker', **kwargs))
+
+    pop_markers_fn = '{home}/projects/ribosomes/data/pop_markers.fa'.format(home=os.environ['HOME'])
+    def name_to_adapter_type(name):
+        if name == 'WT_footprint':
+            adapter_type = 'nothing'
+        else:
+            adapter_type = 'linker'
+        return adapter_type
+    fns.append(make_descriptions('pop_msb', 'linker', synthetic_markers_fn=pop_markers_fn, max_read_length=51, name_to_adapter_type=name_to_adapter_type, **kwargs))
+
     fns.append(make_descriptions('gardin_elife', 'truseq', **kwargs))
+    fns.append(make_descriptions('nedialkova_cell', 'nothing', max_read_length=50, **kwargs))
+    
+    fns.append(make_descriptions('jan_science', 'linker', **kwargs))
 
     with open(all_bash_fn, 'w') as all_bash_fh:
         for fn in fns:
