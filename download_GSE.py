@@ -85,13 +85,14 @@ def get_run_info(run, paper_dir, verbose=False):
     info = {}
     info['run'] = run
     info['size'] = int(root.find('RUN').attrib['size'])
+    info['total_spots'] = int(root.find('RUN').attrib['total_spots'])
 
     layout = root.find('EXPERIMENT').find('DESIGN').find('LIBRARY_DESCRIPTOR').find('LIBRARY_LAYOUT')
     if layout.find('SINGLE') is not None:
         info['layout'] = 'single'
     elif layout.find('PAIRED') is not None:
         info['layout'] = 'paired'
-        info['nominal_length'] = int(layout.find('PAIRED').get('NOMINAL_LENGTH'))
+        info['nominal_length'] = int(layout.find('PAIRED').get('NOMINAL_LENGTH', 0))
     else:
         info['layout'] = 'unknown'
     
@@ -101,6 +102,7 @@ def get_run_info(run, paper_dir, verbose=False):
         if 'nominal_length' in info:
             print '\tnominal length = {0:,}'.format(info['nominal_length'])
         print '\tsize = {0:,}'.format(info['size'])
+        print '\ttotal spots = {0:,}'.format(info['total_spots'])
 
     os.remove(xml_fn)
     return info
