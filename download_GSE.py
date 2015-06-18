@@ -57,8 +57,10 @@ def extract_samples_from_xml(xml_fn, condition=lambda x: True):
                         # Some sample names (knockout strains) have a unicode
                         # delta in them. Replace this with a spelled out
                         # 'delta' and coerce to a non-unicode string.
-                        delta = u'\u0394'
-                        sample_name = str(sample_name.replace(delta, 'delta_'))
+                        deltas = [u'\u0394', u'\u2206']
+                        for delta in deltas:
+                            sample_name = sample_name.replace(delta, 'delta_')
+                        sample_name = str(sample_name)
                     sample_name = sample_name.translate(sanitize_table, '()')
                     if not condition(sample_name):
                         skip_sample = True
