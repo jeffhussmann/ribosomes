@@ -178,16 +178,18 @@ experiments = {
     # Yeast
     # Ribosome profiling
     'guydosh_cell': ('GSE52968', lambda name: True),
-    'brar_science': ('GSE34082', lambda name: 'mRNA' in name and 'exponential' in name),
+    'brar_science': ('GSE34082', lambda name: 'exponential' in name and 'traditional' in name),
     'artieri': ('GSE50049', lambda name: 'Mixed_parental' in name),
     'mcmanus_gr': ('GSE52119', lambda name: 'S._cerevisiae' in name),
     'ingolia_science': ('GSE13750', lambda name: True),
     'zinshteyn_plos_genetics': ('GSE45366', lambda name: 'WT' in name),
     'lareau_elife': ('GSE58321', lambda name: True),
     'baudin-baillieu_cell_reports': ('GSE41590', lambda name: True),
-    'gerashchenko_nar': ('GSE59573', lambda name: 'oxidative' in name),
+    'gerashchenko_nar': ('GSE59573', lambda name: 'oxidative' not in name and 'unstressed' not in name and 'heatshock' not in name),
     'pop_msb': ('GSE63789', lambda name: True),
     'gardin_elife': ('GSE51164', lambda name: True),
+    'nedialkova_cell': ('GSE67387', lambda name: True),
+    'jan_science': ('GSE61012', lambda name: 'sec63mVenusBirA' in name),
     # UTR boundary identification
     'arribere_gr': ('GSE39074', lambda name: 'S288C' in name and '_TLSeq' in name),
     'pelechano_nature': ('GSE39128', lambda name: name.startswith('nypd')),
@@ -197,6 +199,8 @@ experiments = {
     # RNA-seq
     'nagalakshmi_science': ('GSE11209', lambda name: True),
     'yassour_gb': ('GSE21739', lambda name: name == 'dUTP'),
+    # Other
+    'pelechano_cell': ('GSE63120', lambda name: 'by_chx_1' in name),
     
     # Mouse
     'guo_nature': ('GSE22004', lambda name: 'wild-type_runs' in name),
