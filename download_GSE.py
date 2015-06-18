@@ -146,8 +146,10 @@ def download_samples(paper_dir, samples, condition=lambda x: True):
 
     return sra_fns
 
-def dump_fastqs(sra_fns, gzip=False):
-    '''Dumps fastq files from sra files, then deletes the sra files. ''' 
+def dump_fastqs(sra_fns, full_names=False, gzip=False):
+    '''Dumps fastq files from sra files, then deletes the sra files.
+    full_names controls which --defline-seq value is used.
+    ''' 
     for sra_fn, layout in sra_fns:
         print "fastq-dump'ing {0}".format(sra_fn) 
         head, tail = os.path.split(sra_fn)
@@ -158,11 +160,19 @@ def dump_fastqs(sra_fns, gzip=False):
         if layout == 'paired':
             # Split into two files and include read number (out of pair) in the
             # seq name line.
+            if full_names:
+                name_format = '@$sn.$ri'
+            else:
+                name_format = '@$ac.$si.$ri'
             fastq_dump_command.extend(['--split-3',
-                                       '--defline-seq', '@$sn.$ri',
+                                       '--defline-seq', name_format,
                                       ])
         elif layout == 'single':
-            fastq_dump_command.extend(['--defline-seq', '@$sn'])
+            if full_names:
+                name_format = '@$sn'
+            else:
+                name_format = '@$ac.$si'
+            fastq_dump_command.extend(['--defline-seq', name_format])
         else:
             raise ValueError('layout not known')
 
@@ -234,6 +244,7 @@ if __name__ == '__main__':
     parser.add_argument('paper_name')
     parser.add_argument('papers_dir', help='base directory')
     parser.add_argument('--list', help='only list samples, don\'t download', action='store_true')
+    parser.add_argument('--full_names', help='use original read names', action='store_true')
     parser.add_argument('--gzip', help='gzip fastqs', action='store_true')
     args = parser.parse_args()
     paper_dir = '{0}/{1}'.format(args.papers_dir.rstrip('/'), args.paper_name)
@@ -254,4 +265,4 @@ if __name__ == '__main__':
 
     if not args.list:
         sra_fns = download_samples(paper_dir, samples)
-        dump_fastqs(sra_fns, gzip=args.gzip)
+        dump_fastqs(sra_fns, gzip=args.gzip, full_names=args.full_names)
