@@ -234,7 +234,7 @@ if __name__ == '__main__':
     fns.append(make_descriptions('lareau_elife', 'linker_local', **kwargs))
     fns.append(make_descriptions('mcmanus_gr', 'linker', **kwargs))
     
-    fns.append(make_descriptions('weinberg', 'weinberg', markers_fn=markers_fns, **kwargs))
+    fns.append(make_descriptions('weinberg', 'weinberg', markers_fn=markers_fns['bartel'], **kwargs))
     
     fns.append(make_descriptions('zinshteyn_plos_genetics', 'polyA', **kwargs))
 
