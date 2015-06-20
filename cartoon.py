@@ -79,7 +79,7 @@ def rectangle_around_text(text, specific_nucleotide=None, **kwargs):
         x1 -= text_width * (2 - specific_nucleotide)
             
     text_height = y1 - y0
-    rect_height = 1.2 * text_height
+    rect_height = 1.1 * text_height
     rect_width = (1 + 2 * x_buffer) * text_width
     rect_x = x0 - x_buffer * text_width
      
@@ -99,7 +99,7 @@ def rectangle_around_text_list(text_list, **kwargs):
     text_width = x1 - x0
             
     text_height = y1 - y0
-    rect_height = 1.2 * text_height
+    rect_height = 1.1 * text_height
     rect_width = (1 + 2 * x_buffer) * text_width
     rect_x = x0 - x_buffer * text_width
      
@@ -114,12 +114,13 @@ def rectangle_around_text_list(text_list, **kwargs):
     
 def text_above_text(text, string, **kwargs):
     (x0, y0), (x1, y1) = get_axes_coordinates(text)
-    text.axes.text((x0 + x1) / 2,
-                   y1 + .2 * (y1 - y0),
-                   string,
-                   ha='center',
-                   va='bottom',
-                   **kwargs)
+    above = text.axes.text((x0 + x1) / 2,
+                           y1 + .2 * (y1 - y0),
+                           string,
+                           ha='center',
+                           va='bottom',
+                           **kwargs)
+    return above
 
 def connect_with_curve(ax, x0, x1, y, height, offset_text, font):
     points = [(x0, y),
@@ -328,18 +329,23 @@ class CodingSequence(object):
          
         if label == None:
             label = '{0} CDS:'.format(self.gene_name)
-        self.ax.text(name_x, name_y, label,
-                     size=self.font_size,
-                     ha='right',
-                     va='center',
-                     family='serif',
-                     color='blue',
-                    )
+        label_text = self.ax.text(name_x, name_y, label,
+                                  size=self.font_size,
+                                  ha='right',
+                                  va='center',
+                                  family='serif',
+                                  color='blue',
+                                 )
+        coords = get_axes_coordinates(label_text)
+        self.far_left = coords[0][0]
+        
         if not self.plot_end or self.UTR_codons > 0 or hypothetical_sequence:
             last_codon = sequence_positions[len(self.codon_sequence) - 1]
             dots_x = last_codon['right_edge'] + (2 * gap_between) * last_codon['width']
             dots_y = last_codon['y'] 
-            self.ax.text(dots_x, dots_y, '...', fontdict=font)
+            dots_text = self.ax.text(dots_x, dots_y, '...', fontdict=font)
+            coords = get_axes_coordinates(dots_text)
+            self.far_right = coords[1][0]
             sequence_positions['end dots'] = {'x': dots_x,
                                               'y': dots_y,
                                              }
@@ -449,17 +455,20 @@ class CodingSequence(object):
         name_x = self.sequence_positions[0]['x'] - 0.5 * self.sequence_positions[0]['width']
         name_y = enrichment_positions[0]['bottom'] + 0.6 * enrichment_positions[0]['height']
          
-        self.ax.text(name_x, name_y, 'Relative enrichment:',
-                     size=1.5 * count_font_size,
-                     family='serif',
-                     ha='right',
-                     va='center',
-                    )
+        name_text = self.ax.text(name_x, name_y, 'Relative enrichment:',
+                                 size=1.5 * count_font_size,
+                                 family='serif',
+                                 ha='right',
+                                 va='center',
+                                )
+        coords = get_axes_coordinates(name_text)
         
         last_codon = self.sequence_positions[len(self.codon_counts) - 1]
         dots_x = self.count_positions['end dots']['x']
         dots_y = enrichment_positions[0]['bottom'] + 0.1 * last_codon['height']
         self.ax.text(dots_x, dots_y, '...', size=count_font_size * 2, family='monospace')
+
+        self.bottom = coords[0][1]
             
     def draw_read(self,
                   position,
@@ -500,11 +509,13 @@ class CodingSequence(object):
                 rectangle_around_text(texts[position + offset], color='white', linewidth=0, fill=True)
                 rectangle_around_text(texts[position + offset], color=color, linewidth=0, alpha=0.5, fill=True)
                 if label_tRNA_sites == 'full':
-                    text_above_text(texts[position + offset],
-                                    '{0}-site'.format(site),
-                                    color=color,
-                                    size=self.font_size * 0.5,
-                                   )
+                    above = text_above_text(texts[position + offset],
+                                            '{0}-site'.format(site),
+                                            color=color,
+                                            size=self.font_size * 0.5,
+                                           )
+                    coords = get_axes_coordinates(above)
+                    self.top = coords[1][1]
         
         for i in range(position - 5, position + 5):
             codon_id = self.codon_sequence[i]
@@ -530,6 +541,6 @@ class CodingSequence(object):
                     )
         
     def rectangle_around_everything(self):
-        rec = matplotlib.patches.Rectangle((-0.04, 0), 0.9, 1.14, fill=False, lw=2)
+        rec = matplotlib.patches.Rectangle((self.far_left - 0.01, self.bottom - 0.03), self.far_right - self.far_left + 0.02, self.top - self.bottom + 0.06, fill=False, lw=2)
         rec = self.ax.add_patch(rec)
         rec.set_clip_on(False)

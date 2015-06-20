@@ -198,7 +198,7 @@ arlen_locii = [('YLR075W', 98),
 
 markers_fns = {}
 for name in ['bartel', 'stephanie', 'guydosh', 'pop', 'jan']:
-    markers_fns[name] = '{0}/projects/ribosomes/data/{1}.fa'.format(os.environ['HOME'], name)
+    markers_fns[name] = '{0}/projects/ribosomes/data/{1}_markers.fa'.format(os.environ['HOME'], name)
 
 if __name__ == '__main__':
     kwargs = {}
@@ -234,7 +234,7 @@ if __name__ == '__main__':
     fns.append(make_descriptions('lareau_elife', 'linker_local', **kwargs))
     fns.append(make_descriptions('mcmanus_gr', 'linker', **kwargs))
     
-    fns.append(make_descriptions('weinberg', 'weinberg', markers_fn=markers_fns, **kwargs))
+    fns.append(make_descriptions('weinberg', 'weinberg', markers_fn=markers_fns['bartel'], **kwargs))
     
     fns.append(make_descriptions('zinshteyn_plos_genetics', 'polyA', **kwargs))
 
@@ -250,6 +250,7 @@ if __name__ == '__main__':
     fns.append(make_descriptions('nedialkova_cell', 'nothing', max_read_length=50, **kwargs))
     
     fns.append(make_descriptions('jan_science', 'linker', markers_fn=markers_fns['jan'], **kwargs))
+    fns.append(make_descriptions('williams_science', 'linker', markers_fn=markers_fns['jan'], **kwargs))
 
     with open(all_bash_fn, 'w') as all_bash_fh:
         for fn in fns:
