@@ -250,6 +250,7 @@ if __name__ == '__main__':
     fns.append(make_descriptions('nedialkova_cell', 'nothing', max_read_length=50, **kwargs))
     
     fns.append(make_descriptions('jan_science', 'linker', markers_fn=markers_fns['jan'], **kwargs))
+    fns.append(make_descriptions('williams_science', 'linker', markers_fn=markers_fns['jan'], **kwargs))
 
     with open(all_bash_fn, 'w') as all_bash_fh:
         for fn in fns:

@@ -202,6 +202,7 @@ experiments = {
     'gardin_elife': ('GSE51164', lambda name: True),
     'nedialkova_cell': ('GSE67387', lambda name: True),
     'jan_science': ('GSE61012', lambda name: 'sec63mVenusBirA' in name),
+    'williams_science': ('GSE61011', lambda name: True),
     # UTR boundary identification
     'arribere_gr': ('GSE39074', lambda name: 'S288C' in name and '_TLSeq' in name),
     'pelechano_nature': ('GSE39128', lambda name: name.startswith('nypd')),
