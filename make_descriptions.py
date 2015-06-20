@@ -198,7 +198,7 @@ arlen_locii = [('YLR075W', 98),
 
 markers_fns = {}
 for name in ['bartel', 'stephanie', 'guydosh', 'pop', 'jan']:
-    markers_fns[name] = '{0}/projects/ribosomes/data/{1}.fa'.format(os.environ['HOME'], name)
+    markers_fns[name] = '{0}/projects/ribosomes/data/{1}_markers.fa'.format(os.environ['HOME'], name)
 
 if __name__ == '__main__':
     kwargs = {}
