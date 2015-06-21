@@ -195,12 +195,10 @@ def convert_to_three_prime(position_counts, length):
 
 # Number of nucleotide positions to include on the left and right side of
 # counts of read positions.
-edge_buffer = 50
-left_buffer = 4 * edge_buffer
-right_buffer = 4 * edge_buffer
+left_buffer = right_buffer = 300
 
 # Number of codons to include on either side of counts of codon positions.
-codon_buffer = 10
+codon_buffer = left_buffer // 3
 
 def get_Transcript_extent_position_counts(transcript,
                                           clean_bam_fn,
