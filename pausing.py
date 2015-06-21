@@ -1184,12 +1184,13 @@ def plot_correlations_across_conditions(enrichments,
     tAIs = load_tRNA_copy_numbers(tRNA_value_source)
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
 
+    name_length = max(map(len, name_order))
     for name in name_order:
         e_values = enrichments[name]['codon', position, codons.non_stop_codons]
         rho, p = scipy.stats.spearmanr(tAI_values, e_values)
         rhos.append(rho)
         ps.append(p)
-        print '{0:<30}\t{1:10.4f}\t{2:0.4e}'.format(name, rho, p)
+        print '{0:<{name_length}}{1:10.4f}\t{2:0.1e}'.format(name, rho, p, name_length=name_length)
         
     fig, ax = plt.subplots(figsize=(16, 12))
     xs = np.arange(len(rhos))
@@ -1206,7 +1207,7 @@ def plot_correlations_across_conditions(enrichments,
     ax.axhline(0, color='black', alpha=1)
 
     offset_string = ' ({0:+d})'.format(position) if position != 0 else ''
-    title = 'Rank correlation of codon identity A-site occupancy{1} with (1 / tRNA abundance)'.format(position, offset_string)
+    title = 'Rank correlation of codon identity A-site occupancy{1} with 1 / tAI'.format(position, offset_string)
     ax.set_title(title, size=20)
 
 
