@@ -1881,6 +1881,7 @@ def offset_difference_correlation(enrichments, names,
     
     noCHX_As = enrichments[noCHX_name]['codon', 0, codons.non_stop_codons]
     noCHX_Ps = enrichments[noCHX_name]['codon', -1, codons.non_stop_codons]
+    noCHX_Es = enrichments[noCHX_name]['codon', -2, codons.non_stop_codons]
     
     if p_value_panels:
         gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=[0.5, 1, 0.5])
@@ -1905,31 +1906,35 @@ def offset_difference_correlation(enrichments, names,
 
         CHX_As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
         CHX_Ps = enrichments[CHX_name]['codon', -1, codons.non_stop_codons]
+        CHX_Es = enrichments[CHX_name]['codon', -2, codons.non_stop_codons]
 
         x_min, x_max = -90, 90
         xs = np.arange(x_min, x_max)
 
-        ys_strings = [
+        changes_strings = [
             'noCHX_As - CHX_As',
             'noCHX_As + noCHX_Ps - CHX_As - CHX_Ps',
+            'noCHX_As + noCHX_Ps + noCHX_Es - CHX_As - CHX_Ps - CHX_Es',
         ]
         
         labels = [
             'A site',
             'A site + P site',
+            'A site + P site + E site',
         ]
         
         if not use_P_sites:
-            ys_strings = ys_strings[:1]
+            changes_strings = changes_strings[:1]
 
         if use_P_sites and not show_A_site:
-            ys_strings = ys_strings[1:]
+            changes_strings = changes_strings[1:]
+            labels = labels[1:]
 
-        for ys_string, label in zip(ys_strings, labels):
-            ys = eval(ys_string)
-            x_rs, x_ps = np.array([scipy.stats.pearsonr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], ys) for x in xs]).T
+        for changes_string, label in zip(changes_strings, labels):
+            changes = eval(changes_string)
+            x_rs, x_ps = np.array([scipy.stats.pearsonr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], changes) for x in xs]).T
             
-            if use_P_sites and show_A_site and ys_string == ys_strings[0]:
+            if use_P_sites and show_A_site and changes_string == changes_strings[0]:
                 alpha = 0.5
             else:
                 alpha = 1.0
@@ -1939,7 +1944,7 @@ def offset_difference_correlation(enrichments, names,
             else:
                 ys = x_rs
 
-            if not p_value_panels and show_A_site and ys_string == ys_strings[0]:
+            if not p_value_panels and show_A_site and changes_string == changes_strings[0]:
                 color = 'green'
             else:
                 color = 'blue'
@@ -1988,7 +1993,7 @@ def offset_difference_correlation(enrichments, names,
             p_ax.set_yticks([eval('1e{0}'.format(p)) for p in np.arange(0, min_p - 1, -4)])
             p_ax.yaxis.grid(linestyle='-', alpha=0.3)
             p_ax.set_ylabel('P-value of correlation', size=16)
-            if len(ys_strings) > 1:
+            if len(changes_strings) > 1:
                 p_ax.legend(framealpha=0.5, loc='lower right')
         
         label_kwargs = {'size': 16, 'family': 'serif'}
@@ -2006,14 +2011,14 @@ def offset_difference_correlation(enrichments, names,
             for label in ax.get_yticklabels() + ax.get_xticklabels():
                 label.set_size(12)
 
-        if len(ys_strings) > 1:
+        if len(changes_strings) > 1:
             if variance_explained:
-                loc = 'upper right'
+                loc = 'upper left'
             else:
                 loc = 'lower right'
             r_ax.legend(framealpha=0.5, loc=loc)
         else:
-            r_ax.set_ylabel(ys_strings[0])
+            r_ax.set_ylabel(changes_strings[0])
 
         if not use_P_sites:
             if variance_explained:
