@@ -48,7 +48,7 @@ class PositionCounts(object):
             # relative_slice is a (landmark, slice) tuple 
             landmark, key = relative_slice
 
-            if key == None:
+            if key is None:
                 absolute_slice = self.transform_relative_slice(landmark)
 
             elif isinstance(key, (int, long)):
