@@ -957,7 +957,7 @@ def build_codon_to_ranks(enrichments, position, name_order):
 
     return codon_to_ranks, codon_to_values
 
-def build_dicodon_to_ranks(stratified_mean_enrichments_dict,
+def build_dicodon_to_ranks(enrichments,
                            position,
                            name_order,
                            allowed_dicodons=None,
@@ -1244,6 +1244,12 @@ def plot_correlations_across_conditions(enrichments,
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
     return fig
+
+def smooth(ys, window):
+    smoothed = np.copy(ys)
+    for i in range(window, len(ys) - window):
+        smoothed[i] = sum(ys[i - window:i + window + 1]) / float(2 * window + 1)
+    return smoothed
                                        
 def plot_codon_enrichments(names,
                            enrichments,
@@ -1262,6 +1268,8 @@ def plot_codon_enrichments(names,
                            marker_size=6,
                            line_width=1,
                            mark_active_sites=True,
+                           sample_to_color=None,
+                           smooth_window=0,
                           ):
 
     if ax != None and ((split_by_codon and len(codons_to_highlight) > 1) or (not split_by_codon and len(names) > 1)):
@@ -1278,6 +1286,7 @@ def plot_codon_enrichments(names,
         for codon_id in codons.non_stop_codons:
             xs = np.arange(min_x, max_x + 1)
             ys = enrichments[sample]['codon', min_x:max_x + 1, codon_id]
+            ys = smooth(ys, smooth_window)
 
             all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys
@@ -1286,7 +1295,9 @@ def plot_codon_enrichments(names,
         sample_to_label = {name: name for name in names}
             
     if split_by_codon:
-        sample_to_color = {name: colors_iter.next() for name in names}
+        if sample_to_color == None:
+            sample_to_color = {name: colors_iter.next() for name in names}
+            sample_to_color = sample_to_color.__getitem__
 
         if ax == None:
             fig, axs = plt.subplots(len(codons_to_highlight), 1,
@@ -1300,7 +1311,7 @@ def plot_codon_enrichments(names,
         for codon_id, codon_ax in zip(codons_to_highlight, axs.flatten()):
             amino_acid = codons.full_forward_table[codon_id]
             for sample in names:
-                kwargs = {'color': sample_to_color[sample],
+                kwargs = {'color': sample_to_color(sample),
                           'alpha': 1,
                           'label': sample_to_label[sample],
                           'markersize': marker_size,
@@ -1884,6 +1895,7 @@ def offset_difference_correlation(enrichments, names,
                                   text_size=14,
                                   withhold_results=False,
                                   annotate_maximum=True,
+                                  smooth_window=0,
                                  ):
     if any('noCHX' in name for name in names):
         noCHX_name = [name for name in names if 'noCHX' in name][0]
@@ -1945,7 +1957,12 @@ def offset_difference_correlation(enrichments, names,
 
         for changes_string, label in zip(changes_strings, labels):
             changes = eval(changes_string)
-            x_rs, x_ps = np.array([scipy.stats.pearsonr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], changes) for x in xs]).T
+            rps = []
+            waves = enrichments[CHX_name]['codon', x_min:x_max, codons.non_stop_codons]
+            smoothed = smooth(waves, smooth_window)
+            for row in smoothed:
+                rps.append(scipy.stats.pearsonr(row, changes))
+            x_rs, x_ps = np.array(rps).T
             
             if use_P_sites and show_A_site and changes_string == changes_strings[0]:
                 alpha = 0.5
@@ -1984,11 +2001,12 @@ def offset_difference_correlation(enrichments, names,
                                mark_active_sites=False,
                                line_width=line_width,
                                marker_size=marker_size,
+                               smooth_window=smooth_window,
                               )
 
         if enrichment_ylims:
-            enrichment_ax.set_ylim(*enrichment_ylims)
             enrichment_ax.set_yticks(np.arange(0, enrichment_ylims[1] + 0.1))
+            enrichment_ax.set_ylim(*enrichment_ylims)
 
         r_ax.set_yticks([-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0])
         r_ax.yaxis.grid(linestyle='-', alpha=0.3)
@@ -2087,7 +2105,7 @@ def offset_difference_correlation(enrichments, names,
         labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
         axs[-1, 0].set_yticklabels(labels)
 
-    return fig
+    return fig, x
 
 def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
                            enrichment_ylims=None,
