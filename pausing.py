@@ -938,13 +938,14 @@ def assign_colors_by_values(codon_to_ranks):
     codon_to_color = {codon: colors[codon_to_ranks[codon][0]] for codon in codon_to_ranks}
     return codon_to_color
 
-def build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order):
+def build_codon_to_ranks(enrichments, position, name_order):
     all_ranks = []
     all_values = []
     for name in name_order:
-        enrichments = stratified_mean_enrichments_dict[name]
-        values = [enrichments['codon', position, codon_id] for codon_id in codons.non_stop_codons]
-        ranks = np.array(values).argsort().argsort()
+        values = enrichments[name]['codon', position, codons.non_stop_codons]
+        if isinstance(position, slice):
+            values = (values - 1).sum(axis=0)
+        ranks = values.argsort().argsort()
         all_values.append(values)
         all_ranks.append(ranks)
 
@@ -966,8 +967,7 @@ def build_dicodon_to_ranks(stratified_mean_enrichments_dict,
     if allowed_dicodons == None:
         allowed_dicodons = list(itertools.product(codons.non_stop_codons, repeat=2))
     for name in name_order:
-        enrichments = stratified_mean_enrichments_dict[name]
-        values = [enrichments['dicodon', position, dicodon_id] for dicodon_id in allowed_dicodons]
+        values = [enrichments[name]['dicodon', position, dicodon_id] for dicodon_id in allowed_dicodons]
         ranks = np.array(values).argsort().argsort()
         all_values.append(values)
         all_ranks.append(ranks)
@@ -1048,6 +1048,7 @@ def plot_enrichments_across_conditions(enrichments,
                                        marker_size=6,
                                        heat_exception=False,
                                        ylabel_size=14,
+                                       rotate_labels=True,
                                       ):
     if ax == None:
         fig, ax = plt.subplots(figsize=(16, 12))
@@ -1062,12 +1063,17 @@ def plot_enrichments_across_conditions(enrichments,
     
     log_deltas = {codon_id: np.log2(codon_to_values[codon_id][0] / codon_to_values[codon_id][-1])
                   for codon_id in codons.non_stop_codons}
+    
+    raw_deltas = {codon_id: codon_to_values[codon_id][0] - codon_to_values[codon_id][-1]
+                  for codon_id in codons.non_stop_codons}
 
     num_to_label, rank_or_log, transform = label_rules
     if rank_or_log == 'rank':
         deltas = rank_deltas
     elif rank_or_log == 'log':
         deltas = log_deltas
+    elif rank_or_log == 'raw':
+        deltas = raw_deltas
 
     xs = range(len(name_order))
     if heat_exception:
@@ -1085,6 +1091,10 @@ def plot_enrichments_across_conditions(enrichments,
                 alpha = min(1, abs(log_deltas[codon_id]))
                 width = 1
                 width = abs(log_deltas[codon_id] / 1.5)
+            elif rank_or_log == 'raw':
+                alpha = min(1, abs(raw_deltas[codon_id]))
+                width = 1
+                width = abs(raw_deltas[codon_id] / 1.5)
         elif force_highlight:
             if codon_id in force_highlight:
                 alpha = 1
@@ -1124,9 +1134,6 @@ def plot_enrichments_across_conditions(enrichments,
     end_ys = []
     labels = []
 
-    first_enrichments = enrichments[name_order[0]]
-    last_enrichments = enrichments[name_order[-1]]
-
     for codon_id in set(sorted_deltas[:num_to_label]) | set(force_label):
         label = '{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id])
         
@@ -1134,8 +1141,8 @@ def plot_enrichments_across_conditions(enrichments,
             start_y = codon_to_ranks[codon_id][0]
             end_y = codon_to_ranks[codon_id][-1]
         else:
-            start_y = first_enrichments['codon', position, codon_id]
-            end_y = last_enrichments['codon', position, codon_id]
+            start_y = codon_to_values[codon_id][0]
+            end_y = codon_to_values[codon_id][-1]
             
         start_ys.append(start_y)
         end_ys.append(end_y)
@@ -1164,7 +1171,13 @@ def plot_enrichments_across_conditions(enrichments,
                                            )
 
     ax.set_xticks(xs)
-    ax.set_xticklabels(name_order, rotation=30, ha='right', size=12)
+    if rotate_labels:
+        rotation = 30
+        ha = 'right'
+    else:
+        rotation = 90
+        ha = 'center'
+    ax.set_xticklabels(name_order, rotation=rotation, ha=ha, size=12)
     x_span = max(xs) - min(xs)
     ax.set_xlim(min(xs) - 0.02 * buffer_factor * x_span, max(xs) + 0.02 * buffer_factor * x_span)
 
