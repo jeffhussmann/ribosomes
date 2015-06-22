@@ -34,6 +34,7 @@ def build_all_experiments(verbose=False):
                 'baudin-baillieu_cell_reports',
                 'nedialkova_cell',
                 'jan_science',
+                'williams_science',
                ]
 
     experiments = {}

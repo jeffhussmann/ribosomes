@@ -48,7 +48,7 @@ class PositionCounts(object):
             # relative_slice is a (landmark, slice) tuple 
             landmark, key = relative_slice
 
-            if key == None:
+            if key is None:
                 absolute_slice = self.transform_relative_slice(landmark)
 
             elif isinstance(key, (int, long)):
@@ -195,12 +195,10 @@ def convert_to_three_prime(position_counts, length):
 
 # Number of nucleotide positions to include on the left and right side of
 # counts of read positions.
-edge_buffer = 50
-left_buffer = 4 * edge_buffer
-right_buffer = 4 * edge_buffer
+left_buffer = right_buffer = 300
 
 # Number of codons to include on either side of counts of codon positions.
-codon_buffer = 10
+codon_buffer = left_buffer // 3
 
 def get_Transcript_extent_position_counts(transcript,
                                           clean_bam_fn,
@@ -401,6 +399,7 @@ A_site_offsets = {'ingolia_cell': {29: 15,
                   'yeast':        {28: 15,
                                    29: 15,
                                    30: 16,
+                                   31: 16,
                                   },
                   'yeast_stringent': {28: 15,
                                      },
@@ -408,7 +407,18 @@ A_site_offsets = {'ingolia_cell': {29: 15,
                                        21: 15,
                                        22: 16,
                                        23: 16,
-                                      }
+                                      },
+                  'gerashchenko_pnas': {24: 12,
+                                        25: 12,
+                                        26: 12,
+                                       },
+                  'gerashchenko_pnas_stringent': {25: 12,
+                                                 },
+                  'gerashchenko_pnas_anisomycin': {17: 12,
+                                                   18: 12,
+                                                   19: 13,
+                                                   21: 13,
+                                                  },
                  }
 
 def compute_codon_counts(position_counts, offset_type):

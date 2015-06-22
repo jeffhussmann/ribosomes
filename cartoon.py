@@ -387,7 +387,7 @@ class CodingSequence(object):
             
             alpha = 1
             if count_positions['positions_to_bold'] != None and i not in count_positions['positions_to_bold']:
-                alpha = 0.3
+                alpha = 0.5
             
             text = self.ax.text(x, y, '{0:,}'.format(count), ha='center', va='top', fontdict=font, alpha=alpha)
             
@@ -435,7 +435,7 @@ class CodingSequence(object):
                     alpha = 1
                 else:
                     weight = 'normal'
-                    alpha = 0.3
+                    alpha = 0.5
             
             text = self.ax.text(x, y, enrichment_string,
                                 ha='center',
@@ -530,8 +530,8 @@ class CodingSequence(object):
         rectangle_around_text_list(texts.values(), color='black', fill=False)
 
         (x0, y0), (x1, y1) = get_axes_coordinates(texts[position - 5])
-        name_x = x0 - 0.5 * (x1 - x0)
-        name_y = y0 + 0.6 * (y1 - y0)
+        name_x = x0 - 0.2 * (x1 - x0)
+        name_y = y0 + 0.5 * (y1 - y0)
          
         self.ax.text(name_x, name_y, label,
                      size=0.7 * self.font_size,
@@ -541,6 +541,11 @@ class CodingSequence(object):
                     )
         
     def rectangle_around_everything(self):
-        rec = matplotlib.patches.Rectangle((self.far_left - 0.01, self.bottom - 0.03), self.far_right - self.far_left + 0.02, self.top - self.bottom + 0.06, fill=False, lw=2)
+        rec = matplotlib.patches.Rectangle((self.far_left - 0.01, self.bottom - 0.04),
+                                           self.far_right - self.far_left + 0.02,
+                                           self.top - self.bottom + 0.08,
+                                           fill=False,
+                                           lw=1.2,
+                                          )
         rec = self.ax.add_patch(rec)
         rec.set_clip_on(False)

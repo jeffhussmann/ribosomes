@@ -938,13 +938,14 @@ def assign_colors_by_values(codon_to_ranks):
     codon_to_color = {codon: colors[codon_to_ranks[codon][0]] for codon in codon_to_ranks}
     return codon_to_color
 
-def build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order):
+def build_codon_to_ranks(enrichments, position, name_order):
     all_ranks = []
     all_values = []
     for name in name_order:
-        enrichments = stratified_mean_enrichments_dict[name]
-        values = [enrichments['codon', position, codon_id] for codon_id in codons.non_stop_codons]
-        ranks = np.array(values).argsort().argsort()
+        values = enrichments[name]['codon', position, codons.non_stop_codons]
+        if isinstance(position, slice):
+            values = (values - 1).sum(axis=0)
+        ranks = values.argsort().argsort()
         all_values.append(values)
         all_ranks.append(ranks)
 
@@ -956,7 +957,7 @@ def build_codon_to_ranks(stratified_mean_enrichments_dict, position, name_order)
 
     return codon_to_ranks, codon_to_values
 
-def build_dicodon_to_ranks(stratified_mean_enrichments_dict,
+def build_dicodon_to_ranks(enrichments,
                            position,
                            name_order,
                            allowed_dicodons=None,
@@ -966,8 +967,7 @@ def build_dicodon_to_ranks(stratified_mean_enrichments_dict,
     if allowed_dicodons == None:
         allowed_dicodons = list(itertools.product(codons.non_stop_codons, repeat=2))
     for name in name_order:
-        enrichments = stratified_mean_enrichments_dict[name]
-        values = [enrichments['dicodon', position, dicodon_id] for dicodon_id in allowed_dicodons]
+        values = [enrichments[name]['dicodon', position, dicodon_id] for dicodon_id in allowed_dicodons]
         ranks = np.array(values).argsort().argsort()
         all_values.append(values)
         all_ranks.append(ranks)
@@ -1048,6 +1048,7 @@ def plot_enrichments_across_conditions(enrichments,
                                        marker_size=6,
                                        heat_exception=False,
                                        ylabel_size=14,
+                                       rotate_labels=True,
                                       ):
     if ax == None:
         fig, ax = plt.subplots(figsize=(16, 12))
@@ -1062,12 +1063,17 @@ def plot_enrichments_across_conditions(enrichments,
     
     log_deltas = {codon_id: np.log2(codon_to_values[codon_id][0] / codon_to_values[codon_id][-1])
                   for codon_id in codons.non_stop_codons}
+    
+    raw_deltas = {codon_id: codon_to_values[codon_id][0] - codon_to_values[codon_id][-1]
+                  for codon_id in codons.non_stop_codons}
 
     num_to_label, rank_or_log, transform = label_rules
     if rank_or_log == 'rank':
         deltas = rank_deltas
     elif rank_or_log == 'log':
         deltas = log_deltas
+    elif rank_or_log == 'raw':
+        deltas = raw_deltas
 
     xs = range(len(name_order))
     if heat_exception:
@@ -1085,6 +1091,10 @@ def plot_enrichments_across_conditions(enrichments,
                 alpha = min(1, abs(log_deltas[codon_id]))
                 width = 1
                 width = abs(log_deltas[codon_id] / 1.5)
+            elif rank_or_log == 'raw':
+                alpha = min(1, abs(raw_deltas[codon_id]))
+                width = 1
+                width = abs(raw_deltas[codon_id] / 1.5)
         elif force_highlight:
             if codon_id in force_highlight:
                 alpha = 1
@@ -1124,9 +1134,6 @@ def plot_enrichments_across_conditions(enrichments,
     end_ys = []
     labels = []
 
-    first_enrichments = enrichments[name_order[0]]
-    last_enrichments = enrichments[name_order[-1]]
-
     for codon_id in set(sorted_deltas[:num_to_label]) | set(force_label):
         label = '{0} ({1})'.format(codon_id, codons.full_forward_table[codon_id])
         
@@ -1134,8 +1141,8 @@ def plot_enrichments_across_conditions(enrichments,
             start_y = codon_to_ranks[codon_id][0]
             end_y = codon_to_ranks[codon_id][-1]
         else:
-            start_y = first_enrichments['codon', position, codon_id]
-            end_y = last_enrichments['codon', position, codon_id]
+            start_y = codon_to_values[codon_id][0]
+            end_y = codon_to_values[codon_id][-1]
             
         start_ys.append(start_y)
         end_ys.append(end_y)
@@ -1164,7 +1171,13 @@ def plot_enrichments_across_conditions(enrichments,
                                            )
 
     ax.set_xticks(xs)
-    ax.set_xticklabels(name_order, rotation=30, ha='right', size=12)
+    if rotate_labels:
+        rotation = 30
+        ha = 'right'
+    else:
+        rotation = 90
+        ha = 'center'
+    ax.set_xticklabels(name_order, rotation=rotation, ha=ha, size=12)
     x_span = max(xs) - min(xs)
     ax.set_xlim(min(xs) - 0.02 * buffer_factor * x_span, max(xs) + 0.02 * buffer_factor * x_span)
 
@@ -1231,6 +1244,12 @@ def plot_correlations_across_conditions(enrichments,
     ax.set_xlim(min(xs) - 0.1, max(xs) + 0.1)
 
     return fig
+
+def smooth(ys, window):
+    smoothed = np.copy(ys)
+    for i in range(window, len(ys) - window):
+        smoothed[i] = sum(ys[i - window:i + window + 1]) / float(2 * window + 1)
+    return smoothed
                                        
 def plot_codon_enrichments(names,
                            enrichments,
@@ -1249,6 +1268,8 @@ def plot_codon_enrichments(names,
                            marker_size=6,
                            line_width=1,
                            mark_active_sites=True,
+                           sample_to_color=None,
+                           smooth_window=0,
                           ):
 
     if ax != None and ((split_by_codon and len(codons_to_highlight) > 1) or (not split_by_codon and len(names) > 1)):
@@ -1265,6 +1286,7 @@ def plot_codon_enrichments(names,
         for codon_id in codons.non_stop_codons:
             xs = np.arange(min_x, max_x + 1)
             ys = enrichments[sample]['codon', min_x:max_x + 1, codon_id]
+            ys = smooth(ys, smooth_window)
 
             all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys
@@ -1273,7 +1295,9 @@ def plot_codon_enrichments(names,
         sample_to_label = {name: name for name in names}
             
     if split_by_codon:
-        sample_to_color = {name: colors_iter.next() for name in names}
+        if sample_to_color == None:
+            sample_to_color = {name: colors_iter.next() for name in names}
+            sample_to_color = sample_to_color.__getitem__
 
         if ax == None:
             fig, axs = plt.subplots(len(codons_to_highlight), 1,
@@ -1287,7 +1311,7 @@ def plot_codon_enrichments(names,
         for codon_id, codon_ax in zip(codons_to_highlight, axs.flatten()):
             amino_acid = codons.full_forward_table[codon_id]
             for sample in names:
-                kwargs = {'color': sample_to_color[sample],
+                kwargs = {'color': sample_to_color(sample),
                           'alpha': 1,
                           'label': sample_to_label[sample],
                           'markersize': marker_size,
@@ -1871,6 +1895,7 @@ def offset_difference_correlation(enrichments, names,
                                   text_size=14,
                                   withhold_results=False,
                                   annotate_maximum=True,
+                                  smooth_window=0,
                                  ):
     if any('noCHX' in name for name in names):
         noCHX_name = [name for name in names if 'noCHX' in name][0]
@@ -1881,6 +1906,7 @@ def offset_difference_correlation(enrichments, names,
     
     noCHX_As = enrichments[noCHX_name]['codon', 0, codons.non_stop_codons]
     noCHX_Ps = enrichments[noCHX_name]['codon', -1, codons.non_stop_codons]
+    noCHX_Es = enrichments[noCHX_name]['codon', -2, codons.non_stop_codons]
     
     if p_value_panels:
         gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=[0.5, 1, 0.5])
@@ -1905,31 +1931,40 @@ def offset_difference_correlation(enrichments, names,
 
         CHX_As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
         CHX_Ps = enrichments[CHX_name]['codon', -1, codons.non_stop_codons]
+        CHX_Es = enrichments[CHX_name]['codon', -2, codons.non_stop_codons]
 
         x_min, x_max = -90, 90
         xs = np.arange(x_min, x_max)
 
-        ys_strings = [
+        changes_strings = [
             'noCHX_As - CHX_As',
             'noCHX_As + noCHX_Ps - CHX_As - CHX_Ps',
+            'noCHX_As + noCHX_Ps + noCHX_Es - CHX_As - CHX_Ps - CHX_Es',
         ]
         
         labels = [
             'A site',
             'A site + P site',
+            'A site + P site + E site',
         ]
         
         if not use_P_sites:
-            ys_strings = ys_strings[:1]
+            changes_strings = changes_strings[:1]
 
         if use_P_sites and not show_A_site:
-            ys_strings = ys_strings[1:]
+            changes_strings = changes_strings[1:]
+            labels = labels[1:]
 
-        for ys_string, label in zip(ys_strings, labels):
-            ys = eval(ys_string)
-            x_rs, x_ps = np.array([scipy.stats.pearsonr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], ys) for x in xs]).T
+        for changes_string, label in zip(changes_strings, labels):
+            changes = eval(changes_string)
+            rps = []
+            waves = enrichments[CHX_name]['codon', x_min:x_max, codons.non_stop_codons]
+            smoothed = smooth(waves, smooth_window)
+            for row in smoothed:
+                rps.append(scipy.stats.pearsonr(row, changes))
+            x_rs, x_ps = np.array(rps).T
             
-            if use_P_sites and show_A_site and ys_string == ys_strings[0]:
+            if use_P_sites and show_A_site and changes_string == changes_strings[0]:
                 alpha = 0.5
             else:
                 alpha = 1.0
@@ -1939,7 +1974,7 @@ def offset_difference_correlation(enrichments, names,
             else:
                 ys = x_rs
 
-            if not p_value_panels and show_A_site and ys_string == ys_strings[0]:
+            if not p_value_panels and show_A_site and changes_string == changes_strings[0]:
                 color = 'green'
             else:
                 color = 'blue'
@@ -1966,11 +2001,12 @@ def offset_difference_correlation(enrichments, names,
                                mark_active_sites=False,
                                line_width=line_width,
                                marker_size=marker_size,
+                               smooth_window=smooth_window,
                               )
 
         if enrichment_ylims:
-            enrichment_ax.set_ylim(*enrichment_ylims)
             enrichment_ax.set_yticks(np.arange(0, enrichment_ylims[1] + 0.1))
+            enrichment_ax.set_ylim(*enrichment_ylims)
 
         r_ax.set_yticks([-1.0, -0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8, 1.0])
         r_ax.yaxis.grid(linestyle='-', alpha=0.3)
@@ -1988,7 +2024,7 @@ def offset_difference_correlation(enrichments, names,
             p_ax.set_yticks([eval('1e{0}'.format(p)) for p in np.arange(0, min_p - 1, -4)])
             p_ax.yaxis.grid(linestyle='-', alpha=0.3)
             p_ax.set_ylabel('P-value of correlation', size=16)
-            if len(ys_strings) > 1:
+            if len(changes_strings) > 1:
                 p_ax.legend(framealpha=0.5, loc='lower right')
         
         label_kwargs = {'size': 16, 'family': 'serif'}
@@ -2006,14 +2042,14 @@ def offset_difference_correlation(enrichments, names,
             for label in ax.get_yticklabels() + ax.get_xticklabels():
                 label.set_size(12)
 
-        if len(ys_strings) > 1:
+        if len(changes_strings) > 1:
             if variance_explained:
-                loc = 'upper right'
+                loc = 'upper left'
             else:
                 loc = 'lower right'
             r_ax.legend(framealpha=0.5, loc=loc)
         else:
-            r_ax.set_ylabel(ys_strings[0])
+            r_ax.set_ylabel(changes_strings[0])
 
         if not use_P_sites:
             if variance_explained:
@@ -2069,7 +2105,7 @@ def offset_difference_correlation(enrichments, names,
         labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
         axs[-1, 0].set_yticklabels(labels)
 
-    return fig
+    return fig, x
 
 def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
                            enrichment_ylims=None,

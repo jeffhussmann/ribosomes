@@ -119,7 +119,7 @@ class StratifiedMeanEnrichments(object):
         if isinstance(position_slice, slice):
             absolute_start = position_slice.start + self.num_before * multiple
             absolute_stop = position_slice.stop + self.num_before * multiple 
-            absolute_slice = slice(absolute_start, absolute_stop)
+            absolute_slice = slice(absolute_start, absolute_stop, position_slice.step)
         elif isinstance(position_slice, (int, long)):
             absolute_slice = position_slice + self.num_before * multiple 
         
