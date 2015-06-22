@@ -2090,27 +2090,57 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
     if p_offsets == None:
         p_offsets = [20]*len(CHX_names)
     
-    if p_value_panels:
-        height_ratios = [0.3, 1, 0.3]
-        gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios, left=0, right=1)
-        fig, axs = plt.subplots(3, len(CHX_names),
-                                figsize=(0.7 * size * len(CHX_names), size * sum(height_ratios)),
-                                gridspec_kw=gs_kwargs,
-                                squeeze=False,
-                               )
+    #if p_value_panels:
+    #    height_ratios = [0.3, 1, 0.3]
+    #    gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios, left=0, right=1)
+    #    fig, axs = plt.subplots(3, len(CHX_names),
+    #                            figsize=(0.7 * size * len(CHX_names), size * sum(height_ratios)),
+    #                            gridspec_kw=gs_kwargs,
+    #                            squeeze=False,
+    #                           )
+    #else:
+    #    height_ratios = [0.3, 1]
+    #    gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios)
+    #    fig, axs = plt.subplots(2, len(CHX_names),
+    #                            figsize=(size * len(CHX_names), size * sum(height_ratios)),
+    #                            gridspec_kw=gs_kwargs,
+    #                            squeeze=False,
+    #                           )
+
+    num_exps = len(CHX_names)
+    exps_per_row = 4
+    full_rows, leftover = divmod(num_exps, exps_per_row)
+    if leftover > 0:
+        num_rows = full_rows + 1
     else:
-        height_ratios = [0.3, 1]
-        gs_kwargs = dict(hspace=0.07, wspace=0.1, height_ratios=height_ratios)
-        fig, axs = plt.subplots(2, len(CHX_names),
-                                figsize=(size * len(CHX_names), size * sum(height_ratios)),
-                                gridspec_kw=gs_kwargs,
-                                squeeze=False,
-                               )
-    for CHX_name, ax_col, p_offset in zip(CHX_names, axs.T, p_offsets):
+        num_rows = full_rows
+    height_ratios = [0.3, 1, 0.3]
+    fig = plt.figure(figsize=(0.7 * size * exps_per_row, size * num_rows * sum(height_ratios)))
+
+    columns = []
+
+    high_level = matplotlib.gridspec.GridSpec(num_rows, 1, left=0, right=1, bottom=0, top=1)
+    for row in high_level:
+        low_level = matplotlib.gridspec.GridSpecFromSubplotSpec(3, exps_per_row, subplot_spec=row, hspace=0.07, wspace=0.1, height_ratios=height_ratios)
+        row_axes = []
+        for p in low_level:
+            ax = plt.Subplot(fig, p)
+            fig.add_subplot(ax)
+            row_axes.append(ax)
+            
+        for column in np.array(row_axes).reshape(low_level.get_geometry()).T:
+            columns.append(column)
+
+    for CHX_name, ax_col, p_offset in itertools.izip_longest(CHX_names, columns, p_offsets):
         if p_value_panels:
             enrichment_ax, rho_ax, p_ax = ax_col
         else:
             enrichment_ax, rho_ax = ax_col
+
+        if CHX_name == None:
+            for ax in ax_col:
+                fig.delaxes(ax)
+            continue
 
         As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
         
@@ -2227,8 +2257,12 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
 
             if p_value_panels:
                 mantissa, exponent = '{0:0.1e}'.format(p).split('e')
-                p_string = r'{0} \times 10^{{{1}}}'.format(mantissa, int(exponent))
-                p_ax.annotate(r'$p = {0}$'.format(p_string),
+                if p < 10**min_p:
+                    p_string = r'p < 10^{{{0}}}'.format(min_p)
+                    p = 10**min_p
+                else:
+                    p_string = r'p = {0} \times 10^{{{1}}}'.format(mantissa, int(exponent))
+                p_ax.annotate(r'${0}$'.format(p_string),
                               xy=(x, p),
                               xycoords='data',
                               xytext=(p_offset, 0.05),
@@ -2245,25 +2279,27 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
                               size=text_size,
                              )
 
-    for ax in axs[:, 1:].flatten():
-        ax.set_ylabel('')
-        ax.set_yticklabels([])
+    for i, ax_col in enumerate(columns):
+        if i % exps_per_row != 0:
+            for ax in ax_col:
+                ax.set_ylabel('')
+                ax.set_yticklabels([])
 
-    for ax in axs[:-1, :].flatten():
-        ax.set_xlabel('')
-        ax.set_xticklabels([])
+        for ax in ax_col[:-1]:
+            ax.set_xlabel('')
+            ax.set_xticklabels([])
 
-    #for ax in axs[:, 1:].flatten():
-    #    if ax.legend_:
-    #        ax.legend_.remove()
-    
-    if p_value_panels and any(x_ps <= 10**min_p):
-        fig.canvas.draw()
-        labels = [label.get_text() for label in axs[-1, 0].get_yticklabels()]    
-        labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
-        axs[-1, 0].set_yticklabels(labels)
+    ##for ax in axs[:, 1:].flatten():
+    ##    if ax.legend_:
+    ##        ax.legend_.remove()
+    #
+    #if p_value_panels and any(x_ps <= 10**min_p):
+    #    fig.canvas.draw()
+    #    labels = [label.get_text() for label in axs[-1, 0].get_yticklabels()]    
+    #    labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
+    #    axs[-1, 0].set_yticklabels(labels)
 
-    return fig
+    return fig, columns
 
 def correlation_heatmap(enrichments, names, labels=None, offset=0, ax=None, cmap=matplotlib.cm.RdBu_r):
     if ax == None:
