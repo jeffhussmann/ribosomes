@@ -16,7 +16,7 @@ import scipy.stats
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
-colors = colors + colors
+colors = colors * 4
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
@@ -462,7 +462,7 @@ def plot_joint_positions_scatter(joint_position_counts, transcript, name, ax=Non
     ax.scatter(xs, ys, ss, c=cs, linewidth=(0.,))
     ax.set_xlim(x_lims)
     ax.set_ylim(y_lims)
-    ax.set_aspect(1.)
+    ax.set_aspect('equal')
     ax.set_title(name)
     ax.set_xlabel('5\' end of transcript relative to start codon')
     ax.set_ylabel('3\' end of transcript relative to stop codon')
@@ -591,10 +591,8 @@ def plot_averaged_nucleotide_densities(data_sets,
         ax.set_ylim(0, ymax + 0.1)
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
-        ax.set_aspect((xmax - xmin) / (ymax - ymin))
-        #ax.set_aspect(1)
+        #ax.set_aspect((xmax - xmin) / (ymax - ymin))
 
-    #fig.set_size_inches(12, 12)
     if save_fig:
         fig.savefig(figure_fn, bbox_inches='tight')
         plt.close(fig)
@@ -607,10 +605,12 @@ def plot_averaged_codon_densities(data_sets,
                                   save_fig=True,
                                   labels=None,
                                   legend_kwargs={},
-                                  ax=None,
+                                  axs=None,
+                                  sample_to_color=None,
+                                  normalize_to_asymptotic=False,
                                  ):
-    if ax != None:
-        start_ax = ax
+    if axs is not None:
+        start_ax, end_ax = axs
     elif show_end:
         fig, (start_ax, end_ax) = plt.subplots(1, 2, figsize=(24, 12), gridspec_kw={'wspace': 0.05})
     else:
@@ -621,10 +621,16 @@ def plot_averaged_codon_densities(data_sets,
 
     if labels == None:
         labels = [name for name, _, _ in data_sets]
+    
+    if sample_to_color == None:
+        sample_to_color = {name: colors[i] for name, _, i in data_sets}
+        sample_to_color = sample_to_color.__getitem__
 
     for (name, mean_densities, color_index), label in zip(data_sets, labels):
         densities = mean_densities['from_start']['codons']
         start_densities = densities['start_codon', start_xs]
+        if normalize_to_asymptotic:
+            start_densities /= densities['start_codon', 500]
 
         marker = '.'
         linewidth = 1
@@ -633,7 +639,7 @@ def plot_averaged_codon_densities(data_sets,
                       start_densities,
                       '.-',
                       label=label,
-                      color=colors[color_index],
+                      color=sample_to_color(name),
                       marker=marker,
                       linewidth=linewidth,
                      )
@@ -644,7 +650,7 @@ def plot_averaged_codon_densities(data_sets,
                         end_densities,
                         '.-',
                         label=name,
-                        color=colors[color_index],
+                        color=sample_to_color(name),
                         marker=marker,
                         linewidth=linewidth,
                        )
@@ -673,10 +679,7 @@ def plot_averaged_codon_densities(data_sets,
         ax.set_ylim(0, ymax + 0.1)
         xmin, xmax = ax.get_xlim()
         ymin, ymax = ax.get_ylim()
-        #ax.set_aspect((xmax - xmin) / (ymax - ymin))
-        #ax.set_aspect(1)
 
-    #fig.set_size_inches(12, 12)
     if save_fig:
         fig.savefig(figure_fn, bbox_inches='tight')
         plt.close(fig)
