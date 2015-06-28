@@ -1115,9 +1115,9 @@ def plot_enrichments_across_conditions(enrichments,
                 width = 1
                 width = abs(log_deltas[codon_id] / 1.5)
             elif rank_or_log == 'raw':
-                alpha = min(1, abs(raw_deltas[codon_id]))
+                alpha = max(0.1, min(1, -raw_deltas[codon_id]))
                 width = 1
-                width = abs(raw_deltas[codon_id] / 1.5)
+                width = max(1, -raw_deltas[codon_id] / 0.5)
         elif force_highlight:
             if codon_id in force_highlight:
                 alpha = 1
@@ -1521,9 +1521,7 @@ def plot_dicodon_enrichments(names,
         ax.set_ylabel('Mean relative enrichment')
         
         if flip:
-            ax.invert_xaxis()
-            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
-            ax.set_xticklabels(flipped_labels)
+            flip_x_axis(ax)
 
     return fig
 
@@ -1998,10 +1996,10 @@ def offset_difference_correlation(enrichments, names,
             else:
                 ys = x_rs
 
-            if not p_value_panels and show_A_site and changes_string == changes_strings[0]:
-                color = 'green'
-            else:
+            if changes_string == changes_strings[0]:
                 color = 'blue'
+            else:
+                color = 'purple'
 
             if not withhold_results:
                 r_ax.plot(xs, ys, '.-',
@@ -2172,13 +2170,24 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
         else:
             enrichment_ax, rho_ax = ax_col
 
-        As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
-        
         x_rhos = []
         x_ps = []
         
         x_min, x_max = plot_lims
         xs = np.arange(x_min, x_max + 1)
+        
+        upstream_areas = (enrichments[CHX_name]['codon', 12:90:1, codons.non_stop_codons] - 1).sum(axis=0)
+        downstream_areas = (enrichments[CHX_name]['codon', -7:-90:-1, codons.non_stop_codons] - 1).sum(axis=0)
+        actives = (enrichments[CHX_name]['codon', -1:1, codons.non_stop_codons] - 1).sum(axis=0)
+
+        rho, p = scipy.stats.spearmanr(upstream_areas, tAI_values)
+        print '{2:<20}\tupstream\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
+        rho, p = scipy.stats.spearmanr(downstream_areas, tAI_values)
+        print '{2:<20}\tdownstream\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
+        rho, p = scipy.stats.spearmanr(downstream_areas + actives, tAI_values)
+        print '{2:<20}\tdown+activ\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
+
+        print [(c, (downstream_areas + actives)[i]) for i, c in enumerate(codons.non_stop_codons) if c == 'CGA']
             
         x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
 
@@ -2323,7 +2332,7 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
         labels[-1] = labels[-1][:1] + '\leq' + labels[-1][1:]
         axs[-1, 0].set_yticklabels(labels)
 
-    return fig
+    return fig, None
 
 def correlation_heatmap(enrichments, names, labels=None, offset=0, ax=None, cmap=matplotlib.cm.RdBu_r):
     if ax == None:
