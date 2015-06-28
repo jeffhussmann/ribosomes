@@ -528,7 +528,8 @@ def plot_binned_base_compositions(binned_base_compositions, normalized=False, sh
                         size=20,
                        )
 
-def plot_nucleotide_enrichments(enrichments,
+def plot_nucleotide_enrichments(names,
+                                enrichments,
                                 plot_A_site=True,
                                 min_x=-30,
                                 max_x=32, 
@@ -539,82 +540,104 @@ def plot_nucleotide_enrichments(enrichments,
                                 line_width=1,
                                 minimal_ticks=False,
                                 legend_kwargs={'loc': 'upper right'},
+                                split_by_base=False,
                                ):
-    if plot_A_site:
-        xs = range(min_x, 0) + range(0, 3) + range(3, max_x + 1)
-    else:
-        xs = range(min_x, 0) + [None, None, None] + range(3, max_x + 1)
 
-    if ax == None:
-        fig, ax = plt.subplots(figsize=(16, 12))
+    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
+    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
+    colors_iter = itertools.cycle(iter(colors))
     
-    for base in 'TCAG':
-        ys = []
-        for x in xs:
-            if x == None:
-                y = None
+    all_ys = {}
+    xs = np.arange(min_x, max_x + 1)
+    for sample in names:
+        for base in 'TCAG':
+            ys = enrichments[sample]['nucleotide', min_x:max_x + 1, base]
+            all_ys[sample, base] = ys
+
+    if split_by_base:
+        fig, axs = plt.subplots(4, 1, figsize=(16, 12 * 4))
+    
+        sample_to_color = {name: colors_iter.next() for name in names}
+        sample_to_color = sample_to_color.__getitem__
+
+        for base, base_ax in zip('TCAG', axs.flatten()):
+            for sample in names:
+                base_ax.plot(xs, all_ys[sample, base], '.-',
+                             color=sample_to_color(sample),
+                             label=sample,
+                             markersize=marker_size,
+                             lw=line_width,
+                            )
+
+            base_ax.set_title(base, size=14)
+    else:
+        fig, axs = plt.subplots(len(names), 1, figsize=(16, 12 * len(names)), squeeze=False)
+        for sample, sample_ax in zip(names, axs.flatten()):
+            for base in 'TCAG':
+                sample_ax.plot(xs, all_ys[sample, base], '.-',
+                               color=igv_colors[base],
+                               label=base,
+                               markersize=marker_size,
+                               lw=line_width,
+                              )
+            sample_ax.set_title(sample, size=14)
+
+    for ax in axs.flatten():
+        ax.legend(framealpha=0.5, **legend_kwargs)
+
+        five_prime_edge = -15
+        three_prime_edge = five_prime_edge + 28 - 1
+
+        for x in range(min_x, max_x + 1):
+            lw = 1
+            if x in [five_prime_edge, three_prime_edge]:
+                alpha = 1
+                lw = 1.5
+            elif dense_lines and x % 3 == 0:
+                alpha = 0.2
+            elif dense_lines:
+                alpha = 0.05
             else:
-                y = enrichments['nucleotide', x, base]
-            ys.append(y)
-        ax.plot(xs, ys, '.-',
-                color=igv_colors[base],
-                label=base,
-                markersize=marker_size,
-                lw=line_width,
-               )
+                alpha = 0
 
-    ax.legend(framealpha=0.5, **legend_kwargs)
-
-    five_prime_edge = -15
-    three_prime_edge = five_prime_edge + 28 - 1
-
-    for x in range(min_x, max_x + 1):
-        lw = 1
-        if x in [five_prime_edge, three_prime_edge]:
-            alpha = 1
-            lw = 1.5
-        elif dense_lines and x % 3 == 0:
-            alpha = 0.2
-        elif dense_lines:
-            alpha = 0.05
-        else:
-            alpha = 0
-
-        ax.axvline(x, color='black', alpha=alpha, lw=lw)
-    
-    if minimal_ticks:
-        xticks = [-15, 0, 12]
-    else:
-        xticks = range(min_x, max_x + 1, 3)
-
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(map(str, xticks))
-
-    ax.set_xlim(min_x, max_x)
-
-    tRNA_sites = [('A', 0, 'red'),
-                  ('P', -3, 'blue'),
-                  ('E', -6, 'green'),
-                 ]
-
-    for site, position, color in tRNA_sites: 
-        ax.axvspan(position - 0.5, position + 2.5, color=color, alpha=0.1, lw=0)
-        ax.annotate(site,
-                    xy=(position + 1, 1),
-                    xycoords=('data', 'axes fraction'),
-                    xytext=(0, -25),
-                    textcoords='offset points',
-                    horizontalalignment='center',
-                    size=20,
-                   )
-
-    ax.set_ylabel('Mean relative enrichment')
-    ax.set_xlabel('Offset (nucleotides)')
+            ax.axvline(x, color='black', alpha=alpha, lw=lw)
         
-    if flip:
-        ax.invert_xaxis()
-        flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
-        ax.set_xticklabels(flipped_labels)
+        if minimal_ticks:
+            xticks = [-15, 0, 12]
+        else:
+            xticks = range(min_x, max_x + 1, 3)
+
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(map(str, xticks))
+
+        ax.set_xlim(min_x, max_x)
+
+        tRNA_sites = [('A', 0, 'red'),
+                      ('P', -3, 'blue'),
+                      ('E', -6, 'green'),
+                     ]
+
+        for site, position, color in tRNA_sites: 
+            ax.axvspan(position - 0.5, position + 2.5, color=color, alpha=0.1, lw=0)
+            ax.annotate(site,
+                        xy=(position + 1, 1),
+                        xycoords=('data', 'axes fraction'),
+                        xytext=(0, -25),
+                        textcoords='offset points',
+                        horizontalalignment='center',
+                        size=20,
+                       )
+
+        ax.set_ylabel('Mean relative enrichment')
+        ax.set_xlabel('Offset (nucleotides)')
+            
+        if flip:
+            flip_x_axis(ax)
+
+def flip_x_axis(ax):
+    ax.invert_xaxis()
+    flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
+    ax.set_xticklabels(flipped_labels)
         
 def plot_dinucleotide_effects(stratified_mean_enrichments, relevant_offsets, min_difference, fancy=True, log=True):
     baseline = stratified_mean_enrichments['all']
