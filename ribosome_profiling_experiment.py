@@ -792,19 +792,16 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
 
-    def compute_stratified_mean_enrichments(self, min_means=[0.1, 0], do_anisomycin=False):
-        num_before = 200
-        num_after = 200
-
-        def find_breakpoints(sorted_names, means, min_means):
-            breakpoints = {}
-
-            zipped = zip(sorted_names, means)
-            for min_mean in min_means:
-                name = [name for name, mean in zipped if mean > min_mean][-1]
-                breakpoints[name] = '{0:0.2f}'.format(min_mean)
-
-            return breakpoints
+    def compute_stratified_mean_enrichments(self,
+                                            min_means=[0.1],
+                                            num_around=100,
+                                            exclude_from_edges=[(90, 90),
+                                                                (200, 200),
+                                                                (200, 0),
+                                                                (0, 0),
+                                                               ],
+                                            do_anisomycin=False,
+                                           ):
 
         specific_keys = {'relaxed', 'identities'}
         if do_anisomycin:
@@ -814,18 +811,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                       specific_keys=specific_keys,
                                      )
 
-        sorted_names, means = pausing.order_by_mean_density(codon_counts,
-                                                            count_type='relaxed',
-                                                            num_before=num_before,
-                                                            num_after=num_after,
-                                                           )
-        breakpoints = find_breakpoints(sorted_names, means, min_means)
-
         enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
-                                                               sorted_names,
-                                                               breakpoints,
-                                                               num_before,
-                                                               num_after,
+                                                               exclude_from_edges,
+                                                               min_means,
+                                                               num_around,
                                                                count_type='relaxed',
                                                               )
         self.write_file('stratified_mean_enrichments', enrichments)

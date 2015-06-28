@@ -41,7 +41,8 @@ class Message(object):
         if self.leftmost_ribosome and self.leftmost_ribosome.position - 5 <= 4:
             # Occluded from starting
             if self.leftmost_ribosome.arrested:
-                # The occlusion will never clear
+                # The occlusion will never clear, so there is no point in
+                # trying to initiate again later.
                 pass
             else:
                 self.register_next_initiation(time)
