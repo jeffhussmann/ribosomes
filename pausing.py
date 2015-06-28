@@ -1400,7 +1400,7 @@ def plot_codon_enrichments(names,
 
     return fig
 
-def mark_active_sites_and_borders(ax, alpha=0.4):
+def mark_active_sites_and_borders(ax, borders=True, alpha=0.4):
     tRNA_sites = [('A', 0, 'red'),
                   ('P', -1, 'blue'),
                   ('E', -2, 'green'),
@@ -1410,7 +1410,11 @@ def mark_active_sites_and_borders(ax, alpha=0.4):
                     ('right', 4, 'black'),
                    ]
 
-    for site, position, color in tRNA_sites + read_borders: 
+    to_mark = tRNA_sites
+    if borders:
+        to_mark += read_borders
+
+    for site, position, color in to_mark: 
         ax.axvline(position, color=color, alpha=alpha)
 
 def plot_dicodon_enrichments(names,
