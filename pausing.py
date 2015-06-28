@@ -2121,6 +2121,7 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
                            withhold_results=False,
                            p_offsets=None,
                            tRNA_value_source='tAI',
+                           smooth_window=0,
                           ):
     tAIs = load_tRNA_copy_numbers(tRNA_value_source)
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
@@ -2146,7 +2147,7 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
     #                           )
 
     num_exps = len(CHX_names)
-    exps_per_row = 4
+    exps_per_row = min(4, num_exps)
     full_rows, leftover = divmod(num_exps, exps_per_row)
     if leftover > 0:
         num_rows = full_rows + 1
@@ -2157,9 +2158,14 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
 
     columns = []
 
-    high_level = matplotlib.gridspec.GridSpec(num_rows, 1, left=0, right=1, bottom=0, top=1)
+    high_level = matplotlib.gridspec.GridSpec(num_rows, 1, left=0, right=1)#, bottom=0, top=1)
     for row in high_level:
-        low_level = matplotlib.gridspec.GridSpecFromSubplotSpec(3, exps_per_row, subplot_spec=row, hspace=0.07, wspace=0.1, height_ratios=height_ratios)
+        low_level = matplotlib.gridspec.GridSpecFromSubplotSpec(3, exps_per_row,
+                                                                subplot_spec=row,
+                                                                hspace=0.07,
+                                                                wspace=0.1,
+                                                                height_ratios=height_ratios,
+                                                               )
         row_axes = []
         for p in low_level:
             ax = plt.Subplot(fig, p)
@@ -2180,15 +2186,19 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
                 fig.delaxes(ax)
             continue
 
-        As = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
-        
         x_rhos = []
         x_ps = []
         
         x_min, x_max = plot_lims
         xs = np.arange(x_min, x_max + 1)
             
-        x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
+        #x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
+        rho_ps = []
+        waves = enrichments[CHX_name]['codon', x_min:x_max + 1, codons.non_stop_codons]
+        smoothed = smooth(waves, smooth_window)
+        for row in smoothed:
+            rho_ps.append(scipy.stats.spearmanr(row, tAI_values))
+        x_rhos, x_ps = np.array(rho_ps).T
 
         if withhold_results:
             for x, rho in zip(xs, x_rhos):
