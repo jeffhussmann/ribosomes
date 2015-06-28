@@ -1,6 +1,13 @@
 import matplotlib.pyplot as plt
 import matplotlib.path
 import numpy as np
+import brewer2mpl
+
+
+bmap = brewer2mpl.get_map('Set2', 'qualitative', 8)
+A_site_color = bmap.mpl_colors[0]
+P_site_color = bmap.mpl_colors[3]
+E_site_color = bmap.mpl_colors[2]
 
 def get_axes_coordinates(text):
     ax = text.axes
@@ -117,6 +124,7 @@ def text_above_text(text, string, **kwargs):
     above = text.axes.text((x0 + x1) / 2,
                            y1 + .2 * (y1 - y0),
                            string,
+                           weight='bold',
                            ha='center',
                            va='bottom',
                            **kwargs)
@@ -279,13 +287,17 @@ class CodingSequence(object):
             positions_to_bold = set()
 
             color = 'black'
+            alpha = 0.8
             if specific_nucleotide == None:
                 if highlight_offset == 0:
-                    color = 'red'
+                    color = A_site_color
                 elif highlight_offset == -1:
-                    color = 'blue'
+                    color = P_site_color
                 elif highlight_offset == -2:
-                    color = 'green'
+                    color = E_site_color
+                else:
+                    alpha = 0.4
+
 
             for position, codon_id in enumerate(self.codon_sequence):
                 if not 0 < position + highlight_offset < len(self.codon_sequence):
@@ -298,10 +310,10 @@ class CodingSequence(object):
                     positions_to_bold.add(position)
 
                     offset_center, _, _, _ = rectangle_around_text(texts[position + highlight_offset],                                  
-                                                                color=color,
-                                                                alpha=0.4,
-                                                                specific_nucleotide=specific_nucleotide,
-                                                               )
+                                                                   color=color,
+                                                                   alpha=alpha,
+                                                                   specific_nucleotide=specific_nucleotide,
+                                                                  )
                     position_center, top, height, width = rectangle_around_text(texts[position],
                                                                          color='black',
                                                                          alpha=1,
@@ -500,14 +512,14 @@ class CodingSequence(object):
         rectangle_around_text_list(texts.values(), color='black', fill=True, alpha=0.1)
         
         if label_tRNA_sites:
-            tRNA_sites = [('A', 0, 'red'),
-                          ('P', -1, 'blue'),
-                          ('E', -2, 'green'),
+            tRNA_sites = [('A', 0, A_site_color),
+                          ('P', -1, P_site_color),
+                          ('E', -2, E_site_color),
                          ]
             
             for site, offset, color in tRNA_sites:
                 rectangle_around_text(texts[position + offset], color='white', linewidth=0, fill=True)
-                rectangle_around_text(texts[position + offset], color=color, linewidth=0, alpha=0.5, fill=True)
+                rectangle_around_text(texts[position + offset], color=color, linewidth=0, alpha=1.0, fill=True)
                 if label_tRNA_sites == 'full':
                     above = text_above_text(texts[position + offset],
                                             '{0}-site'.format(site),
