@@ -1302,16 +1302,14 @@ def plot_codon_enrichments(names,
     colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
     colors_iter = itertools.cycle(iter(colors))
 
-    all_xs = {}
     all_ys = {}
+    xs = np.arange(min_x, max_x + 1)
 
     for sample in names:
         for codon_id in codons.non_stop_codons:
-            xs = np.arange(min_x, max_x + 1)
             ys = enrichments[sample]['codon', min_x:max_x + 1, codon_id]
             ys = smooth(ys, smooth_window)
 
-            all_xs[sample, codon_id] = xs
             all_ys[sample, codon_id] = ys
         
     if sample_to_label == None:
@@ -1340,7 +1338,6 @@ def plot_codon_enrichments(names,
                           'markersize': marker_size,
                           'linewidth': line_width,
                          }
-                xs = all_xs[sample, codon_id]
                 ys = all_ys[sample, codon_id]
                 codon_ax.plot(xs, ys, '.-', **kwargs)
 
@@ -1386,7 +1383,7 @@ def plot_codon_enrichments(names,
                               'alpha': alpha,
                               }
 
-                handle, = sample_ax.plot(all_xs[sample, codon_id], all_ys[sample, codon_id], '.-', **kwargs)
+                handle, = sample_ax.plot(xs, all_ys[sample, codon_id], '.-', **kwargs)
                 codon_to_handle[codon_id] = handle
 
             sample_ax.set_title(sample_to_label[sample])
@@ -1415,13 +1412,11 @@ def plot_codon_enrichments(names,
         ax.set_ylabel('Mean relative enrichment')
 
         if flip:
-            ax.invert_xaxis()
-            flipped_labels = [str(int(-x)) for x in ax.get_xticks()]
-            ax.set_xticklabels(flipped_labels)
+            flip_x_axis(ax)
 
     return fig
 
-def mark_active_sites_and_borders(ax, alpha=0.4):
+def mark_active_sites_and_borders(ax, active=True, borders=True, alpha=0.4):
     tRNA_sites = [('A', 0, 'red'),
                   ('P', -1, 'blue'),
                   ('E', -2, 'green'),
