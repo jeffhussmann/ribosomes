@@ -444,10 +444,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.write_file('lengths', {'remapped': remapped_lengths})
     
     def process_remapped_unmapped(self):
-        unmapped_lengths = np.zeros(self.max_read_length + 1)
+        unmapped_lengths = np.zeros(self.max_read_length + 1, int)
         unmapped_seq_counts = Counter()
 
-        long_polyA_lengths = np.zeros(self.max_read_length + 1)
+        long_polyA_lengths = np.zeros(self.max_read_length + 1, int)
         long_polyA_counts = Counter()
         
         unmapped_reads = sam.bam_to_fastq(self.file_names['remapped_unmapped_bam'])
