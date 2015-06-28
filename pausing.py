@@ -361,9 +361,7 @@ def plot_cdfs(ratios_dict, ordinal_colors=False, sorting_key=lambda x: x):
     if ordinal_colors:
         colors = get_jet_colors(len(ratios_dict))
     else:
-        bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
-        colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
-        colors = colors + colors
+        color = get_color_iter()
 
     fig, ax = plt.subplots(figsize=(16, 12))
 
@@ -1250,7 +1248,13 @@ def smooth(ys, window):
     for i in range(window, len(ys) - window):
         smoothed[i] = sum(ys[i - window:i + window + 1]) / float(2 * window + 1)
     return smoothed
-                                       
+
+def get_color_iter():
+    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
+    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
+    colors_iter = itertools.cycle(iter(colors))
+    return colors_iter
+
 def plot_codon_enrichments(names,
                            enrichments,
                            codons_to_highlight,
@@ -1275,9 +1279,7 @@ def plot_codon_enrichments(names,
     if ax != None and ((split_by_codon and len(codons_to_highlight) > 1) or (not split_by_codon and len(names) > 1)):
         raise ValueError('Can\'t supply ax if more than one frame will be produced')
     
-    bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
-    colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:]
-    colors_iter = itertools.cycle(iter(colors))
+    colors_iter = get_color_iter()
 
     all_xs = {}
     all_ys = {}
