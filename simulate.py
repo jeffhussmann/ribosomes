@@ -170,11 +170,12 @@ class Ribosome(object):
         self.arrested_at = np.inf
 
     def __str__(self):
-        description = 'id_number: {0}, position: {1}, arrested: {2} ({3})'.format(self.id_number,
-                                                                                  self.position,
-                                                                                  self.arrested,
-                                                                                  self.arrested_at,
-                                                                                 )
+        template =  'id_number: {0}, position: {1}, arrested: {2} ({3})'
+        description = template.format(self.id_number,
+                                      self.position,
+                                      self.arrested,
+                                      self.arrested_at,
+                                     )
         return description
 
     def advance(self, time):
@@ -307,7 +308,7 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
             real_counts = buffered_codon_counts[gene_name]['relaxed'][cds_slice]
             total_real_counts = sum(real_counts)
-            target = int(np.ceil(total_real_counts * 0.05))
+            target = int(np.ceil(total_real_counts))
 
             all_measurements = Counter()
             num_messages = 0
@@ -384,26 +385,41 @@ class SimulationExperiment(Sequencing.Parallel.map_reduce.MapReduceExperiment):
 
         self.write_file('simulated_codon_counts', simulated_codon_counts)
     
-    def compute_stratified_mean_enrichments(self, min_mean=0.1):
+    def compute_stratified_mean_enrichments(self, min_means=[0.1, 0]):
+        ''' Ugly duplication of code in ribosome_profiling_experiment '''
         num_before = 90
         num_after = 90
+
+        def find_breakpoints(sorted_names, means, min_means):
+            breakpoints = {}
+
+            zipped = zip(sorted_names, means)
+            for min_mean in min_means:
+                name = [name for name, mean in zipped if mean > min_mean][-1]
+                breakpoints[name] = '{0:0.2f}'.format(min_mean)
+
+            return breakpoints
 
         codon_counts = self.read_file('simulated_codon_counts',
                                       specific_keys={'relaxed', 'identities'},
                                      )
-        gene_names, _, _ = pausing.get_highly_expressed_gene_names({'self': codon_counts},
-                                                                   min_mean=min_mean,
-                                                                   num_before=num_before,
-                                                                   num_after=num_after,
-                                                                  )
 
+        sorted_names, means = pausing.order_by_mean_density(codon_counts,
+                                                            count_type='relaxed',
+                                                            num_before=num_before,
+                                                            num_after=num_after,
+                                                           )
+        breakpoints = find_breakpoints(sorted_names, means, min_means)
 
-        stratified_mean_enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
-                                                                               gene_names,
-                                                                               num_before=num_before,
-                                                                               num_after=num_after,
-                                                                              )
-        self.write_file('stratified_mean_enrichments', stratified_mean_enrichments)
+        enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                               sorted_names,
+                                                               breakpoints,
+                                                               num_before,
+                                                               num_after,
+                                                               count_type='relaxed',
+                                                              )
+
+        self.write_file('stratified_mean_enrichments', enrichments)
     
     def compute_mean_densities(self):
         codon_counts = self.read_file('simulated_codon_counts')
