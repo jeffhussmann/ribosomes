@@ -129,60 +129,60 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
 
     specific_outputs = [
-        ['lengths',
-         'clean_composition',
-         'clean_composition_perfect',
-         'unmapped_composition',
-         'rRNA_coverage',
-         'common_unmapped',
-         'merged_mappings',
-         'rRNA_bam',
-         'more_rRNA_bam',
-         'tRNA_bam',
-         'other_ncRNA_bam',
-         'mismatches',
-         'codons_to_examine',
+        [#'lengths',
+         #'clean_composition',
+         #'clean_composition_perfect',
+         #'unmapped_composition',
+         #'rRNA_coverage',
+         #'common_unmapped',
+         #'merged_mappings',
+         #'rRNA_bam',
+         #'more_rRNA_bam',
+         #'tRNA_bam',
+         #'other_ncRNA_bam',
+         #'mismatches',
+         #'codons_to_examine',
         ],
-        ['read_positions',
+        [#'read_positions',
          'metagene_positions',
          'buffered_codon_counts',
-         'codon_counts',
-         'read_counts',
-         'read_counts_exclude_edges',
+         #'codon_counts',
+         #'read_counts',
+         #'read_counts_exclude_edges',
         ],
     ]
     
     specific_work = [
-        ['preprocess',
-         'map_full_lengths',
-         'process_initially_unmapped',
-         'merge_mapping_pathways',
-         'process_remapped_unmapped',
-         'compute_base_composition',
-         'find_unambiguous_lengths',
-         'get_rRNA_coverage',
-         'examine_locii',
+        [#'preprocess',
+         #'map_full_lengths',
+         #'process_initially_unmapped',
+         #'merge_mapping_pathways',
+         #'process_remapped_unmapped',
+         #'compute_base_composition',
+         #'find_unambiguous_lengths',
+         #'get_rRNA_coverage',
+         #'examine_locii',
         ],
         ['get_read_positions',
          'get_metagene_positions',
-         'compute_total_read_counts',
+         #'compute_total_read_counts',
          'compute_codon_occupancy_counts',
         ],
     ]
 
     specific_cleanup = [
-        ['compute_yield',
-         'plot_base_composition',
-         'plot_lengths',
-         'plot_rRNA_coverage',
-         'plot_mismatches',
-         'visualize_unmapped',
+        [#'compute_yield',
+         #'plot_base_composition',
+         #'plot_lengths',
+         #'plot_rRNA_coverage',
+         #'plot_mismatches',
+         #'visualize_unmapped',
         ],
-        ['compute_RPKMs',
+        [#'compute_RPKMs',
          'compute_mean_densities',
-         'compute_stratified_mean_enrichments',
+         #'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
-         ##'plot_frames',
+         #'plot_frames',
         ],
     ]
 
@@ -738,23 +738,21 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'), 0)],
                                                 self.figure_file_names['mean_densities'],
-                                                past_edge=10,
+                                                past_edge=100,
                                                 plot_up_to=1000,
-                                                smooth=False,
                                                )
         
-        visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
-                                                     self.figure_file_names['mean_nucleotide_densities'],
-                                                     past_edge=10,
-                                                     plot_up_to=2000,
-                                                     smooth=False,
-                                                    )
+        #visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
+        #                                             self.figure_file_names['mean_nucleotide_densities'],
+        #                                             past_edge=10,
+        #                                             plot_up_to=2000,
+        #                                             smooth=False,
+        #                                            )
 
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
                                                 self.figure_file_names['mean_densities_anisomycin'],
                                                 past_edge=10,
                                                 plot_up_to=500,
-                                                smooth=False,
                                                )
 
     def plot_frames(self):
@@ -794,9 +792,9 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         #                                keys_to_plot=[28, 29, 30, 31, 32],
         #                               )
 
-    def compute_stratified_mean_enrichments(self, min_means=[0.1, 0]):
-        num_before = 90
-        num_after = 90
+    def compute_stratified_mean_enrichments(self, min_means=[0.1, 0], do_anisomycin=False):
+        num_before = 200
+        num_after = 200
 
         def find_breakpoints(sorted_names, means, min_means):
             breakpoints = {}
@@ -808,11 +806,12 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
             return breakpoints
 
+        specific_keys = {'relaxed', 'identities'}
+        if do_anisomycin:
+            specific_keys.add('anisomycin')
+
         codon_counts = self.read_file('buffered_codon_counts',
-                                      specific_keys={'relaxed',
-                                                     'identities',
-                                                     'anisomycin',
-                                                    },
+                                      specific_keys=specific_keys,
                                      )
 
         sorted_names, means = pausing.order_by_mean_density(codon_counts,
@@ -831,21 +830,22 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                               )
         self.write_file('stratified_mean_enrichments', enrichments)
 
-        sorted_names, means = pausing.order_by_mean_density(codon_counts,
-                                                            count_type='anisomycin',
-                                                            num_before=num_before,
-                                                            num_after=num_after,
-                                                           )
-        breakpoints = find_breakpoints(sorted_names, means, min_means)
+        if do_anisomycin:
+            sorted_names, means = pausing.order_by_mean_density(codon_counts,
+                                                                count_type='anisomycin',
+                                                                num_before=num_before,
+                                                                num_after=num_after,
+                                                               )
+            breakpoints = find_breakpoints(sorted_names, means, min_means)
 
-        enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
-                                                               sorted_names,
-                                                               breakpoints,
-                                                               num_before,
-                                                               num_after,
-                                                               count_type='anisomycin',
-                                                              )
-        self.write_file('stratified_mean_enrichments_anisomycin', enrichments)
+            enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                                   sorted_names,
+                                                                   breakpoints,
+                                                                   num_before,
+                                                                   num_after,
+                                                                   count_type='anisomycin',
+                                                                  )
+            self.write_file('stratified_mean_enrichments_anisomycin', enrichments)
 
     def plot_mismatches(self):
         type_counts = self.read_file('mismatches')
