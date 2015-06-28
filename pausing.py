@@ -2372,3 +2372,162 @@ def correlation_heatmap(enrichments, names, labels=None, offset=0, ax=None, cmap
                         )
 
     return fig
+
+def offset_difference_scatter(enrichments, 
+                              noCHX_name,
+                              CHX_name,
+                              wave_slice,
+                              active_slice=slice(-2, 1),
+                              to_label=set(),
+                              area_between=False,
+                              exclude=set(),
+                              big_codon='CGA',
+                              small_codon='ATC',
+                              inset_bg='white',
+                              inset_ylims=None,
+                              change=True,
+                              draw_insets=True,
+                             ):
+    codon_list = [c for c in codons.non_stop_codons if c not in exclude]
+    codon_to_index = {codon_id: i for i, codon_id in enumerate(codon_list)}
+    
+    noCHX_active = enrichments[noCHX_name]['codon', active_slice, codon_list]
+    CHX_active = enrichments[CHX_name]['codon', active_slice, codon_list]
+    noCHX_wave = enrichments[noCHX_name]['codon', wave_slice, codon_list]
+    CHX_wave = enrichments[CHX_name]['codon', wave_slice, codon_list]
+    
+    print enrichments[noCHX_name].num_before, enrichments[noCHX_name].num_after
+    
+    fig, ax = plt.subplots(figsize=(12, 12),
+                           #gridspec_kw={'left': 0, 'bottom': 0, 'top': 1},
+                          )
+
+    if change:
+        total_changes = (CHX_active - noCHX_active).sum(axis=0)
+    else:
+        total_changes = (1 - noCHX_active).sum(axis=0)
+        
+    if area_between:
+        total_waves = (CHX_wave - noCHX_wave).sum(axis=0)
+    else:
+        total_waves = (CHX_wave - 1).sum(axis=0)
+    
+    #for l in sorted(zip(np.abs(total_waves + total_changes), codons.non_stop_codons))[::-1][:10]:
+    #    print l
+        
+    Sequencing.Visualize.enhanced_scatter(total_changes, total_waves, ax,
+                                          color_by_density=False,
+                                          show_p_value=False,
+                                          variance=True,
+                                          do_fit=True,
+                                          marker_size=40,
+                                          text_size=26,
+                                          text_location=(0.32, 1),
+                                          show_beta=False,
+                                          fit_line_kwargs={'color': 'black',
+                                                           'alpha': 0.6,
+                                                           'linestyle': '--',
+                                                          },
+                                         )
+    ax.set_xlabel('Net CHX-induced change in enrichment at A-, P- and E- sites', color='green', size=20, family='serif')
+    ax.set_ylabel('Net CHX-induced change in enrichment downstream', color='red', size=20, family='serif')
+    
+    smallest, largest = (min(min(total_changes), min(-total_waves)) - 0.2,
+                         max(max(total_changes), max(-total_waves)) + 0.2,
+                        )
+    ax.set_xlim(smallest, largest)
+    ax.set_ylim(-largest, -smallest)
+    ax.set_aspect(1.)
+    
+    min_x = -90
+    max_x = 30
+    xs = np.arange(min_x, max_x + 1)
+    where_active = (active_slice.start <= xs) & (xs < active_slice.stop)
+    where_wave = (wave_slice.start >= xs) & (xs > wave_slice.stop)
+    
+    CHX_vals = {codon_id: enrichments[CHX_name]['codon', min_x:max_x + 1, codon_id] for codon_id in codons.non_stop_codons}
+    noCHX_vals = {codon_id: enrichments[noCHX_name]['codon', min_x:max_x + 1, codon_id] for codon_id in codons.non_stop_codons}
+    changes = {codon_id: CHX_vals[codon_id] - noCHX_vals[codon_id] for codon_id in codons.non_stop_codons}
+   
+    if draw_insets:
+        plus_ax = fig.add_axes([0.20, 0.17, 0.31, 0.31], axisbg=inset_bg)
+        minus_ax = fig.add_axes([0.565, 0.55, 0.31, 0.31], axisbg=inset_bg)
+    
+        choices = [
+            (plus_ax, big_codon, 'below'),
+            (minus_ax, small_codon, 'above'),
+        ]
+
+        for inset_ax, codon_id, location in choices:
+            if area_between:
+                inset_ax.plot(xs, changes[codon_id], '-', color='black', linewidth=1)
+                inset_ax.plot([-2, -1, 0], changes[codon_id][-2 - min_x:1 - min_x], '.', markersize=8, color='black')
+                inset_ax.fill_between(xs, changes[codon_id], np.zeros_like(xs), color='green', alpha=0.5, where=where_active)
+                inset_ax.fill_between(xs, changes[codon_id], np.zeros_like(xs), color='red', alpha=0.5, where=where_wave)
+                inset_ax.axhline(0, color='black')
+                inset_ax.set_ylabel('CHX-induced change', size=16)
+            else:
+                inset_ax.plot(xs, CHX_vals[codon_id], '-', color='black', label='$+$ CHX', linewidth=2.2)
+                inset_ax.plot(xs, noCHX_vals[codon_id], '-', color='blue', label='$-$ CHX', linewidth=1.0)
+                inset_ax.plot([-2, -1, 0], CHX_vals[codon_id][-2 - min_x:1 - min_x], '.', markersize=12, color='black')
+                inset_ax.plot([-2, -1, 0], noCHX_vals[codon_id][-2 - min_x:1 - min_x], '.', markersize=12, color='blue')
+                inset_ax.fill_between(xs, CHX_vals[codon_id], np.ones_like(xs), color='red', alpha=0.5, where=where_wave)
+                inset_ax.fill_between(xs, CHX_vals[codon_id], noCHX_vals[codon_id], color='green', alpha=0.5, where=where_active)
+                inset_ax.axhline(1, color='black')
+                inset_ax.set_ylabel('Ribosome density', y=0.56, size=16, labelpad=-35)
+                legend = inset_ax.legend(prop={'family': 'monospace'})
+                #for t in legend.get_texts():
+                #    t.set_ha('right') # ha is alias for horizontalalignment
+            
+            major_locator = matplotlib.ticker.MultipleLocator(1)
+            minor_locator = matplotlib.ticker.AutoMinorLocator(2)
+            major_formattor = matplotlib.ticker.FormatStrFormatter('%0.0f')
+            inset_ax.yaxis.set_major_locator(major_locator)
+            inset_ax.yaxis.set_minor_locator(minor_locator)
+            inset_ax.yaxis.set_major_formatter(major_formattor)
+            #inset_ax.tick_params(pad=4)
+            
+            inset_ax.set_xlim(wave_slice.stop, 10)
+            inset_ax.set_xticks([t for t in [0, -20, -40, -60] if t >= wave_slice.stop])
+            flip_x_axis(inset_ax)
+        
+            if location == 'above':
+                text_x, text_y = 0.5, -0.15
+            else:
+                text_x, text_y = 0.5, 1.05
+
+            text_x, text_y = ax.transAxes.inverted().transform(inset_ax.transAxes.transform((text_x, text_y)))
+        
+            mark_active_sites_and_borders(inset_ax, active=False)
+            index = codon_to_index[codon_id]
+            x, y = total_changes[index], total_waves[index] 
+            x, y = ax.transAxes.inverted().transform(ax.transData.transform((x - 0.01, y - 0.01)))
+            ax.annotate(codon_id,
+                        size=18,
+                        xy=(x, y),
+                        ha='center',
+                        weight='bold',
+                        xycoords='axes fraction',
+                        xytext=(text_x, text_y),
+                        textcoords='axes fraction',
+                        arrowprops=dict(arrowstyle='->',
+                                        connectionstyle="arc3, rad=-0.3",
+                                        color='black',
+                                        alpha=0.6,
+                                       ),
+                        )
+        
+            inset_ax.set_xlabel('Offset (codons)', x=0.55, size=16, labelpad=-40)
+            if inset_ylims:
+                inset_ax.set_ylim(*inset_ylims)
+
+            for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
+                label.set_size(14)
+    
+    #ax.grid(linestyle='-', alpha=0.2)
+    ax.axhline(0, color='black', alpha=0.5)
+    ax.axvline(0, color='black', alpha=0.5)
+    for label in ax.get_xticklabels() + ax.get_yticklabels():
+        label.set_size(14)
+    
+    return fig
