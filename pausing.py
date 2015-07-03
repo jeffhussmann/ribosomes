@@ -2397,6 +2397,13 @@ def tAI_recovery(enrichments, CHX_names, labels, wave_slices, condition=(0.1, 20
     all_actives = []
     all_down_plus_actives = []
     all_big_down_plus_actives = []
+    
+    # Match colors to those from the Zinshteyn AAA histogram.
+    colors = get_color_iter()
+    colors.next()
+    colors.next()
+    active_color = colors.next()
+    wave_color = colors.next()
 
     big_wave_slice = slice(-7, -90, -1)
     for CHX_name, wave_slice in zip(CHX_names, wave_slices):
@@ -2416,14 +2423,21 @@ def tAI_recovery(enrichments, CHX_names, labels, wave_slices, condition=(0.1, 20
         all_big_down_plus_actives.append(rho)
 
     xs = np.arange(len(CHX_names))
-    fig, ax = plt.subplots(figsize=(16, 12))
-    ax.plot(xs, all_actives, 'o-')
-    ax.plot(xs, all_down_plus_actives, 'o-')
-    ax.plot(xs, all_big_down_plus_actives, 'o-')
+    fig, ax = plt.subplots(figsize=(12, 8))
+    common_kwargs = {'linewidths': 0,
+                     's': 50,
+                    }
+    ax.scatter(xs, all_actives, color=active_color, label='tRNA binding sites', **common_kwargs)
+    ax.scatter(xs, all_down_plus_actives, color=wave_color, label='tRNA binding sites + downstream wave', **common_kwargs)
+    ax.scatter(xs, all_big_down_plus_actives, color=wave_color, alpha=0.5, label='tRNA binding sites + all downstream', **common_kwargs)
 
-    ax.set_xlim(min(xs), max(xs))
+    ax.set_xlim(min(xs) - 0.5, max(xs) + 0.5)
     ax.set_xticks(xs)
-    ax.set_xticklabels(labels, rotation=45, ha='right', size=20)
+    ax.set_xticklabels(labels, color=light_CHX, rotation=45, ha='right', size=20)
 
     ax.axhline(0, color='black')
     ax.axhline(0.252, color='red', linestyle='--')
+    ax.set_ylim(-0.4, 0.55)
+    legend = ax.legend(prop={'family': 'serif', 'size': 14}, scatterpoints=1, loc='lower right', bbox_to_anchor=(1, 1))
+    for t in legend.texts:
+        t.set_multialignment('center')
