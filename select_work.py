@@ -317,7 +317,7 @@ def load_all_enrichments():
                        'mcmanus': 'S._cerevisiae_Ribo-seq_Rep_1',
                        'zinshteyn': 'WT_Ribosome_Footprint_1',
                        'lareau +': 'Cycloheximide_replicate_1',
-                       'nedialokova +': 'WT_ribo_YPD_rep1',
+                       'nedialkova +': 'WT_ribo_YPD_rep1',
                        'jan +': 'sec63mVenusBirA_+CHX_7minBiotin_input',
                        'williams +': 'Om45mVenusBirA_+CHX_2minBiotin_input',
                        'guydosh -': 'wild-type_CHX',
