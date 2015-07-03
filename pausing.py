@@ -838,6 +838,16 @@ def label_scatter_plot(ax, xs, ys, labels, to_label,
 
         bboxes.append(bbox)
 
+def right_justify_legend(legend):
+    ''' from stackoverflow '''
+    canvas = legend.figure.canvas
+    canvas.draw()
+    renderer = canvas.renderer
+    shift = max([t.get_window_extent(renderer).width for t in legend.get_texts()])
+    for t in legend.get_texts():
+        t.set_ha('right')
+        t.set_position((shift * 0.9, 0))
+
 def label_enrichment_across_conditions_plot(ax, start_ys, end_ys, labels, xs, label_offset=30, size=10):
     ax.figure.canvas.draw()
     renderer = ax.figure.canvas.renderer
@@ -2185,8 +2195,8 @@ def offset_difference_scatter(enrichments,
                               draw_insets=True,
                               condition=(0.1, 90, 90),
                               flip_wave=False,
-                              shift_small=0,
-                              shift_big=0,
+                              shift_small=(0, 0),
+                              shift_big=(0, 0),
                               text_location=(0.65, 0.14),
                               big_title='below',
                               tick_multiple=1,
@@ -2259,14 +2269,16 @@ def offset_difference_scatter(enrichments,
     changes = {codon_id: CHX_vals[codon_id] - noCHX_vals[codon_id] for codon_id in codons.non_stop_codons}
    
     if draw_insets:
+        right, up = shift_big
         if flip_wave:
-            big_choice = ([0.20 + shift_big, 0.57, 0.31, 0.31], big_codon, 'above', inset_ylims, -0.1, tick_multiple)
+            big_choice = ([0.20 + right, 0.57 + up, 0.31, 0.31], big_codon, 'above', inset_ylims, -0.1, tick_multiple)
         else:
-            big_choice = ([0.20 + shift_big, 0.18, 0.31, 0.31], big_codon, big_title, inset_ylims, -0.1, tick_multiple)
+            big_choice = ([0.20 + right, 0.18 + up, 0.31, 0.31], big_codon, big_title, inset_ylims, -0.1, tick_multiple)
         
         #plus_ax = fig.add_axes([-0.27, 0.57, 0.31, 0.31], axisbg=inset_bg)
         #plus_2_ax = fig.add_axes([-0.27, 0.17, 0.31, 0.31], axisbg=inset_bg)
-        small_choice = ([0.57 + shift_small, 0.57, 0.31, 0.31], small_codon, 'above', inset_ylims, -0.1, tick_multiple)
+        right, up = shift_small
+        small_choice = ([0.57 + right, 0.57 + up, 0.31, 0.31], small_codon, 'above', inset_ylims, -0.1, tick_multiple)
         #minus_ax = fig.add_axes([0.95, 0.57, 0.31, 0.31], axisbg=inset_bg)
         #minus_2_ax = fig.add_axes([0.97, 0.4, 0.31, 0.31], axisbg=inset_bg)
     
@@ -2282,49 +2294,45 @@ def offset_difference_scatter(enrichments,
                 continue
             inset_ax = fig.add_axes(box, axisbg=inset_bg)
             inset_ax.set_ylim(*y_lims)
+            inset_ax.plot(xs, CHX_vals[codon_id], '-', color='black', label='$+$ CHX', linewidth=2.2)
+            inset_ax.plot(xs, noCHX_vals[codon_id], '-', color='blue', label='$-$ CHX', linewidth=1.0)
+            active_xs = np.arange(active_slice.start, active_slice.stop)
+            CHX_ys = CHX_vals[codon_id][min(active_xs) - min_x:max(active_xs) + 1 - min_x]
+            noCHX_ys = noCHX_vals[codon_id][min(active_xs) - min_x:max(active_xs) + 1 - min_x]
+            inset_ax.plot(active_xs, CHX_ys, '.', markersize=12, color='black')
+            inset_ax.plot(active_xs, noCHX_ys, '.', markersize=12, color='blue')
+            
+            inset_ax.fill_between(xs, CHX_vals[codon_id], noCHX_vals[codon_id], color='green', alpha=0.5, where=where_active)
             if area_between:
-                inset_ax.plot(xs, changes[codon_id], '-', color='black', linewidth=1)
-                inset_ax.plot([-2, -1, 0], changes[codon_id][-2 - min_x:1 - min_x], '.', markersize=8, color='black')
-                inset_ax.fill_between(xs, changes[codon_id], np.zeros_like(xs), color='green', alpha=0.5, where=where_active)
-                inset_ax.fill_between(xs, changes[codon_id], np.zeros_like(xs), color='red', alpha=0.5, where=where_wave)
-                inset_ax.axhline(0, color='black')
-                inset_ax.set_ylabel('CHX-induced change', size=16)
+                inset_ax.fill_between(xs, CHX_vals[codon_id], noCHX_vals[codon_id], color='red', alpha=0.5, where=where_wave)
             else:
-                inset_ax.plot(xs, CHX_vals[codon_id], '-', color='black', label='$+$ CHX', linewidth=2.2)
-                inset_ax.plot(xs, noCHX_vals[codon_id], '-', color='blue', label='$-$ CHX', linewidth=1.0)
-                active_xs = np.arange(active_slice.start, active_slice.stop)
-                CHX_ys = CHX_vals[codon_id][min(active_xs) - min_x:max(active_xs) + 1 - min_x]
-                noCHX_ys = noCHX_vals[codon_id][min(active_xs) - min_x:max(active_xs) + 1 - min_x]
-                inset_ax.plot(active_xs, CHX_ys, '.', markersize=12, color='black')
-                inset_ax.plot(active_xs, noCHX_ys, '.', markersize=12, color='blue')
-                
                 inset_ax.fill_between(xs, CHX_vals[codon_id], np.ones_like(xs), color='red', alpha=0.5, where=where_wave)
-                inset_ax.fill_between(xs, CHX_vals[codon_id], noCHX_vals[codon_id], color='green', alpha=0.5, where=where_active)
-                
-                #def data_to_axes(y):
-                #    _, axes_y = inset_ax.transAxes.inverted().transform(inset_ax.transData.transform((0, y)))
-                #    return axes_y
+            
+            #def data_to_axes(y):
+            #    _, axes_y = inset_ax.transAxes.inverted().transform(inset_ax.transData.transform((0, y)))
+            #    return axes_y
 
-                #for x in [-1, 0]: 
-                #    start_y = CHX_vals[codon_id][x - min_x]
-                #    stop_y = noCHX_vals[codon_id][x - min_x]
-                #    inset_ax.axvspan(x - 0.5, x + 0.5,
-                #                     ymin=data_to_axes(start_y),
-                #                     ymax=data_to_axes(stop_y),
-                #                     color='green',
-                #                     alpha=0.5,
-                #                     linewidth=0,
-                #                    )
+            #for x in [-1, 0]: 
+            #    start_y = CHX_vals[codon_id][x - min_x]
+            #    stop_y = noCHX_vals[codon_id][x - min_x]
+            #    inset_ax.axvspan(x - 0.5, x + 0.5,
+            #                     ymin=data_to_axes(start_y),
+            #                     ymax=data_to_axes(stop_y),
+            #                     color='green',
+            #                     alpha=0.5,
+            #                     linewidth=0,
+            #                    )
 
-                inset_ax.axhline(1, color='black')
-                inset_ax.set_ylabel('Relative enrichment',
-                                    family='serif',
-                                    #y=0.58,
-                                    size=16,
-                                    #labelpad=-50,
-                                   )
-                legend_loc = 'upper left' if flip_wave else 'upper right'
-                legend = inset_ax.legend(prop={'family': 'serif', 'size': 16}, loc=legend_loc)
+            inset_ax.axhline(1, color='black')
+            inset_ax.set_ylabel('Relative enrichment',
+                                family='serif',
+                                #y=0.58,
+                                size=16,
+                                #labelpad=-50,
+                               )
+            legend_loc = 'upper left' if flip_wave else 'upper right'
+            legend = inset_ax.legend(prop={'family': 'serif', 'size': 18}, loc=legend_loc, handletextpad=0)
+            right_justify_legend(legend)
             
             major_locator = matplotlib.ticker.MultipleLocator(tick_multiple)
             minor_locator = matplotlib.ticker.AutoMinorLocator(2)
@@ -2338,10 +2346,10 @@ def offset_difference_scatter(enrichments,
                 spine.set_linewidth(2)
             
             if flip_wave:
-                inset_ax.set_xlim(-10, wave_slice.stop)
+                inset_ax.set_xlim(-10, wave_slice.stop - 1)
                 inset_ax.set_xticks([t for t in [0, 20, 40, 60] if t <= wave_slice.stop])
             else:
-                inset_ax.set_xlim(wave_slice.stop, 10)
+                inset_ax.set_xlim(wave_slice.stop + 1, 10)
                 inset_ax.set_xticks([t for t in [0, -20, -40, -60] if t >= wave_slice.stop])
 
             flip_x_axis(inset_ax)
