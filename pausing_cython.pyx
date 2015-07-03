@@ -198,4 +198,5 @@ class StratifiedMeanEnrichments(object):
             second_index = codons.codon_to_index[second_codon]
             full_slice = (absolute_slice, first_index, second_index)
         
-        return self.arrays[condition][feature][full_slice]
+        array = self.arrays[condition][feature][()]
+        return array[full_slice]
