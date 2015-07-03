@@ -512,6 +512,8 @@ def plot_nucleotide_enrichments(names,
                                 minimal_ticks=False,
                                 legend_kwargs={'loc': 'upper right'},
                                 split_by_base=False,
+                                condition=(0.1, 90, 90),
+                                sample_to_color=None,
                                ):
 
     bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
@@ -522,14 +524,15 @@ def plot_nucleotide_enrichments(names,
     xs = np.arange(min_x, max_x + 1)
     for sample in names:
         for base in 'TCAG':
-            ys = enrichments[sample]['nucleotide', min_x:max_x + 1, base]
+            ys = enrichments[sample][condition, 'nucleotide', min_x:max_x + 1, base]
             all_ys[sample, base] = ys
 
     if split_by_base:
         fig, axs = plt.subplots(4, 1, figsize=(16, 12 * 4))
     
-        sample_to_color = {name: colors_iter.next() for name in names}
-        sample_to_color = sample_to_color.__getitem__
+        if sample_to_color == None:
+            sample_to_color = {name: colors_iter.next() for name in names}
+            sample_to_color = sample_to_color.__getitem__
 
         for base, base_ax in zip('TCAG', axs.flatten()):
             for sample in names:
@@ -1261,7 +1264,7 @@ def plot_codon_enrichments(names,
                            split_by_codon=False,
                            only_show_highlights=False,
                            sample_to_label=None,
-                           flip=False,
+                           flip=True,
                            ax=None,
                            mark_stalls=False,
                            legend_kwargs={'loc': 'upper right'},
@@ -1270,19 +1273,25 @@ def plot_codon_enrichments(names,
                            mark_active_sites=True,
                            sample_to_color=None,
                            smooth_window=0,
+                           condition=(0.1, 90, 90),
+                           panel_width=16,
+                           panel_height=12,
+                           skip_colors=0,
                           ):
 
     if ax != None and ((split_by_codon and len(codons_to_highlight) > 1) or (not split_by_codon and len(names) > 1)):
         raise ValueError('Can\'t supply ax if more than one frame will be produced')
     
     colors_iter = get_color_iter()
+    for i in range(skip_colors):
+        colors_iter.next()
 
     all_ys = {}
     xs = np.arange(min_x, max_x + 1)
 
     for sample in names:
         for codon_id in codons.non_stop_codons:
-            ys = enrichments[sample]['codon', min_x:max_x + 1, codon_id]
+            ys = enrichments[sample][condition, 'codon', min_x:max_x + 1, codon_id]
             ys = smooth(ys, smooth_window)
 
             all_ys[sample, codon_id] = ys
@@ -1297,7 +1306,7 @@ def plot_codon_enrichments(names,
 
         if ax == None:
             fig, axs = plt.subplots(len(codons_to_highlight), 1,
-                                    figsize=(16, 12 * len(codons_to_highlight)),
+                                    figsize=(panel_width, panel_height * len(codons_to_highlight)),
                                     squeeze=False,
                                    )
         else:
@@ -1308,7 +1317,7 @@ def plot_codon_enrichments(names,
             amino_acid = codons.full_forward_table[codon_id]
             for sample in names:
                 kwargs = {'color': sample_to_color(sample),
-                          'alpha': 1,
+                          #'alpha': 0.7,
                           'label': sample_to_label[sample],
                           'markersize': marker_size,
                           'linewidth': line_width,
@@ -1643,240 +1652,6 @@ def scatter_offset_relationships(around_lists,
             q = np.log2(q)
         ax.axvline(q, color='black', alpha=0.2)
 
-def area_under_curve_additive(enrichments, CHX_name, no_CHX_name, x_min, x_max, ax):
-    tAIs = load_tRNA_copy_numbers()
-    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
-    areas = []
-
-    for codon_id in codons.non_stop_codons:
-        ys = enrichments[CHX_name]['codon', x_min:x_max + 1, codon_id]
-        area = sum(ys - 1)
-        areas.append(area)
-
-    areas = np.array(areas)
-    no_CHX_A = enrichments[no_CHX_name]['codon', 0, codons.non_stop_codons]
-    no_CHX_P = enrichments[no_CHX_name]['codon', -1, codons.non_stop_codons]
-    CHX_A = enrichments[CHX_name]['codon', 0, codons.non_stop_codons]
-    CHX_P = enrichments[CHX_name]['codon', -1, codons.non_stop_codons]
-
-    xs = areas
-    ys = no_CHX_A + no_CHX_P - CHX_A - CHX_P
-
-    Sequencing.Visualize.enhanced_scatter(xs, ys, ax,
-                                          color_by_density=False,
-                                          marker_size=10,
-                                          #do_fit=False,
-                                         )
-
-    labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
-    to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
-    
-    #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
-    ax.set_ylabel('Net change in enrichment\nat A + P sites', size=14)
-    ax.set_xlabel('Area under downstream wave\nwith CHX treatment', size=14)
-
-    ax.axvline(0, color='black', alpha=0.5)
-    ax.axhline(0, color='black', alpha=0.5)
-
-def area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
-    tAIs = load_tRNA_copy_numbers()
-    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
-    areas = []
-
-    for codon_id in codons.non_stop_codons:
-        ys = stratified_mean_enrichments_dict[CHX_name]['codon', x_min:x_max + 1, codon_id]
-        area = sum(ys - 1)
-        areas.append(area)
-
-    areas = np.array(areas)
-    no_CHX_A = np.array([stratified_mean_enrichments_dict[no_CHX_name]['codon', 0, codon_id] for codon_id in codons.non_stop_codons])
-    no_CHX_P = np.array([stratified_mean_enrichments_dict[no_CHX_name]['codon', -1, codon_id] for codon_id in codons.non_stop_codons])
-    CHX_A = np.array([stratified_mean_enrichments_dict[CHX_name]['codon', 0, codon_id] for codon_id in codons.non_stop_codons])
-    CHX_P = np.array([stratified_mean_enrichments_dict[CHX_name]['codon', -1, codon_id] for codon_id in codons.non_stop_codons])
-
-    xs_list = [('areas', areas),
-               ('areas', areas),
-               ('areas', areas),
-               ('areas', areas),
-               ('areas', areas),
-               ('CHX_A', CHX_A),
-               ('no_CHX_A', no_CHX_A),
-               ('no_CHX_A', no_CHX_A),
-              ]
-
-    ys_list = [('no_CHX_A', no_CHX_A),
-               ('no_CHX_A - CHX_A', no_CHX_A - CHX_A),
-               ('no_CHX_A + no_CHX_P - CHX_A - CHX_p', no_CHX_A + no_CHX_P - CHX_A - CHX_P),
-               ('tAI_values', tAI_values),
-               ('CHX_A', CHX_A),
-               ('tAI_values', tAI_values),
-               ('tAI_values', tAI_values),
-               ('no_CHX_P', no_CHX_P),
-              ]
-
-    num_rows = int(np.ceil((len(xs_list) + 1) / 2.))
-    
-    fig, axs = plt.subplots(num_rows, 2, figsize=(16, 8 * num_rows))
-
-    for ax, (x_label, xs), (y_label, ys) in zip(axs.flatten(), xs_list, ys_list):
-        Sequencing.Visualize.enhanced_scatter(xs,
-                                              ys,
-                                              ax,
-                                              color_by_density=False,
-                                              marker_size=10,
-                                             )
-
-        labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
-        to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
-        
-        #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
-        ax.set_ylabel(y_label)
-        ax.set_xlabel(x_label)
-    
-    A_ax = axs.flatten()[0]
-    rho, p = scipy.stats.spearmanr(CHX_A, tAI_values)
-    A_ax.annotate('A site occupancy - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
-                  xy=(0, 1),
-                  xycoords='axes fraction',
-                  xytext=(5, -15),
-                  textcoords='offset points',
-                  family='monospace',
-                 )
-    
-    rho, p = scipy.stats.spearmanr(areas, tAI_values)
-    A_ax.annotate('Area under curve - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
-                  xy=(0, 1),
-                  xycoords='axes fraction',
-                  xytext=(5, -30),
-                  textcoords='offset points',
-                  family='monospace',
-                 )
-
-    rho, p = scipy.stats.spearmanr(areas + CHX_A, tAI_values)
-    A_ax.annotate('Area + A site    - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
-                  xy=(0, 1),
-                  xycoords='axes fraction',
-                  xytext=(5, -45),
-                  textcoords='offset points',
-                  family='monospace',
-                 )
-
-    alphas = np.linspace(-5, 5, 1000)
-    rhos = []
-    for alpha in alphas:
-        rho, p = scipy.stats.pearsonr(areas + alpha * CHX_A, no_CHX_A)
-        rhos.append(rho)
-        
-    ax = axs.flatten()[-1]
-    ax.plot(alphas, rhos)
-
-    max_alpha = alphas[np.argmax(rhos)]
-    ax.axvline(max_alpha, color='black', alpha=0.5)
-    ax.annotate(r'$\alpha$' + ' = {0:0.3f}'.format(max_alpha), 
-                xy=(max_alpha, 0),
-                xycoords=('data', 'axes fraction'),
-                xytext=(5, 15),
-                textcoords='offset points',
-                size=20,
-                )
-    ax.set_xlim(min(alphas), max(alphas))
-    
-    return fig
-
-def dicodon_area_under_curve(stratified_mean_enrichments_dict, CHX_name, no_CHX_name, x_min, x_max):
-    tAIs = load_tRNA_copy_numbers()
-    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
-    areas = []
-
-    all_dicodons = list(itertools.product(codons.non_stop_codons, repeat=2))
-    for dicodon in all_dicodons:
-        ys = stratified_mean_enrichments_dict[CHX_name]['dicodon', x_min:x_max + 1, dicodon]
-        area = sum(ys - 1)
-        areas.append(area)
-
-    areas = np.array(areas)
-    no_CHX = np.array([stratified_mean_enrichments_dict[no_CHX_name]['dicodon', 0, dicodon] for dicodon in all_dicodons])
-    CHX = np.array([stratified_mean_enrichments_dict[CHX_name]['dicodon', 0, dicodon] for dicodon in all_dicodons])
-
-    xs_list = [('areas', areas),
-               ('areas', areas),
-               ('no_CHX', no_CHX),
-              ]
-
-    ys_list = [('no_CHX', no_CHX),
-               ('no_CHX - CHX', no_CHX - CHX),
-               ('CHX', CHX),
-              ]
-
-    num_rows = int(np.ceil((len(xs_list) + 1) / 2.))
-    
-    fig, axs = plt.subplots(num_rows, 2, figsize=(16, 8 * num_rows))
-
-    for ax, (x_label, xs), (y_label, ys) in zip(axs.flatten(), xs_list, ys_list):
-        Sequencing.Visualize.enhanced_scatter(xs,
-                                              ys,
-                                              ax,
-                                              color_by_density=True,
-                                              marker_size=10,
-                                             )
-
-        #labels = ['{0} ({1})'.format(codon_id, codons.forward_table[codon_id]) for codon_id in codons.non_stop_codons]
-        #to_label = np.array([codon_id in ['CGA', 'CGG', 'CCG', 'CAC', 'CAT'] for codon_id in codons.non_stop_codons])
-        
-        #label_scatter_plot(ax, xs, ys, labels, to_label, vector='sideways', arrow_alpha=0.5)
-        ax.set_ylabel(y_label)
-        ax.set_xlabel(x_label)
-    
-    #A_ax = axs.flatten()[0]
-    #rho, p = scipy.stats.spearmanr(CHX_A, tAI_values)
-    #A_ax.annotate('A site occupancy - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
-    #              xy=(0, 1),
-    #              xycoords='axes fraction',
-    #              xytext=(5, -15),
-    #              textcoords='offset points',
-    #              family='monospace',
-    #             )
-    #
-    #rho, p = scipy.stats.spearmanr(areas, tAI_values)
-    #A_ax.annotate('Area under curve - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
-    #              xy=(0, 1),
-    #              xycoords='axes fraction',
-    #              xytext=(5, -30),
-    #              textcoords='offset points',
-    #              family='monospace',
-    #             )
-
-    #rho, p = scipy.stats.spearmanr(areas + CHX_A, tAI_values)
-    #A_ax.annotate('Area + A site    - rho = {0:+0.2f} (p = {1:0.2e})'.format(rho, p),
-    #              xy=(0, 1),
-    #              xycoords='axes fraction',
-    #              xytext=(5, -45),
-    #              textcoords='offset points',
-    #              family='monospace',
-    #             )
-
-    alphas = np.linspace(-5, 5, 1000)
-    rs = []
-    for alpha in alphas:
-        r, p = scipy.stats.pearsonr(areas + alpha * CHX, no_CHX)
-        rs.append(r)
-        
-    ax = axs.flatten()[-1]
-    ax.plot(alphas, rs)
-
-    max_alpha = alphas[np.argmax(rs)]
-    ax.axvline(max_alpha, color='black', alpha=0.5)
-    ax.annotate(r'$\alpha$' + ' = {0:0.3f}'.format(max_alpha), 
-                xy=(max_alpha, 0),
-                xycoords=('data', 'axes fraction'),
-                xytext=(5, 15),
-                textcoords='offset points',
-                size=20,
-                )
-    ax.set_xlim(min(alphas), max(alphas))
-    
-    return fig
-
 def offset_difference_correlation(enrichments, names,
                                   plot_lims=(-90, 89),
                                   enrichment_ylims=None,
@@ -2104,7 +1879,9 @@ def offset_difference_correlation(enrichments, names,
 
     return fig, x
 
-def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
+def offset_tAI_correlation(enrichments,
+                           CHX_names,
+                           plot_lims,
                            enrichment_ylims=None,
                            rho_ylims=(-0.6, 0.6),
                            size=6,
@@ -2117,6 +1894,7 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
                            p_offsets=None,
                            tRNA_value_source='tAI',
                            smooth_window=0,
+                           condition=(0.1, 90, 90),
                           ):
     tAIs = load_tRNA_copy_numbers(tRNA_value_source)
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
@@ -2187,22 +1965,8 @@ def offset_tAI_correlation(enrichments, CHX_names, plot_lims,
         x_min, x_max = plot_lims
         xs = np.arange(x_min, x_max + 1)
         
-        upstream_areas = (enrichments[CHX_name]['codon', 12:90:1, codons.non_stop_codons] - 1).sum(axis=0)
-        downstream_areas = (enrichments[CHX_name]['codon', -7:-90:-1, codons.non_stop_codons] - 1).sum(axis=0)
-        actives = (enrichments[CHX_name]['codon', -1:1, codons.non_stop_codons] - 1).sum(axis=0)
-
-        rho, p = scipy.stats.spearmanr(upstream_areas, tAI_values)
-        print '{2:<20}\tupstream\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
-        rho, p = scipy.stats.spearmanr(downstream_areas, tAI_values)
-        print '{2:<20}\tdownstream\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
-        rho, p = scipy.stats.spearmanr(downstream_areas + actives, tAI_values)
-        print '{2:<20}\tdown+activ\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
-
-        print [(c, (downstream_areas + actives)[i]) for i, c in enumerate(codons.non_stop_codons) if c == 'CGA']
-            
-        #x_rhos, x_ps = np.array([scipy.stats.spearmanr(enrichments[CHX_name]['codon', x, codons.non_stop_codons], tAI_values) for x in xs]).T
         rho_ps = []
-        waves = enrichments[CHX_name]['codon', x_min:x_max + 1, codons.non_stop_codons]
+        waves = enrichments[CHX_name][condition, 'codon', x_min:x_max + 1, codons.non_stop_codons]
         smoothed = smooth(waves, smooth_window)
         for row in smoothed:
             rho_ps.append(scipy.stats.spearmanr(row, tAI_values))
@@ -2409,26 +2173,34 @@ def offset_difference_scatter(enrichments,
                               noCHX_name,
                               CHX_name,
                               wave_slice,
-                              active_slice=slice(-2, 1),
+                              active_slice=slice(-1, 1),
                               to_label=set(),
                               area_between=False,
                               exclude=set(),
                               big_codon='CGA',
-                              small_codon='ATC',
+                              small_codon='CCG',
                               inset_bg='white',
-                              inset_ylims=None,
+                              inset_ylims=(0, 4.15),
                               change=True,
                               draw_insets=True,
+                              condition=(0.1, 90, 90),
+                              flip_wave=False,
+                              shift_small=0,
+                              shift_big=0,
+                              text_location=(0.65, 0.14),
+                              big_title='below',
+                              tick_multiple=1,
                              ):
     codon_list = [c for c in codons.non_stop_codons if c not in exclude]
     codon_to_index = {codon_id: i for i, codon_id in enumerate(codon_list)}
+
+    if flip_wave:
+        wave_slice = slice(-wave_slice.start, -wave_slice.stop, -wave_slice.step)
     
-    noCHX_active = enrichments[noCHX_name]['codon', active_slice, codon_list]
-    CHX_active = enrichments[CHX_name]['codon', active_slice, codon_list]
-    noCHX_wave = enrichments[noCHX_name]['codon', wave_slice, codon_list]
-    CHX_wave = enrichments[CHX_name]['codon', wave_slice, codon_list]
-    
-    print enrichments[noCHX_name].num_before, enrichments[noCHX_name].num_after
+    noCHX_active = enrichments[noCHX_name][condition, 'codon', active_slice, codon_list]
+    CHX_active = enrichments[CHX_name][condition, 'codon', active_slice, codon_list]
+    noCHX_wave = enrichments[noCHX_name][condition, 'codon', wave_slice, codon_list]
+    CHX_wave = enrichments[CHX_name][condition, 'codon', wave_slice, codon_list]
     
     fig, ax = plt.subplots(figsize=(12, 12),
                            #gridspec_kw={'left': 0, 'bottom': 0, 'top': 1},
@@ -2444,7 +2216,7 @@ def offset_difference_scatter(enrichments,
     else:
         total_waves = (CHX_wave - 1).sum(axis=0)
     
-    #for l in sorted(zip(np.abs(total_waves + total_changes), codons.non_stop_codons))[::-1][:10]:
+    #for l in sorted(zip(np.abs(total_waves), codon_list))[:10]:
     #    print l
         
     Sequencing.Visualize.enhanced_scatter(total_changes, total_waves, ax,
@@ -2452,17 +2224,18 @@ def offset_difference_scatter(enrichments,
                                           show_p_value=False,
                                           variance=True,
                                           do_fit=True,
-                                          marker_size=40,
+                                          marker_size=44,
                                           text_size=26,
-                                          text_location=(0.32, 1),
-                                          show_beta=False,
+                                          text_location=text_location,
+                                          show_beta='fit',
                                           fit_line_kwargs={'color': 'black',
                                                            'alpha': 0.6,
                                                            'linestyle': '--',
                                                           },
+                                          big_fit_line=True,
                                          )
-    ax.set_xlabel('Net CHX-induced change in enrichment at A-, P- and E- sites', color='green', size=20, family='serif')
-    ax.set_ylabel('Net CHX-induced change in enrichment downstream', color='red', size=20, family='serif')
+    ax.set_xlabel('Net CHX-induced change in enrichment at A-, P-, and E-sites', color='green', size=20, family='serif')
+    ax.set_ylabel('Net CHX-induced change in enrichment ' + ('upstream' if flip_wave else 'downstream'), color='red', size=20, family='serif')
     
     smallest, largest = (min(min(total_changes), min(-total_waves)) - 0.2,
                          max(max(total_changes), max(-total_waves)) + 0.2,
@@ -2472,25 +2245,43 @@ def offset_difference_scatter(enrichments,
     ax.set_aspect(1.)
     
     min_x = -90
-    max_x = 30
+    max_x = 90
     xs = np.arange(min_x, max_x + 1)
     where_active = (active_slice.start <= xs) & (xs < active_slice.stop)
-    where_wave = (wave_slice.start >= xs) & (xs > wave_slice.stop)
+                                         
+    if flip_wave:
+        where_wave = (wave_slice.start <= xs) & (xs < wave_slice.stop)
+    else:
+        where_wave = (wave_slice.start >= xs) & (xs > wave_slice.stop)
     
-    CHX_vals = {codon_id: enrichments[CHX_name]['codon', min_x:max_x + 1, codon_id] for codon_id in codons.non_stop_codons}
-    noCHX_vals = {codon_id: enrichments[noCHX_name]['codon', min_x:max_x + 1, codon_id] for codon_id in codons.non_stop_codons}
+    CHX_vals = {codon_id: enrichments[CHX_name][condition, 'codon', min_x:max_x + 1, codon_id] for codon_id in codons.non_stop_codons}
+    noCHX_vals = {codon_id: enrichments[noCHX_name][condition, 'codon', min_x:max_x + 1, codon_id] for codon_id in codons.non_stop_codons}
     changes = {codon_id: CHX_vals[codon_id] - noCHX_vals[codon_id] for codon_id in codons.non_stop_codons}
    
     if draw_insets:
-        plus_ax = fig.add_axes([0.20, 0.17, 0.31, 0.31], axisbg=inset_bg)
-        minus_ax = fig.add_axes([0.565, 0.55, 0.31, 0.31], axisbg=inset_bg)
+        if flip_wave:
+            big_choice = ([0.20 + shift_big, 0.57, 0.31, 0.31], big_codon, 'above', inset_ylims, -0.1, tick_multiple)
+        else:
+            big_choice = ([0.20 + shift_big, 0.18, 0.31, 0.31], big_codon, big_title, inset_ylims, -0.1, tick_multiple)
+        
+        #plus_ax = fig.add_axes([-0.27, 0.57, 0.31, 0.31], axisbg=inset_bg)
+        #plus_2_ax = fig.add_axes([-0.27, 0.17, 0.31, 0.31], axisbg=inset_bg)
+        small_choice = ([0.57 + shift_small, 0.57, 0.31, 0.31], small_codon, 'above', inset_ylims, -0.1, tick_multiple)
+        #minus_ax = fig.add_axes([0.95, 0.57, 0.31, 0.31], axisbg=inset_bg)
+        #minus_2_ax = fig.add_axes([0.97, 0.4, 0.31, 0.31], axisbg=inset_bg)
     
         choices = [
-            (plus_ax, big_codon, 'below'),
-            (minus_ax, small_codon, 'above'),
+            big_choice,
+            small_choice,
+            #(minus_ax, 'TCA', 'above', (0, 4.1), 0.4, 1),
+            #(minus_2_ax, 'TTG', 'above', (0, 2.0), -0.1, 0.5),
         ]
 
-        for inset_ax, codon_id, location in choices:
+        for box, codon_id, location, y_lims, rad, tick_multiple in choices:
+            if codon_id == None:
+                continue
+            inset_ax = fig.add_axes(box, axisbg=inset_bg)
+            inset_ax.set_ylim(*y_lims)
             if area_between:
                 inset_ax.plot(xs, changes[codon_id], '-', color='black', linewidth=1)
                 inset_ax.plot([-2, -1, 0], changes[codon_id][-2 - min_x:1 - min_x], '.', markersize=8, color='black')
@@ -2501,57 +2292,92 @@ def offset_difference_scatter(enrichments,
             else:
                 inset_ax.plot(xs, CHX_vals[codon_id], '-', color='black', label='$+$ CHX', linewidth=2.2)
                 inset_ax.plot(xs, noCHX_vals[codon_id], '-', color='blue', label='$-$ CHX', linewidth=1.0)
-                inset_ax.plot([-2, -1, 0], CHX_vals[codon_id][-2 - min_x:1 - min_x], '.', markersize=12, color='black')
-                inset_ax.plot([-2, -1, 0], noCHX_vals[codon_id][-2 - min_x:1 - min_x], '.', markersize=12, color='blue')
+                active_xs = np.arange(active_slice.start, active_slice.stop)
+                CHX_ys = CHX_vals[codon_id][min(active_xs) - min_x:max(active_xs) + 1 - min_x]
+                noCHX_ys = noCHX_vals[codon_id][min(active_xs) - min_x:max(active_xs) + 1 - min_x]
+                inset_ax.plot(active_xs, CHX_ys, '.', markersize=12, color='black')
+                inset_ax.plot(active_xs, noCHX_ys, '.', markersize=12, color='blue')
+                
                 inset_ax.fill_between(xs, CHX_vals[codon_id], np.ones_like(xs), color='red', alpha=0.5, where=where_wave)
                 inset_ax.fill_between(xs, CHX_vals[codon_id], noCHX_vals[codon_id], color='green', alpha=0.5, where=where_active)
+                
+                #def data_to_axes(y):
+                #    _, axes_y = inset_ax.transAxes.inverted().transform(inset_ax.transData.transform((0, y)))
+                #    return axes_y
+
+                #for x in [-1, 0]: 
+                #    start_y = CHX_vals[codon_id][x - min_x]
+                #    stop_y = noCHX_vals[codon_id][x - min_x]
+                #    inset_ax.axvspan(x - 0.5, x + 0.5,
+                #                     ymin=data_to_axes(start_y),
+                #                     ymax=data_to_axes(stop_y),
+                #                     color='green',
+                #                     alpha=0.5,
+                #                     linewidth=0,
+                #                    )
+
                 inset_ax.axhline(1, color='black')
-                inset_ax.set_ylabel('Ribosome density', y=0.56, size=16, labelpad=-35)
-                legend = inset_ax.legend(prop={'family': 'monospace'})
-                #for t in legend.get_texts():
-                #    t.set_ha('right') # ha is alias for horizontalalignment
+                inset_ax.set_ylabel('Relative enrichment',
+                                    family='serif',
+                                    #y=0.58,
+                                    size=16,
+                                    #labelpad=-50,
+                                   )
+                legend_loc = 'upper left' if flip_wave else 'upper right'
+                legend = inset_ax.legend(prop={'family': 'serif', 'size': 16}, loc=legend_loc)
             
-            major_locator = matplotlib.ticker.MultipleLocator(1)
+            major_locator = matplotlib.ticker.MultipleLocator(tick_multiple)
             minor_locator = matplotlib.ticker.AutoMinorLocator(2)
-            major_formattor = matplotlib.ticker.FormatStrFormatter('%0.0f')
+            major_formattor = matplotlib.ticker.FormatStrFormatter('%0.0f' if tick_multiple == 1 else '%0.1f')
             inset_ax.yaxis.set_major_locator(major_locator)
             inset_ax.yaxis.set_minor_locator(minor_locator)
             inset_ax.yaxis.set_major_formatter(major_formattor)
-            #inset_ax.tick_params(pad=4)
+            inset_ax.tick_params(pad=4)
+
+            for spine in inset_ax.spines.values():
+                spine.set_linewidth(2)
             
-            inset_ax.set_xlim(wave_slice.stop, 10)
-            inset_ax.set_xticks([t for t in [0, -20, -40, -60] if t >= wave_slice.stop])
+            if flip_wave:
+                inset_ax.set_xlim(-10, wave_slice.stop)
+                inset_ax.set_xticks([t for t in [0, 20, 40, 60] if t <= wave_slice.stop])
+            else:
+                inset_ax.set_xlim(wave_slice.stop, 10)
+                inset_ax.set_xticks([t for t in [0, -20, -40, -60] if t >= wave_slice.stop])
+
             flip_x_axis(inset_ax)
         
             if location == 'above':
                 text_x, text_y = 0.5, -0.15
             else:
-                text_x, text_y = 0.5, 1.05
+                text_x, text_y = 0.5, 1.02
 
             text_x, text_y = ax.transAxes.inverted().transform(inset_ax.transAxes.transform((text_x, text_y)))
         
             mark_active_sites_and_borders(inset_ax, active=False)
-            index = codon_to_index[codon_id]
-            x, y = total_changes[index], total_waves[index] 
-            x, y = ax.transAxes.inverted().transform(ax.transData.transform((x - 0.01, y - 0.01)))
-            ax.annotate(codon_id,
-                        size=18,
-                        xy=(x, y),
-                        ha='center',
-                        weight='bold',
-                        xycoords='axes fraction',
-                        xytext=(text_x, text_y),
-                        textcoords='axes fraction',
-                        arrowprops=dict(arrowstyle='->',
-                                        connectionstyle="arc3, rad=-0.3",
-                                        color='black',
-                                        alpha=0.6,
-                                       ),
-                        )
-        
-            inset_ax.set_xlabel('Offset (codons)', x=0.55, size=16, labelpad=-40)
-            if inset_ylims:
-                inset_ax.set_ylim(*inset_ylims)
+
+            if codon_id not in exclude:
+                index = codon_to_index[codon_id]
+                x, y = total_changes[index], total_waves[index] 
+                x, y = ax.transAxes.inverted().transform(ax.transData.transform((x, y)))
+                ax.annotate(codon_id,
+                            size=22,
+                            xy=(x, y),
+                            ha='center',
+                            weight='bold',
+                            xycoords='axes fraction',
+                            xytext=(text_x, text_y),
+                            textcoords='axes fraction',
+                            arrowprops=dict(arrowstyle='-',
+                                            connectionstyle='arc3, rad={0}'.format(rad),
+                                            color='black',
+                                            alpha=0.4,
+                                           ),
+                            )
+            
+            inset_ax.tick_params(which='major', length=6)
+            inset_ax.tick_params(which='minor', length=3)
+            
+            inset_ax.set_xlabel('Offset (codons)', x=0.58, size=16, labelpad=-40, family='serif')
 
             for label in inset_ax.get_xticklabels() + inset_ax.get_yticklabels():
                 label.set_size(14)
@@ -2563,3 +2389,41 @@ def offset_difference_scatter(enrichments,
         label.set_size(14)
     
     return fig
+
+def tAI_recovery(enrichments, CHX_names, labels, wave_slices, condition=(0.1, 200, 200)):
+    tAIs = load_tRNA_copy_numbers('tAI')
+    tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
+
+    all_actives = []
+    all_down_plus_actives = []
+    all_big_down_plus_actives = []
+
+    big_wave_slice = slice(-7, -90, -1)
+    for CHX_name, wave_slice in zip(CHX_names, wave_slices):
+        upstream_areas = (enrichments[CHX_name][condition, 'codon', -wave_slice.start:-wave_slice.stop, codons.non_stop_codons] - 1).sum(axis=0)
+        downstream_areas = (enrichments[CHX_name][condition, 'codon', wave_slice, codons.non_stop_codons] - 1).sum(axis=0)
+        big_downstream_areas = (enrichments[CHX_name][condition, 'codon', big_wave_slice, codons.non_stop_codons] - 1).sum(axis=0)
+        actives = (enrichments[CHX_name][condition, 'codon', -2:1, codons.non_stop_codons] - 1).sum(axis=0)
+
+        rho, p = scipy.stats.spearmanr(actives, tAI_values)
+        all_actives.append(rho)
+        
+        rho, p = scipy.stats.spearmanr(downstream_areas + actives, tAI_values)
+        all_down_plus_actives.append(rho)
+        print '{2:<20}\tdown+activ\t{0:+0.2f}\t{1:0.2e}'.format(rho, p, CHX_name[:20])
+        
+        rho, p = scipy.stats.spearmanr(big_downstream_areas + actives, tAI_values)
+        all_big_down_plus_actives.append(rho)
+
+    xs = np.arange(len(CHX_names))
+    fig, ax = plt.subplots(figsize=(16, 12))
+    ax.plot(xs, all_actives, 'o-')
+    ax.plot(xs, all_down_plus_actives, 'o-')
+    ax.plot(xs, all_big_down_plus_actives, 'o-')
+
+    ax.set_xlim(min(xs), max(xs))
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels, rotation=45, ha='right', size=20)
+
+    ax.axhline(0, color='black')
+    ax.axhline(0.252, color='red', linestyle='--')
