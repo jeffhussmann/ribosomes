@@ -128,60 +128,60 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
 
     specific_outputs = [
-        ['lengths',
-         'clean_composition',
-         'clean_composition_perfect',
-         'unmapped_composition',
-         'rRNA_coverage',
-         'common_unmapped',
-         'merged_mappings',
-         'rRNA_bam',
-         'more_rRNA_bam',
-         'tRNA_bam',
-         'other_ncRNA_bam',
-         'mismatches',
-         'codons_to_examine',
+        [#'lengths',
+         #'clean_composition',
+         #'clean_composition_perfect',
+         #'unmapped_composition',
+         #'rRNA_coverage',
+         #'common_unmapped',
+         #'merged_mappings',
+         #'rRNA_bam',
+         #'more_rRNA_bam',
+         #'tRNA_bam',
+         #'other_ncRNA_bam',
+         #'mismatches',
+         #'codons_to_examine',
         ],
-        ['read_positions',
+        [#'read_positions',
          'metagene_positions',
          'buffered_codon_counts',
-         'codon_counts',
-         'read_counts',
-         'read_counts_exclude_edges',
+         #'codon_counts',
+         #'read_counts',
+         #'read_counts_exclude_edges',
         ],
     ]
     
     specific_work = [
-        ['preprocess',
-         'map_full_lengths',
-         'process_initially_unmapped',
-         'merge_mapping_pathways',
-         'process_remapped_unmapped',
-         'compute_base_composition',
-         'find_unambiguous_lengths',
-         'get_rRNA_coverage',
-         'examine_locii',
+        [#'preprocess',
+         #'map_full_lengths',
+         #'process_initially_unmapped',
+         #'merge_mapping_pathways',
+         #'process_remapped_unmapped',
+         #'compute_base_composition',
+         #'find_unambiguous_lengths',
+         #'get_rRNA_coverage',
+         #'examine_locii',
         ],
         ['get_read_positions',
          'get_metagene_positions',
-         'compute_total_read_counts',
+         #'compute_total_read_counts',
          'compute_codon_occupancy_counts',
         ],
     ]
 
     specific_cleanup = [
-        ['compute_yield',
-         'plot_base_composition',
-         'plot_lengths',
-         'plot_rRNA_coverage',
-         'plot_mismatches',
-         'visualize_unmapped',
+        [#'compute_yield',
+         #'plot_base_composition',
+         #'plot_lengths',
+         #'plot_rRNA_coverage',
+         #'plot_mismatches',
+         #'visualize_unmapped',
         ],
-        ['compute_RPKMs',
+        [#'compute_RPKMs',
          'compute_mean_densities',
-         'compute_stratified_mean_enrichments',
+         #'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
-         ##'plot_frames',
+         #'plot_frames',
         ],
     ]
 
@@ -443,10 +443,10 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         self.write_file('lengths', {'remapped': remapped_lengths})
     
     def process_remapped_unmapped(self):
-        unmapped_lengths = np.zeros(self.max_read_length + 1)
+        unmapped_lengths = np.zeros(self.max_read_length + 1, int)
         unmapped_seq_counts = Counter()
 
-        long_polyA_lengths = np.zeros(self.max_read_length + 1)
+        long_polyA_lengths = np.zeros(self.max_read_length + 1, int)
         long_polyA_counts = Counter()
         
         unmapped_reads = sam.bam_to_fastq(self.file_names['remapped_unmapped_bam'])
@@ -737,23 +737,21 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities'), 0)],
                                                 self.figure_file_names['mean_densities'],
-                                                past_edge=10,
+                                                past_edge=100,
                                                 plot_up_to=1000,
-                                                smooth=False,
                                                )
         
-        visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
-                                                     self.figure_file_names['mean_nucleotide_densities'],
-                                                     past_edge=10,
-                                                     plot_up_to=2000,
-                                                     smooth=False,
-                                                    )
+        #visualize.plot_averaged_nucleotide_densities([(self.name, metagene_positions, 0)],
+        #                                             self.figure_file_names['mean_nucleotide_densities'],
+        #                                             past_edge=10,
+        #                                             plot_up_to=2000,
+        #                                             smooth=False,
+        #                                            )
 
         visualize.plot_averaged_codon_densities([(self.name, self.read_file('mean_densities_anisomycin'), 0)],
                                                 self.figure_file_names['mean_densities_anisomycin'],
                                                 past_edge=10,
                                                 plot_up_to=500,
-                                                smooth=False,
                                                )
 
     def plot_frames(self):

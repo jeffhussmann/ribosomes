@@ -252,6 +252,8 @@ if __name__ == '__main__':
     fns.append(make_descriptions('jan_science', 'linker', markers_fn=markers_fns['jan'], **kwargs))
     fns.append(make_descriptions('williams_science', 'linker', markers_fn=markers_fns['jan'], **kwargs))
 
+    fns.append(make_descriptions('sen_gr', 'linker', **kwargs))
+
     with open(all_bash_fn, 'w') as all_bash_fh:
         for fn in fns:
             all_bash_fh.write('echo {}\n'.format(fn))

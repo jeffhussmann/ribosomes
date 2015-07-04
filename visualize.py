@@ -21,20 +21,6 @@ colors = colors * 4
 
 igv_colors = Sequencing.Visualize.igv_colors.normalized_rgbs
 
-def smoothed(position_counts, window_size):
-    smoothed_array = positions.PositionCounts(position_counts.landmarks,
-                                              position_counts.left_buffer,
-                                              position_counts.right_buffer,
-                                              data=position_counts.data,
-                                             )
-    for i in range(window_size):
-        smoothed_array[i] = position_counts[:i + 1].sum() / float(i + 1)
-    for i in range(window_size, smoothed_array.extent_length - window_size):
-        smoothed_array[i] = position_counts[i - window_size:i + window_size + 1].sum() / float(2 * window_size + 1)
-    for i in range(smoothed_array.extent_length - window_size, smoothed_array.extent_length):
-        smoothed_array[i] = position_counts[i:].sum() / float(smoothed_array.extent_length - i)
-    return smoothed_array
-
 def plot_metagene_positions(metagene_positions,
                             figure_fn,
                             lengths,
@@ -537,7 +523,6 @@ def plot_averaged_nucleotide_densities(data_sets,
                                        figure_fn,
                                        show_start=False,
                                        past_edge=10,
-                                       smooth=False,
                                        plot_up_to=1000,
                                        save_fig=True,
                                       ):
@@ -550,13 +535,14 @@ def plot_averaged_nucleotide_densities(data_sets,
     end_xs = np.arange(-plot_up_to, past_edge)
 
     for name, metagene_positions, color_index in data_sets:
-        marker = '' if smooth else '.'
-        linewidth = 2 if smooth else 1
+        marker = '.'
+        linewidth = 1
 
-        densities = metagene_positions['end_sum_of_enrichments']['three_prime_genomic'] / metagene_positions['end_num_eligible']['three_prime_genomic']
-        if smooth:
-            densities = smoothed(densities, 5)
-        end_densities = densities['end', end_xs]
+        numerator = metagene_positions['end_sum_of_enrichments']['three_prime_genomic']['end', end_xs]
+        denominator = metagene_positions['end_num_eligible']['three_prime_genomic']['end', end_xs]
+        denominator[denominator == 0] = 1
+        end_densities = numerator / denominator
+        
         end_ax.plot(end_xs,
                     end_densities,
                     '.-',
@@ -567,11 +553,11 @@ def plot_averaged_nucleotide_densities(data_sets,
                    )
 
         if show_start:
-            densities = metagene_positions['start_sum_of_enrichments']['all'] / metagene_positions['start_num_eligible']['all']
-            if smooth:
-                densities = smoothed(densities, 5)
-            start_densities = densities['start', start_xs]
-
+            numerator = metagene_positions['start_sum_of_enrichments']['all']['start', start_xs]
+            denominator = metagene_positions['start_num_eligible']['all']['start', start_xs]
+            denominator[denominator == 0] = 1
+            start_densities = numerator / denominator
+            
             start_ax.plot(start_xs,
                           start_densities,
                           '.-',
@@ -644,7 +630,6 @@ def plot_averaged_codon_densities(data_sets,
 
     for (name, mean_densities, color_index), label in zip(data_sets, labels):
         densities = mean_densities['from_start']['codons']
-
         start_densities = densities['start_codon', start_xs]
         start_densities = pausing.smooth(start_densities, smooth_window)
         if normalize_to_asymptotic:

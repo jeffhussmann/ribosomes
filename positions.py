@@ -195,10 +195,10 @@ def convert_to_three_prime(position_counts, length):
 
 # Number of nucleotide positions to include on the left and right side of
 # counts of read positions.
-left_buffer = right_buffer = 300
+left_buffer = right_buffer = 330
 
 # Number of codons to include on either side of counts of codon positions.
-codon_buffer = left_buffer // 3
+codon_buffer = 100
 
 def get_Transcript_extent_position_counts(transcript,
                                           clean_bam_fn,
@@ -631,6 +631,10 @@ def compute_averaged_codon_densities(codon_counts, offset_key='relaxed', names_t
         end_slice = ('stop_codon', slice(-(counts.CDS_length + codon_buffer), codon_buffer))
         sum_of_normalized_from_end[end_slice] += normalized[end_slice]
         long_enough_genes_from_end[end_slice] += uniform[end_slice]
+
+    # Make 0 / 0 be zero instead of NaN.
+    long_enough_genes_from_start.data[long_enough_genes_from_start.data == 0] = 1
+    long_enough_genes_from_end.data[long_enough_genes_from_end.data == 0] = 1
         
     mean_densities = {'from_start': {'codons': sum_of_normalized_from_start / long_enough_genes_from_start},
                       'from_end': {'codons': sum_of_normalized_from_end / long_enough_genes_from_end},
