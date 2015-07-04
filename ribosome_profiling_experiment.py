@@ -59,7 +59,6 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
 
         ('phiX_bam', 'bam', '{name}_phiX.bam'),
 
-        ('clean_trimmed_bam', 'bam', '{name}_clean_trimmed.bam'),
         ('merged_mappings', 'bam', '{name}_merged_mappings.bam'),
 
         ('unmapped_structures', None, '{name}_unmapped_structures.txt'),
