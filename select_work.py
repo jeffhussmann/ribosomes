@@ -35,6 +35,7 @@ def build_all_experiments(verbose=False):
                 'nedialkova_cell',
                 'jan_science',
                 'williams_science',
+                'sen_gr',
                ]
 
     experiments = {}
