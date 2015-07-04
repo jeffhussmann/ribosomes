@@ -13,6 +13,7 @@ import operator
 import Circles.variants as variants
 import codons
 import scipy.stats
+import pausing
     
 bmap = brewer2mpl.get_map('Set1', 'qualitative', 9)
 colors = bmap.mpl_colors[:5] + bmap.mpl_colors[6:] + ['black']
@@ -601,6 +602,7 @@ def plot_averaged_codon_densities(data_sets,
                                   figure_fn,
                                   show_end=True,
                                   past_edge=10,
+                                  smooth_window=0,
                                   plot_up_to=100,
                                   save_fig=True,
                                   labels=None,
@@ -629,11 +631,12 @@ def plot_averaged_codon_densities(data_sets,
     for (name, mean_densities, color_index), label in zip(data_sets, labels):
         densities = mean_densities['from_start']['codons']
         start_densities = densities['start_codon', start_xs]
+        start_densities = pausing.smooth(start_densities, smooth_window)
         if normalize_to_asymptotic:
-            start_densities /= densities['start_codon', 500]
+            start_densities /= np.mean(densities['start_codon', 500 - 10:500 + 10])
 
-        marker = '.'
-        linewidth = 1
+        marker = '' if smooth_window > 0 else '.'
+        linewidth = 1.5 if smooth_window > 0 else 1
 
         start_ax.plot(start_xs,
                       start_densities,
@@ -646,6 +649,8 @@ def plot_averaged_codon_densities(data_sets,
         if show_end:
             densities = mean_densities['from_end']['codons']
             end_densities = densities['stop_codon', end_xs]
+            end_densities = pausing.smooth(end_densities, smooth_window)
+            
             end_ax.plot(end_xs,
                         end_densities,
                         '.-',

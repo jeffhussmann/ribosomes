@@ -265,3 +265,73 @@ def make_rRNA_coverage_plot():
                                     all_experiments[0].file_names['oligos_sam'],
                                     'belgium_2014_08_07_rRNA_coverage_{0}.pdf',
                                    )
+
+def load_all_enrichments():
+    weinberg_names = ['RPF']
+
+    arlen_names = ['WT_1_FP',
+                   'WT_2_FP',
+                   'R98S_1_FP',
+                   'R98S_2_FP',
+                  ]
+    old_arlen_names = ['WT_cDNA_sample',
+                       'R98S_cDNA_sample',
+                       'Suppressed_R98S_cDNA_sample',
+                      ]
+
+    guydosh_names = ['wild-type_CHX',
+                     'wild-type_no_additive',
+                    ]
+
+    gardin_names = ['ribosome_footprints_for_wildtype']
+
+    experiments = build_all_experiments()
+    relevant_experiments = get_gerashchenko_nar_experiments('unstressed') + \
+                           get_gerashchenko_nar_experiments('oxidative') + \
+                           get_gerashchenko_nar_experiments('heat') + \
+                           [experiments['weinberg'][name] for name in weinberg_names] + \
+                           [experiments['belgium_2014_12_10'][name] for name in arlen_names] + \
+                           [experiments['belgium_2013_08_06'][name] for name in old_arlen_names] + \
+                           experiments['dunn_elife'].values() + \
+                           [experiments['artieri_gr_2']['non_multiplexed']] + \
+                           experiments['zinshteyn_plos_genetics'].values() + \
+                           experiments['pop_msb'].values() + \
+                           experiments['mcmanus_gr'].values() + \
+                           experiments['brar_science'].values() + \
+                           experiments['lareau_elife'].values() + \
+                           experiments['nedialkova_cell'].values() + \
+                           [experiments['gardin_elife'][name] for name in gardin_names] + \
+                           [v for n, v in experiments['ingolia_science'].items() if 'Footprint' in n] + \
+                           [experiments['guydosh_cell'][name] for name in guydosh_names] + \
+                           [v for n, v in experiments['gerashchenko_pnas'].items() if 'foot' in n] + \
+                           experiments['jan_science'].values() + \
+                           experiments['williams_science'].values()
+            
+    enrichments = {exp.name: exp.read_file('stratified_mean_enrichments') for exp in relevant_experiments}
+
+    representatives = {'belgium_2014_12_10': 'WT_2_FP',
+                       'ingolia': 'Footprints-rich-1',
+                       'brar': 'footprints_for_exponential_vegetative_cells_of_the_strain_gb15_used_for_the_traditional_timecourse',
+                       'gerashchenko pnas': 'Initial_rep1_foot',
+                       'dunn': 'dunn_elife',
+                       'artieri': 'non_multiplexed',
+                       'mcmanus': 'S._cerevisiae_Ribo-seq_Rep_1',
+                       'zinshteyn': 'WT_Ribosome_Footprint_1',
+                       'lareau +': 'Cycloheximide_replicate_1',
+                       'nedialokova +': 'WT_ribo_YPD_rep1',
+                       'jan +': 'sec63mVenusBirA_+CHX_7minBiotin_input',
+                       'williams +': 'Om45mVenusBirA_+CHX_2minBiotin_input',
+                       'guydosh -': 'wild-type_CHX',
+                       'weinberg': 'RPF',
+                       'pop': 'WT_footprint',
+                       'lareau -': 'Untreated_replicate_1',
+                       'gardin': 'ribosome_footprints_for_wildtype',
+                       'nedialkova -': 'WT_ribo_YPD_noCHX_rep1',
+                       'jan -': 'sec63mVenusBirA_-CHX_7minBiotin_input',
+                       'williams -': 'Om45mVenusBirA_-CHX_2minBiotin_input',
+                      }
+
+    for name in representatives:
+        enrichments[name] = enrichments[representatives[name]]
+
+    return enrichments
