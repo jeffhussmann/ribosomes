@@ -2398,7 +2398,12 @@ def offset_difference_scatter(enrichments,
     
     return fig
 
-def tAI_recovery(enrichments, CHX_names, labels, wave_slices, condition=(0.1, 200, 200)):
+def tAI_recovery(enrichments, CHX_names, labels, wave_slices,
+                 condition=(0.1, 200, 200),
+                 show_big_slice=False,
+                ):
+    fig, ax = plt.subplots(figsize=(8, 6))
+
     tAIs = load_tRNA_copy_numbers('tAI')
     tAI_values = [tAIs[codon] for codon in codons.non_stop_codons]
 
@@ -2431,21 +2436,54 @@ def tAI_recovery(enrichments, CHX_names, labels, wave_slices, condition=(0.1, 20
         all_big_down_plus_actives.append(rho)
 
     xs = np.arange(len(CHX_names))
-    fig, ax = plt.subplots(figsize=(12, 8))
     common_kwargs = {'linewidths': 0,
                      's': 50,
                     }
     ax.scatter(xs, all_actives, color=active_color, label='tRNA binding sites', **common_kwargs)
-    ax.scatter(xs, all_down_plus_actives, color=wave_color, label='tRNA binding sites + downstream wave', **common_kwargs)
-    ax.scatter(xs, all_big_down_plus_actives, color=wave_color, alpha=0.5, label='tRNA binding sites + all downstream', **common_kwargs)
+    ax.scatter(xs, all_down_plus_actives, color=wave_color, label='tRNA binding sites\n+ downstream wave', **common_kwargs)
+    if show_big_slice:
+        ax.scatter(xs, all_big_down_plus_actives, color=wave_color, alpha=0.5, label='tRNA binding sites + all downstream', **common_kwargs)
 
     ax.set_xlim(min(xs) - 0.5, max(xs) + 0.5)
     ax.set_xticks(xs)
-    ax.set_xticklabels(labels, color=light_CHX, rotation=45, ha='right', size=20)
+    ax.set_xticklabels(labels, color=light_CHX,
+                       rotation=45,
+                       ha='right',
+                       size=16,
+                       weight='bold',
+                      )
+    for label in ax.get_yticklabels():
+        label.set_size(14)
 
     ax.axhline(0, color='black')
-    ax.axhline(0.252, color='red', linestyle='--')
-    ax.set_ylim(-0.4, 0.55)
-    legend = ax.legend(prop={'family': 'serif', 'size': 14}, scatterpoints=1, loc='lower right', bbox_to_anchor=(1, 1))
+    p_cutoff = 0.2838 # empirically determined rho for a p value of 0.5 with 61 tAIs
+    ax.axhline(p_cutoff, color='red', linestyle='-', alpha=0.6)
+    ax.annotate('$p < 0.05$',
+                xy=(1, p_cutoff),
+                xycoords=('axes fraction', 'data'),
+                xytext=(-2, 1),
+                textcoords='offset points',
+                ha='right',
+                va='bottom',
+                color='red',
+                size=14,
+               )
+
+
+    ax.set_ylim(-0.41, 0.6)
+    legend = ax.legend(prop={'family': 'serif', 'size': 14},
+                       scatterpoints=1,
+                       loc='lower center',
+                       bbox_to_anchor=(0.5, 1),
+                       handletextpad=0,
+                       ncol=2,
+                      )
     for t in legend.texts:
         t.set_multialignment('center')
+
+    ax.set_ylabel('Rank correlation of\nnet enrichments with 1 / tAI',
+                  family='serif',
+                  size=16,
+                 )
+
+    return fig
