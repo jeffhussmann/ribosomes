@@ -945,13 +945,29 @@ def assign_colors_by_values(codon_to_ranks):
     codon_to_color = {codon: colors[codon_to_ranks[codon][0]] for codon in codon_to_ranks}
     return codon_to_color
 
-def build_codon_to_ranks(enrichments, position, name_order):
+def build_codon_to_ranks(enrichments, position, name_order,
+                         compare_to=None,
+                         condition=(0.1, 90, 90),
+                        ):
+    def get_values(name):
+        if isinstance(position, list):
+            # multiple slices
+            values = np.zeros(len(codons.non_stop_codons))
+            for sl in position:
+                values += (enrichments[name][condition, 'codon', sl, codons.non_stop_codons] - 1).sum(axis=0)
+                if compare_to:
+                    values -= (enrichments[compare_to][condition, 'codon', sl, codons.non_stop_codons] - 1).sum(axis=0)
+        elif isinstance(position, slice):
+            values = (enrichments[name][condition, 'codon', position, codons.non_stop_codons] - 1).sum(axis=0)
+            if compare_to:
+                values -= (enrichments[compare_to][condition, 'codon', position, codons.non_stop_codons] - 1).sum(axis=0)
+        return values
+
     all_ranks = []
     all_values = []
     for name in name_order:
-        values = enrichments[name]['codon', position, codons.non_stop_codons]
-        if isinstance(position, slice):
-            values = (values - 1).sum(axis=0)
+        values = get_values(name)
+
         ranks = values.argsort().argsort()
         all_values.append(values)
         all_ranks.append(ranks)
@@ -1056,31 +1072,32 @@ def plot_enrichments_across_conditions(enrichments,
                                        heat_exception=False,
                                        ylabel_size=14,
                                        rotate_labels=True,
+                                       compare_to=None,
+                                       condition=(0.1, 90, 90),
                                       ):
     if ax == None:
         fig, ax = plt.subplots(figsize=(16, 12))
     else:
         fig = ax.get_figure()
 
-    codon_to_ranks, codon_to_values = build_codon_to_ranks(enrichments, position, name_order)
+    codon_to_ranks, codon_to_values = build_codon_to_ranks(enrichments,
+                                                           position,
+                                                           name_order,
+                                                           compare_to,
+                                                           condition,
+                                                          )
     codon_to_color = assign_colors_by_values(codon_to_ranks)
-
-    rank_deltas = {codon_id: codon_to_ranks[codon_id][0] - codon_to_ranks[codon_id][-1]
-                   for codon_id in codons.non_stop_codons}
-    
-    log_deltas = {codon_id: np.log2(codon_to_values[codon_id][0] / codon_to_values[codon_id][-1])
-                  for codon_id in codons.non_stop_codons}
-    
-    raw_deltas = {codon_id: codon_to_values[codon_id][0] - codon_to_values[codon_id][-1]
-                  for codon_id in codons.non_stop_codons}
 
     num_to_label, rank_or_log, transform = label_rules
     if rank_or_log == 'rank':
-        deltas = rank_deltas
+        deltas = {codon_id: codon_to_ranks[codon_id][0] - codon_to_ranks[codon_id][-1]
+                       for codon_id in codons.non_stop_codons}
     elif rank_or_log == 'log':
-        deltas = log_deltas
+        deltas = {codon_id: np.log2(codon_to_values[codon_id][0] / codon_to_values[codon_id][-1])
+                      for codon_id in codons.non_stop_codons}
     elif rank_or_log == 'raw':
-        deltas = raw_deltas
+        deltas = {codon_id: codon_to_values[codon_id][0] - codon_to_values[codon_id][-1]
+                      for codon_id in codons.non_stop_codons}
 
     xs = range(len(name_order))
     if heat_exception:
@@ -1092,22 +1109,22 @@ def plot_enrichments_across_conditions(enrichments,
     for codon_id in codons.non_stop_codons:
         if highlight_movement:
             if rank_or_log == 'rank':
-                alpha = min(1, min(30, abs(rank_deltas[codon_id])) / float(50))
-                width = min(30, abs(rank_deltas[codon_id])) / float(15)
+                alpha = min(1, min(30, abs(deltas[codon_id])) / float(50))
+                width = min(30, abs(deltas[codon_id])) / float(15)
             elif rank_or_log == 'log':
-                alpha = min(1, abs(log_deltas[codon_id]))
+                alpha = min(1, abs(deltas[codon_id]))
                 width = 1
-                width = abs(log_deltas[codon_id] / 1.5)
+                width = abs(deltas[codon_id] / 1.5)
             elif rank_or_log == 'raw':
-                alpha = max(0.1, min(1, -raw_deltas[codon_id]))
+                alpha = max(0.1, min(1, -deltas[codon_id]))
                 width = 1
-                width = max(1, -raw_deltas[codon_id] / 0.5)
+                width = max(1, -deltas[codon_id] / 0.5)
         elif force_highlight:
             if codon_id in force_highlight:
                 alpha = 1
                 width = 2
             else:
-                alpha = 0.1
+                alpha = 0.3
                 width = 0.5
         else:
             alpha = 1
