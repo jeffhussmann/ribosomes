@@ -83,11 +83,11 @@ class Transcript(object):
         closest_right = int(self.top_level_feature.attribute.get('closest_right', 1e10))
         
         if self.strand == '+':
-            self.upstream_transcript = closest_left
-            self.downstream_transcript = closest_right
+            self.upstream = closest_left
+            self.downstream = closest_right
         elif self.strand == '-':
-            self.upstream_transcript = closest_right
-            self.downstream_transcript = closest_left
+            self.upstream = closest_right
+            self.downstream = closest_left
 
         if self.strand == '+':
             exon_position_lists = [np.arange(exon.start, exon.end + 1) for exon in self.exons]
@@ -113,6 +113,16 @@ class Transcript(object):
         self.transcript_to_genomic.update(zip(downstream_transcript, downstream_positions)) 
 
         self.genomic_to_transcript = {g: t for t, g in self.transcript_to_genomic.iteritems()}
+        
+        if self.upstream in self.genomic_to_transcript:
+            self.transcript_upstream = self.genomic_to_transcript[self.upstream]
+        else:
+            self.transcript_upstream = min(self.transcript_to_genomic) - 1
+        
+        if self.downstream in self.genomic_to_transcript:
+            self.transcript_downstream = self.genomic_to_transcript[self.downstream]
+        else:
+            self.transcript_downstream = max(self.transcript_to_genomic) + 1
 
         if self.first_stop_codon_position != None:
             if self.first_start_codon_position != None:
