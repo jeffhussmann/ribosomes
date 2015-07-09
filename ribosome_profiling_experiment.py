@@ -98,6 +98,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('reciprocal_rates_exclude_50', 'pickle', '{name}_reciprocal_rates_exclude_50.pkl'),
 
         ('stratified_mean_enrichments', enrichments, '{name}_stratified_mean_enrichments.hdf5'),
+        ('stratified_mean_enrichments_stringent', enrichments, '{name}_stringent_stratified_mean_enrichments.hdf5'),
         ('stratified_mean_enrichments_anisomycin', enrichments, '{name}_stratified_mean_enrichments_anisomycin.hdf5'),
 
         ('yield', '', '{name}_yield.txt'),
@@ -798,14 +799,18 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                             exclude_from_edges=[(90, 90),
                                                                 (200, 200),
                                                                 (200, 0),
+                                                                (300, 0),
                                                                 (0, 0),
                                                                ],
                                             do_anisomycin=False,
+                                            do_stringent=False,
                                            ):
 
         specific_keys = {'relaxed', 'identities'}
         if do_anisomycin:
             specific_keys.add('anisomycin')
+        if do_stringent:
+            specific_keys.add('stringent')
 
         codon_counts = self.read_file('buffered_codon_counts',
                                       specific_keys=specific_keys,
@@ -819,19 +824,20 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                               )
         self.write_file('stratified_mean_enrichments', enrichments)
 
-        if do_anisomycin:
-            sorted_names, means = pausing.order_by_mean_density(codon_counts,
-                                                                count_type='anisomycin',
-                                                                num_before=num_before,
-                                                                num_after=num_after,
-                                                               )
-            breakpoints = find_breakpoints(sorted_names, means, min_means)
-
+        if do_stringent:
             enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
-                                                                   sorted_names,
-                                                                   breakpoints,
-                                                                   num_before,
-                                                                   num_after,
+                                                                   exclude_from_edges,
+                                                                   min_means,
+                                                                   num_around,
+                                                                   count_type='stringent',
+                                                                  )
+            self.write_file('stratified_mean_enrichments_stringent', enrichments)
+
+        if do_anisomycin:
+            enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                                   exclude_from_edges,
+                                                                   min_means,
+                                                                   num_around,
                                                                    count_type='anisomycin',
                                                                   )
             self.write_file('stratified_mean_enrichments_anisomycin', enrichments)
