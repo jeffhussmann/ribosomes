@@ -624,8 +624,9 @@ def plot_averaged_codon_densities(data_sets,
     if labels == None:
         labels = [name for name, _, _ in data_sets]
     
+    colors_iter = pausing.get_color_iter()
     if sample_to_color == None:
-        sample_to_color = {name: colors[i] for name, _, i in data_sets}
+        sample_to_color = {name: colors_iter.next() for name, _, i in data_sets}
         sample_to_color = sample_to_color.__getitem__
 
     for (name, mean_densities, color_index), label in zip(data_sets, labels):
