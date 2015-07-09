@@ -97,6 +97,7 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
         ('reciprocal_rates_exclude_50', 'pickle', '{name}_reciprocal_rates_exclude_50.pkl'),
 
         ('stratified_mean_enrichments', enrichments, '{name}_stratified_mean_enrichments.hdf5'),
+        ('stratified_mean_enrichments_stringent', enrichments, '{name}_stringent_stratified_mean_enrichments.hdf5'),
         ('stratified_mean_enrichments_anisomycin', enrichments, '{name}_stratified_mean_enrichments_anisomycin.hdf5'),
 
         ('yield', '', '{name}_yield.txt'),
@@ -128,60 +129,60 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     ]
 
     specific_outputs = [
-        [#'lengths',
-         #'clean_composition',
-         #'clean_composition_perfect',
-         #'unmapped_composition',
-         #'rRNA_coverage',
-         #'common_unmapped',
-         #'merged_mappings',
-         #'rRNA_bam',
-         #'more_rRNA_bam',
-         #'tRNA_bam',
-         #'other_ncRNA_bam',
-         #'mismatches',
-         #'codons_to_examine',
+        ['lengths',
+         'clean_composition',
+         'clean_composition_perfect',
+         'unmapped_composition',
+         'rRNA_coverage',
+         'common_unmapped',
+         'merged_mappings',
+         'rRNA_bam',
+         'more_rRNA_bam',
+         'tRNA_bam',
+         'other_ncRNA_bam',
+         'mismatches',
+         'codons_to_examine',
         ],
-        [#'read_positions',
+        ['read_positions',
          'metagene_positions',
          'buffered_codon_counts',
-         #'codon_counts',
-         #'read_counts',
-         #'read_counts_exclude_edges',
+         'codon_counts',
+         'read_counts',
+         'read_counts_exclude_edges',
         ],
     ]
     
     specific_work = [
-        [#'preprocess',
-         #'map_full_lengths',
-         #'process_initially_unmapped',
-         #'merge_mapping_pathways',
-         #'process_remapped_unmapped',
-         #'compute_base_composition',
-         #'find_unambiguous_lengths',
-         #'get_rRNA_coverage',
-         #'examine_locii',
+        ['preprocess',
+         'map_full_lengths',
+         'process_initially_unmapped',
+         'merge_mapping_pathways',
+         'process_remapped_unmapped',
+         'compute_base_composition',
+         'find_unambiguous_lengths',
+         'get_rRNA_coverage',
+         'examine_locii',
         ],
         ['get_read_positions',
          'get_metagene_positions',
-         #'compute_total_read_counts',
+         'compute_total_read_counts',
          'compute_codon_occupancy_counts',
         ],
     ]
 
     specific_cleanup = [
-        [#'compute_yield',
-         #'plot_base_composition',
-         #'plot_lengths',
-         #'plot_rRNA_coverage',
-         #'plot_mismatches',
-         #'visualize_unmapped',
+        ['compute_yield',
+         'plot_base_composition',
+         'plot_lengths',
+         'plot_rRNA_coverage',
+         'plot_mismatches',
+         'visualize_unmapped',
         ],
-        [#'compute_RPKMs',
+        ['compute_RPKMs',
          'compute_mean_densities',
-         #'compute_stratified_mean_enrichments',
+         'compute_stratified_mean_enrichments',
          'plot_starts_and_ends',
-         #'plot_frames',
+         'plot_frames',
         ],
     ]
 
@@ -487,7 +488,9 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
     def visualize_unmapped(self):
         bowtie2_targets = [(self.file_names['genome'], self.file_names['bowtie2_index_prefix'], 'C,20,0'),
                           ]
-        sw_genome_dirs = ['/home/jah/genomes/truseq']
+        sw_genome_dirs = ['/home/jah/genomes/truseq',
+                          '/home/jah/projects/crac/data/organisms/saccharomyces_cerevisiae/EF4/contaminant/fasta/',
+                         ]
         extra_targets = [fasta.Read('smRNA_linker', trim.smRNA_linker)]
         if self.synthetic_fasta:
             extra_targets.extend(list(fasta.reads(self.synthetic_fasta)))
@@ -797,14 +800,18 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                             exclude_from_edges=[(90, 90),
                                                                 (200, 200),
                                                                 (200, 0),
+                                                                (300, 0),
                                                                 (0, 0),
                                                                ],
                                             do_anisomycin=False,
+                                            do_stringent=False,
                                            ):
 
         specific_keys = {'relaxed', 'identities'}
         if do_anisomycin:
             specific_keys.add('anisomycin')
+        if do_stringent:
+            specific_keys.add('stringent')
 
         codon_counts = self.read_file('buffered_codon_counts',
                                       specific_keys=specific_keys,
@@ -818,19 +825,20 @@ class RibosomeProfilingExperiment(rna_experiment.RNAExperiment):
                                                               )
         self.write_file('stratified_mean_enrichments', enrichments)
 
-        if do_anisomycin:
-            sorted_names, means = pausing.order_by_mean_density(codon_counts,
-                                                                count_type='anisomycin',
-                                                                num_before=num_before,
-                                                                num_after=num_after,
-                                                               )
-            breakpoints = find_breakpoints(sorted_names, means, min_means)
-
+        if do_stringent:
             enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
-                                                                   sorted_names,
-                                                                   breakpoints,
-                                                                   num_before,
-                                                                   num_after,
+                                                                   exclude_from_edges,
+                                                                   min_means,
+                                                                   num_around,
+                                                                   count_type='stringent',
+                                                                  )
+            self.write_file('stratified_mean_enrichments_stringent', enrichments)
+
+        if do_anisomycin:
+            enrichments = pausing.fast_stratified_mean_enrichments(codon_counts,
+                                                                   exclude_from_edges,
+                                                                   min_means,
+                                                                   num_around,
                                                                    count_type='anisomycin',
                                                                   )
             self.write_file('stratified_mean_enrichments_anisomycin', enrichments)
